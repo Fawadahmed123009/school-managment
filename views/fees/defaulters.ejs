@@ -1,0 +1,111 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Fee Defaulters</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Filter</h2></div>
+  <div class="panel-body">
+    <form method="GET" action="/fees/defaulters" style="display:flex; gap:16px; flex-wrap:wrap; align-items:end;">
+      <div class="field">
+        <label for="classLevel">Class</label>
+        <select name="classLevel" id="classLevel">
+          <option value="">All classes</option>
+          <% classLevels.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= queryClassLevel === c._id.toString() ? 'selected' : '' %>>
+              <%= c.gradeLevel %> — <%= c.name %> (<%= c.section || '—' %>)
+            </option>
+          <% }); %>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+    </form>
+  </div>
+</div>
+
+<% if (defaulters) { %>
+  <% if (defaulters.studentCount === 0) { %>
+    <div class="panel">
+      <div class="empty">
+        <div class="display">No defaulters</div>
+        <p>No students currently have a pending or partial fee balance.</p>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="stats">
+      <div class="stat">
+        <div class="n mono"><%= defaulters.studentCount %></div>
+        <div class="l">Students owing</div>
+      </div>
+      <div class="stat">
+        <div class="n mono">Rs <%= Number(defaulters.grandOwed).toLocaleString() %></div>
+        <div class="l">Total outstanding</div>
+      </div>
+    </div>
+
+    <% Object.keys(defaulters.byClass).forEach(function(className) { %>
+      <div class="panel">
+        <div class="panel-head">
+          <h2><%= className %></h2>
+        </div>
+        <% Object.keys(defaulters.byClass[className]).forEach(function(section) { %>
+          <% var block = defaulters.byClass[className][section]; %>
+          <div style="padding:0 20px 16px;">
+            <h3 style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">
+              Section: <%= section %>
+              <span class="pill review" style="margin-left:8px;">Rs <%= Number(block.total).toLocaleString() %> owed</span>
+            </h3>
+            <table class="ledger">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Roll #</th>
+                  <th>Father's name</th>
+                  <th class="num">Owed</th>
+                  <th>Reminder</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% block.students.forEach(function(s) { %>
+                  <tr>
+                    <td><%= s.name %></td>
+                    <td class="mono"><%= s.rollNumber || '—' %></td>
+                    <td><%= s.fatherName || '—' %></td>
+                    <td class="num mono">Rs <%= Number(s.owed).toLocaleString() %></td>
+                    <td>
+                      <% if (s.whatsappNumber) { %>
+                        <%
+                          var phone = s.whatsappNumber.replace(/[^0-9]/g, '');
+                          var msg = encodeURIComponent(
+                            'Dear parent/guardian of ' + s.name + ', this is a reminder that Rs ' +
+                            Number(s.owed).toLocaleString() + ' is currently outstanding on the school fee account. ' +
+                            'Kindly clear the balance at your earliest convenience. Thank you — ' + schoolName
+                          );
+                        %>
+                        <a href="https://wa.me/<%= phone %>?text=<%= msg %>" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:4px 10px; font-size:0.8rem;">
+                          Send reminder
+                        </a>
+                      <% } else { %>
+                        <span class="l">No WhatsApp #</span>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% }); %>
+      </div>
+    <% }); %>
+  <% } %>
+<% } %>
+
+<%- include('../partials/foot') %>

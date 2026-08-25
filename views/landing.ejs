@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avenir Academy — Nurturing Future Leaders</title>
+  <link rel="icon" type="image/jpeg" href="/images/logo.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;450;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1a2744;
+      --ink-soft: #6b7280;
+      --paper: #f8f9fc;
+      --white: #ffffff;
+      --accent: #c8a84b;
+      --accent-hover: #b8963f;
+      --border: #e5e7eb;
+      --shadow: 0 4px 24px rgba(0,0,0,0.08);
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      color: var(--ink);
+      background: var(--white);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    h1, h2, h3 { font-family: 'DM Serif Display', Georgia, serif; font-weight: 400; }
+    a { text-decoration: none; color: inherit; }
+    img { max-width: 100%; display: block; }
+
+    /* ── Navbar ─────────────────────────── */
+    .lp-nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 48px;
+      height: 72px;
+      background: rgba(255,255,255,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+      transition: box-shadow 0.3s;
+    }
+    .lp-nav.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.08); }
+    .lp-nav .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .lp-nav .brand img {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      object-fit: cover;
+    }
+    .lp-nav .brand-text { display: flex; flex-direction: column; }
+    .lp-nav .brand-name {
+      font-family: 'DM Serif Display', serif;
+      font-size: 16px;
+      color: var(--ink);
+      line-height: 1.2;
+    }
+    .lp-nav .brand-sub {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .lp-nav .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+    }
+    .lp-nav .nav-links a {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink-soft);
+      transition: color 0.2s;
+    }
+    .lp-nav .nav-links a:hover { color: var(--ink); }
+    .lp-nav .nav-login {
+      display: inline-flex;
+      align-items: center;
+      padding: 9px 22px;
+      background: var(--ink);
+      color: #fff !important;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .lp-nav .nav-login:hover { background: #2d3a56; transform: translateY(-1px); }
+
+    .lp-hamburger {
+      display: none;
+      width: 36px; height: 36px;
+      border: none; background: none; cursor: pointer;
+      flex-direction: column; justify-content: center; align-items: center; gap: 5px;
+    }
+    .lp-hamburger span { display: block; width: 20px; height: 2px; background: var(--ink); border-radius: 2px; transition: all 0.25s; }
+
+    /* ── Hero / Slideshow ───────────────── */
+    .hero {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      background: var(--ink);
+    }
+    .hero-slides {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+    .hero-slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 1.5s ease-in-out;
+    }
+    .hero-slide.active { opacity: 1; }
+    .hero-slide:nth-child(1) {
+      background: linear-gradient(135deg, #1a2744 0%, #2d3a56 40%, #1a2744 100%);
+    }
+    .hero-slide:nth-child(2) {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1a2744 100%);
+    }
+    .hero-slide:nth-child(3) {
+      background: linear-gradient(135deg, #1a2744 0%, #374151 50%, #111827 100%);
+    }
+    .hero-slide::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c8a84b' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+    .hero-content {
+      position: relative;
+      z-index: 2;
+      text-align: center;
+      max-width: 720px;
+      padding: 0 24px;
+    }
+    .hero-content .hero-logo {
+      width: 80px;
+      height: 80px;
+      border-radius: 20px;
+      margin: 0 auto 28px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+    }
+    .hero-content .hero-tagline {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+    .hero-content h1 {
+      font-size: clamp(36px, 6vw, 64px);
+      color: #fff;
+      line-height: 1.1;
+      margin-bottom: 20px;
+    }
+    .hero-content p {
+      font-size: 18px;
+      color: rgba(255,255,255,0.7);
+      line-height: 1.6;
+      margin-bottom: 36px;
+      max-width: 560px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    .hero-btns {
+      display: flex;
+      gap: 14px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .hero-btns .btn-hero {
+      padding: 14px 32px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.25s;
+    }
+    .btn-hero-primary {
+      background: var(--accent);
+      color: var(--ink);
+    }
+    .btn-hero-primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(200,168,75,0.3); }
+    .btn-hero-outline {
+      border: 1px solid rgba(255,255,255,0.3);
+      color: #fff;
+    }
+    .btn-hero-outline:hover { border-color: #fff; background: rgba(255,255,255,0.06); }
+
+    .hero-indicators {
+      position: absolute;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 3;
+      display: flex;
+      gap: 10px;
+    }
+    .hero-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .hero-dot.active { background: var(--accent); transform: scale(1.2); }
+
+    /* ── Section base ───────────────────── */
+    .section {
+      padding: 100px 48px;
+    }
+    .section-header {
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto 64px;
+    }
+    .section-header .eyebrow {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .section-header h2 {
+      font-size: clamp(28px, 4vw, 40px);
+      margin-bottom: 16px;
+      color: var(--ink);
+    }
+    .section-header p {
+      font-size: 16px;
+      color: var(--ink-soft);
+      line-height: 1.7;
+    }
+
+    /* ── About ──────────────────────────── */
+    .about { background: var(--paper); }
+    .about-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 64px;
+      max-width: 1100px;
+      margin: 0 auto;
+      align-items: center;
+    }
+    .about-visual {
+      position: relative;
+      height: 400px;
+      border-radius: 16px;
+      overflow: hidden;
+      background: linear-gradient(135deg, var(--ink) 0%, #2d3a56 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .about-visual img {
+      width: 120px;
+      height: 120px;
+      border-radius: 28px;
+      opacity: 0.15;
+    }
+    .about-visual::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M20 20.5V18H0v-2h20v-2l2 3-2 3zm0-17V0h20v2H20v2l-2-3 2-3z' fill='%23c8a84b' fill-opacity='.06'/%3E%3C/svg%3E");
+    }
+    .about-text h3 {
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+    .about-text p {
+      font-size: 15px;
+      color: var(--ink-soft);
+      line-height: 1.8;
+      margin-bottom: 14px;
+    }
+    .about-features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .about-feat {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .about-feat .check {
+      width: 22px; height: 22px;
+      border-radius: 6px;
+      background: rgba(200,168,75,0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .about-feat .check svg { width: 12px; height: 12px; color: var(--accent); }
+
+    /* ── Stats ──────────────────────────── */
+    .stats-bar {
+      background: var(--ink);
+      padding: 64px 48px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      max-width: 900px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    .stat-item .stat-num {
+      font-family: 'DM Serif Display', serif;
+      font-size: 42px;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .stat-item .stat-text {
+      font-size: 13px;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+
+    /* ── Staff ──────────────────────────── */
+    .staff { background: var(--white); }
+    .staff-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .staff-card {
+      text-align: center;
+      padding: 40px 28px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--white);
+      transition: all 0.3s;
+    }
+    .staff-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow);
+      border-color: transparent;
+    }
+    .staff-avatar {
+      width: 80px; height: 80px;
+      border-radius: 50%;
+      margin: 0 auto 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .staff-card:nth-child(1) .staff-avatar { background: linear-gradient(135deg, #1a2744, #2d3a56); }
+    .staff-card:nth-child(2) .staff-avatar { background: linear-gradient(135deg, #c8a84b, #b8963f); }
+    .staff-card:nth-child(3) .staff-avatar { background: linear-gradient(135deg, #374151, #1f2937); }
+    .staff-card h3 {
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+    .staff-card .staff-role {
+      font-size: 13px;
+      color: var(--accent);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 14px;
+    }
+    .staff-card p {
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.7;
+    }
+
+    /* ── Contact ────────────────────────── */
+    .contact { background: var(--paper); }
+    .contact-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    .contact-info { display: flex; flex-direction: column; gap: 28px; }
+    .contact-item {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .contact-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      background: rgba(200,168,75,0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .contact-icon svg { width: 20px; height: 20px; color: var(--accent); }
+    .contact-item h4 {
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .contact-item p {
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.6;
+    }
+    .contact-form {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 36px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    .contact-form h3 { font-size: 22px; margin-bottom: 20px; }
+    .contact-form .form-row {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .contact-form input,
+    .contact-form textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--paper);
+      transition: all 0.2s;
+      resize: vertical;
+    }
+    .contact-form input:focus,
+    .contact-form textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(200,168,75,0.12);
+      background: #fff;
+    }
+    .contact-form textarea { min-height: 120px; }
+    .contact-form .btn-submit {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      background: var(--ink);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-top: 4px;
+    }
+    .contact-form .btn-submit:hover { background: #2d3a56; transform: translateY(-1px); }
+
+    /* ── Footer ─────────────────────────── */
+    .lp-footer {
+      background: var(--ink);
+      color: rgba(255,255,255,0.6);
+      padding: 64px 48px 32px;
+    }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr;
+      gap: 48px;
+      max-width: 1100px;
+      margin: 0 auto 48px;
+    }
+    .footer-brand img {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      margin-bottom: 16px;
+    }
+    .footer-brand p {
+      font-size: 14px;
+      line-height: 1.7;
+      max-width: 280px;
+    }
+    .footer-col h4 {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #fff;
+      font-weight: 600;
+      margin-bottom: 18px;
+    }
+    .footer-col a {
+      display: block;
+      font-size: 14px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 10px;
+      transition: color 0.2s;
+    }
+    .footer-col a:hover { color: var(--accent); }
+    .footer-bottom {
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding-top: 24px;
+      text-align: center;
+      font-size: 13px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* ── Animations ─────────────────────── */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(30px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+    .fade-up.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Responsive ─────────────────────── */
+    @media (max-width: 1024px) {
+      .section { padding: 80px 32px; }
+      .about-grid { gap: 40px; }
+      .staff-grid { gap: 24px; }
+      .footer-grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+    }
+    @media (max-width: 768px) {
+      .lp-nav { padding: 0 20px; }
+      .lp-nav .nav-links { display: none; }
+      .lp-hamburger { display: flex; }
+      .lp-nav .nav-links.open {
+        display: flex;
+        flex-direction: column;
+        position: absolute;
+        top: 72px; left: 0; right: 0;
+        background: var(--white);
+        padding: 20px 24px;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+      }
+      .section { padding: 64px 20px; }
+      .about-grid { grid-template-columns: 1fr; }
+      .about-visual { height: 260px; }
+      .stats-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
+      .staff-grid { grid-template-columns: 1fr; max-width: 400px; }
+      .contact-grid { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr; gap: 28px; }
+      .hero-content h1 { font-size: 32px; }
+      .hero-content p { font-size: 16px; }
+      .stats-bar { padding: 48px 20px; }
+      .stat-item .stat-num { font-size: 32px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Navbar ──────────────────────────── -->
+  <nav class="lp-nav" id="lpNav">
+    <a href="#" class="brand">
+      <img src="/images/logo.jpg" alt="Logo" />
+      <div class="brand-text">
+        <span class="brand-name">Avenir Academy</span>
+        <span class="brand-sub">Excellence in Education</span>
+      </div>
+    </a>
+    <div class="nav-links" id="navLinks">
+      <a href="#about">About</a>
+      <a href="#staff">Staff</a>
+      <a href="#contact">Contact</a>
+      <a href="/admin/login" class="nav-login">Staff Login</a>
+    </div>
+    <button class="lp-hamburger" id="lpHamburger" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
+  </nav>
+
+  <!-- ── Hero / Slideshow ────────────────── -->
+  <section class="hero" id="hero">
+    <div class="hero-slides">
+      <div class="hero-slide active"></div>
+      <div class="hero-slide"></div>
+      <div class="hero-slide"></div>
+    </div>
+    <div class="hero-content">
+      <img src="/images/logo.jpg" alt="Avenir Academy" class="hero-logo" />
+      <p class="hero-tagline">Welcome to Avenir Academy</p>
+      <h1>Shaping Tomorrow's Leaders Today</h1>
+      <p>A nurturing environment where academic excellence meets character development. Empowering every student to discover their potential and shape a brighter future.</p>
+      <div class="hero-btns">
+        <a href="#about" class="btn-hero btn-hero-primary">Discover More</a>
+        <a href="#contact" class="btn-hero btn-hero-outline">Contact Us</a>
+      </div>
+    </div>
+    <div class="hero-indicators">
+      <div class="hero-dot active" data-slide="0"></div>
+      <div class="hero-dot" data-slide="1"></div>
+      <div class="hero-dot" data-slide="2"></div>
+    </div>
+  </section>
+
+  <!-- ── About ───────────────────────────── -->
+  <section class="section about" id="about">
+    <div class="section-header fade-up">
+      <p class="eyebrow">About Us</p>
+      <h2>A Legacy of Excellence in Education</h2>
+      <p>At Avenir Academy, we believe every child has the potential to achieve greatness. Our holistic approach combines rigorous academics with character development and creative exploration.</p>
+    </div>
+    <div class="about-grid">
+      <div class="about-visual fade-up">
+        <img src="/images/logo.jpg" alt="Avenir Academy" />
+      </div>
+      <div class="about-text fade-up">
+        <h3>Where Learning Comes Alive</h3>
+        <p>Founded with a vision to redefine education, Avenir Academy provides a stimulating environment that encourages curiosity, creativity, and critical thinking from an early age.</p>
+        <p>Our dedicated faculty, modern classrooms, and innovative teaching methods ensure that every child is nurtured, challenged, and inspired to reach their fullest potential.</p>
+        <div class="about-features">
+          <div class="about-feat">
+            <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span>Modern Curriculum</span>
+          </div>
+          <div class="about-feat">
+            <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span>Expert Faculty</span>
+          </div>
+          <div class="about-feat">
+            <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span>Smart Classrooms</span>
+          </div>
+          <div class="about-feat">
+            <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span>Safe Environment</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Stats ───────────────────────────── -->
+  <section class="stats-bar">
+    <div class="stats-grid fade-up">
+      <div class="stat-item">
+        <div class="stat-num" data-count="500">0</div>
+        <div class="stat-text">Students Enrolled</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" data-count="40">0</div>
+        <div class="stat-text">Qualified Teachers</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" data-count="98">0</div>
+        <div class="stat-text">% Pass Rate</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-num" data-count="15">0</div>
+        <div class="stat-text">Years of Excellence</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Staff ───────────────────────────── -->
+  <section class="section staff" id="staff">
+    <div class="section-header fade-up">
+      <p class="eyebrow">Our Team</p>
+      <h2>Meet Our Dedicated Staff</h2>
+      <p>Our experienced educators and administrators are passionate about teaching and committed to every child's academic and personal growth.</p>
+    </div>
+    <div class="staff-grid fade-up">
+      <div class="staff-card">
+        <div class="staff-avatar">PA</div>
+        <h3>Principal</h3>
+        <div class="staff-role">School Leadership</div>
+        <p>Guiding our academy with a clear vision — fostering a love for learning and building a community of confident, responsible young minds.</p>
+      </div>
+      <div class="staff-card">
+        <div class="staff-avatar">HOD</div>
+        <h3>Head of Academics</h3>
+        <div class="staff-role">Curriculum &amp; Teaching</div>
+        <p>Ensuring every classroom delivers engaging, high-quality education through innovative teaching methods and continuous teacher development.</p>
+      </div>
+      <div class="staff-card">
+        <div class="staff-avatar">CO</div>
+        <h3>Student Coordinator</h3>
+        <div class="staff-role">Welfare &amp; Activities</div>
+        <p>Dedicated to student well-being, co-curricular activities, and creating a vibrant, inclusive school community where every child thrives.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Contact ─────────────────────────── -->
+  <section class="section contact" id="contact">
+    <div class="section-header fade-up">
+      <p class="eyebrow">Get in Touch</p>
+      <h2>Contact Us</h2>
+      <p>Have questions about admissions, academics, or anything else? We'd love to hear from you. Reach out and our team will respond promptly.</p>
+    </div>
+    <div class="contact-grid fade-up">
+      <div class="contact-info">
+        <div class="contact-item">
+          <div class="contact-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          </div>
+          <div>
+            <h4>Address</h4>
+            <p>Avenir Academy Campus<br />Main Boulevard, City Center</p>
+          </div>
+        </div>
+        <div class="contact-item">
+          <div class="contact-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </div>
+          <div>
+            <h4>Phone</h4>
+            <p>+92 300 1234567<br />Mon – Fri, 8am – 4pm</p>
+          </div>
+        </div>
+        <div class="contact-item">
+          <div class="contact-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          </div>
+          <div>
+            <h4>Email</h4>
+            <p>info@aveniracademy.edu<br />admissions@aveniracademy.edu</p>
+          </div>
+        </div>
+      </div>
+      <div class="contact-form">
+        <h3>Send a Message</h3>
+        <form onsubmit="event.preventDefault(); alert('Thank you! We will get back to you soon.');">
+          <div class="form-row">
+            <input type="text" placeholder="Your name" required />
+            <input type="email" placeholder="Your email" required />
+          </div>
+          <div style="margin-bottom:14px;">
+            <input type="text" placeholder="Subject" />
+          </div>
+          <div style="margin-bottom:14px;">
+            <textarea placeholder="Your message..." required></textarea>
+          </div>
+          <button type="submit" class="btn-submit">
+            Send Message
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────── -->
+  <footer class="lp-footer">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="/images/logo.jpg" alt="Avenir Academy" />
+        <p>Avenir Academy is dedicated to nurturing young minds through academic excellence, character building, and a passion for lifelong learning.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Quick Links</h4>
+        <a href="#hero">Home</a>
+        <a href="#about">About Us</a>
+        <a href="#staff">Our Staff</a>
+        <a href="#contact">Contact</a>
+      </div>
+      <div class="footer-col">
+        <h4>Academics</h4>
+        <a href="#about">Curriculum</a>
+        <a href="#about">Teaching Methods</a>
+        <a href="#contact">Admissions</a>
+        <a href="#contact">FAQ</a>
+      </div>
+      <div class="footer-col">
+        <h4>Connect</h4>
+        <a href="#contact">General Enquiries</a>
+        <a href="#contact">Admissions Office</a>
+        <a href="/admin/login">Admin Portal</a>
+        <a href="/teacher/login">Teacher Portal</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      &copy; <%= new Date().getFullYear() %> Avenir Academy. All rights reserved.
+    </div>
+  </footer>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // ── Navbar scroll shadow ──
+    var nav = document.getElementById('lpNav');
+    window.addEventListener('scroll', function() {
+      nav.classList.toggle('scrolled', window.scrollY > 20);
+    });
+
+    // ── Mobile hamburger ──
+    var hamburger = document.getElementById('lpHamburger');
+    var navLinks = document.getElementById('navLinks');
+    hamburger.addEventListener('click', function() {
+      navLinks.classList.toggle('open');
+    });
+    navLinks.querySelectorAll('a').forEach(function(a) {
+      a.addEventListener('click', function() { navLinks.classList.remove('open'); });
+    });
+
+    // ── Hero slideshow ──
+    var slides = document.querySelectorAll('.hero-slide');
+    var dots = document.querySelectorAll('.hero-dot');
+    var current = 0;
+    function goTo(idx) {
+      slides[current].classList.remove('active');
+      dots[current].classList.remove('active');
+      current = idx;
+      slides[current].classList.add('active');
+      dots[current].classList.add('active');
+    }
+    dots.forEach(function(dot) {
+      dot.addEventListener('click', function() {
+        goTo(parseInt(dot.dataset.slide, 10));
+      });
+    });
+    setInterval(function() {
+      goTo((current + 1) % slides.length);
+    }, 5000);
+
+    // ── Scroll animations ──
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('visible');
+        }
+      });
+    }, { threshold: 0.15 });
+    document.querySelectorAll('.fade-up').forEach(function(el) {
+      observer.observe(el);
+    });
+
+    // ── Counter animation ──
+    var countObserver = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var el = entry.target;
+          var target = parseInt(el.dataset.count, 10);
+          if (!target) return;
+          var duration = 1200;
+          var startTime = null;
+          function step(ts) {
+            if (!startTime) startTime = ts;
+            var progress = Math.min((ts - startTime) / duration, 1);
+            var ease = 1 - Math.pow(1 - progress, 3);
+            el.textContent = Math.floor(ease * target);
+            if (progress < 1) requestAnimationFrame(step);
+            else el.textContent = target + (el.dataset.count === '98' ? '%' : '+');
+          }
+          requestAnimationFrame(step);
+          countObserver.unobserve(el);
+        }
+      });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.stat-num[data-count]').forEach(function(el) {
+      countObserver.observe(el);
+    });
+  });
+  </script>
+</body>
+</html>

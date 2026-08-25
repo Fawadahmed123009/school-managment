@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Avenir Academy — <%= role.charAt(0).toUpperCase() + role.slice(1) %> Login</title>
+  <link rel="icon" type="image/jpeg" href="/images/logo.jpg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <img src="/images/logo.jpg" alt="Avenir Academy" class="login-logo" />
+      <p class="login-brand">Avenir Academy</p>
+      <h1 class="display"><%= role.charAt(0).toUpperCase() + role.slice(1) %> Login</h1>
+
+      <% if (typeof error !== 'undefined' && error) { %>
+        <div class="flash error"><%= error %></div>
+      <% } %>
+
+      <form method="POST" action="/login">
+        <input type="hidden" name="role" value="<%= role %>" />
+        <div class="field">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required autofocus placeholder="you@school.local" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required />
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%; justify-content:center; margin-top:4px;">Sign in</button>
+      </form>
+
+      <div class="login-alt">
+        <span>Not <%= role %>?</span>
+        <% if (role !== 'admin') { %><a href="/admin/login">Admin</a><% } %>
+        <% if (role !== 'teacher') { %><a href="/teacher/login">Teacher</a><% } %>
+        <% if (role !== 'student') { %><a href="/student/login">Student</a><% } %>
+        <% if (role !== 'parent') { %><a href="/parent/login">Parent</a><% } %>
+      </div>
+
+      <div class="login-home">
+        <a href="/">&larr; Back to home</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

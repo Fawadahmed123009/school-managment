@@ -8,7 +8,7 @@ const { getAcademicYearsController, createAcademicYearController, getAcademicYea
 academicYearRouter.route('/academic-years')
  .get( isLoggedIn, isAdmin, getAcademicYearsController)
  .post( isLoggedIn, isAdmin, createAcademicYearController)
-academicYearRouter.route('/academic-years/:id')
+academicYearRouter.route('/academic-years/:academicYearId')
  .get( isLoggedIn, isAdmin, getAcademicYearController)
  .patch( isLoggedIn, isAdmin, updateAcademicYearController)
  .delete( isLoggedIn, isAdmin, deleteAcademicYearController)

@@ -1,0 +1,50 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Staff</p>
+    <h1>Edit Teacher</h1>
+  </div>
+  <a href="/staff" class="btn btn-ghost">Back to list</a>
+</div>
+
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Update credentials</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/staff/<%= teacher._id %>/edit">
+      <div class="field">
+        <label for="name">Full name</label>
+        <input type="text" id="name" name="name" value="<%= teacher.name %>" required />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="<%= teacher.email %>" required />
+      </div>
+      <div class="field">
+        <label for="password">New password <span style="color:var(--ink-soft); font-size:12px;">(leave blank to keep current)</span></label>
+        <input type="text" id="password" name="password" placeholder="Enter new password or leave blank" />
+      </div>
+      <div style="margin-top: 8px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="border-color: var(--error);">
+  <div class="panel-head"><h2 style="color:var(--error);">Danger zone</h2></div>
+  <div class="panel-body">
+    <p style="font-size:14px; color:var(--ink-soft); margin:0 0 12px;">
+      Permanently delete this teacher account. This cannot be undone.
+    </p>
+    <form method="POST" action="/staff/<%= teacher._id %>/delete" onsubmit="return confirm('Are you sure you want to delete <%= teacher.name %>? This cannot be undone.');">
+      <button type="submit" class="btn" style="background:var(--error); color:#fff;">Delete teacher</button>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

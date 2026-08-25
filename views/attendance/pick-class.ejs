@@ -1,0 +1,29 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Attendance</p>
+    <h1>Pick a class</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load classes: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-body">
+    <div class="field">
+      <label for="classLevel">Class</label>
+      <select id="classLevel">
+        <option value="">Select a class</option>
+        <% classes.forEach(function(c) { %>
+          <option value="<%= c._id %>"><%= c.name %></option>
+        <% }); %>
+      </select>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="const v = document.getElementById('classLevel').value; if (v) window.location.href = '/attendance/mark/' + v;">Go</button>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

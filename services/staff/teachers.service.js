@@ -5,32 +5,21 @@ const {
 const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
 const generateToken = require("../../utils/tokenGenerator");
-// Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
+const { paginate } = require("../../utils/paginate");
 
-/**
- * Service to create a new teacher
- * @param {Object} data - Teacher data including name, email, and password
- * @param {string} adminId - ID of the admin creating the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object indicating success or failure
- */
-exports.createTeacherServices = async (data, adminId, res) => {
+exports.createTeacherService = async (data, adminId, res) => {
   const { name, email, password } = data;
 
-  // Check if the teacher already exists
   const existTeacher = await Teacher.findOne({ email });
   if (existTeacher)
     return responseStatus(res, 402, "failed", "Teacher already exists");
 
-  // Hashing password
   const hashedPassword = await hashPassword(password);
 
-  // Finding admin
   const admin = await Admin.findById(adminId);
   if (!admin) return responseStatus(res, 401, "fail", "Unauthorized access");
 
-  // Create teacher
   const createTeacher = await Teacher.create({
     name,
     email,
@@ -38,70 +27,57 @@ exports.createTeacherServices = async (data, adminId, res) => {
     createdBy: admin._id,
   });
 
-  admin.teachers.push(createTeacher._id);
-  await admin.save();
+  await Admin.findByIdAndUpdate(adminId, { $push: { teachers: createTeacher._id } });
 
   return responseStatus(res, 200, "success", createTeacher);
 };
 
-/**
- * Service for teacher login
- * @param {Object} data - Login credentials including email and password
- * @returns {Object} - Response object with teacher details and token
- */
 exports.teacherLoginService = async (data, res) => {
   const { email, password } = data;
 
-  // Checking if the teacher exists
   const teacherFound = await Teacher.findOne({ email });
-
   if (!teacherFound)
     return responseStatus(res, 402, "failed", "Invalid login credentials");
 
-  // Comparing password with the hashed one
   const isMatched = await isPassMatched(password, teacherFound?.password);
-
   if (!isMatched)
     return responseStatus(res, 401, "failed", "Invalid login credentials");
 
+  const responseTeacher = teacherFound.toObject();
+  delete responseTeacher.password;
+
   const response = {
-    teacher: teacherFound,
+    teacher: responseTeacher,
     token: generateToken(teacherFound._id),
   };
 
   return responseStatus(res, 200, "success", response);
 };
 
-/**
- * Service to get all teachers
- * @returns {Array} - Array of all teacher objects
- */
-exports.getAllTeachersService = async () => {
-  return await Teacher.find();
+exports.getAllTeachersService = async (query) => {
+  return await paginate(Teacher, {}, {
+    page: query.page,
+    limit: query.limit,
+    select: "-password",
+    sort: "name",
+  });
 };
 
-/**
- * Service to get teacher profile by ID
- * @param {string} teacherId - ID of the teacher
- * @returns {Object} - Teacher profile object with selected fields
- */
 exports.getTeacherProfileService = async (teacherId) => {
   return await Teacher.findById(teacherId).select(
     "-createdAt -updatedAt -password"
   );
 };
 
-/**
- * Service to update teacher profile
- * @param {Object} data - Updated data for the teacher
- * @param {string} teacherId - ID of the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with updated teacher details and token
- */
+exports.adminGetTeacherService = async (teacherId) => {
+  return await Teacher.findById(teacherId).select(
+    "-createdAt -updatedAt -password"
+  );
+};
+
 exports.updateTeacherProfileService = async (data, teacherId, res) => {
   const { name, email, password } = data;
 
-  // Checking if the email already exists for another teacher
   if (email) {
     const emailExist = await Teacher.findOne({
       email,
@@ -111,7 +87,6 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
       return responseStatus(res, 402, "failed", "Email already in use");
   }
 
-  // Hashing password if provided
   const hashedPassword = password ? await hashPassword(password) : null;
 
   const updateData = {
@@ -120,7 +95,6 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
     ...(hashedPassword && { password: hashedPassword }),
   };
 
-  // Find and update teacher
   const updatedTeacher = await Teacher.findByIdAndUpdate(
     teacherId,
     updateData,
@@ -130,48 +104,88 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
   return { teacher: updatedTeacher, token: generateToken(updatedTeacher._id) };
 };
 
-/**
- * Service for admin to update teacher profile
- * @param {Object} data - Updated data for the teacher
- * @param {string} teacherId - ID of the teacher
- * @returns {Object|string} - Updated teacher object or error message
- */
-exports.adminUpdateTeacherProfileService = async (data, teacherId) => {
+exports.adminUpdateTeacherProfileService = async (data, teacherId, res) => {
   const { program, classLevel, academicYear, subject } = data;
 
-  // Checking if the teacher exists
-  const teacherExist = await Teacher.findById(teacherId);
-  if (!teacherExist) return "No such teacher found";
+  const updateFields = {};
+  if (program) updateFields.program = program;
+  if (classLevel) updateFields.classLevel = classLevel;
+  if (academicYear) updateFields.academicYear = academicYear;
+  if (subject) updateFields.subject = subject;
 
-  // Check if teacher is withdrawn
-  if (teacherExist.isWithdrawn) return "Action denied, teacher is withdrawn";
+  const updatedTeacher = await Teacher.findByIdAndUpdate(
+    teacherId,
+    { $set: updateFields },
+    { new: true }
+  );
+  if (!updatedTeacher) return responseStatus(res, 404, "failed", "No such teacher found");
 
-  // Updating program
-  if (program) {
-    teacherExist.program = program;
-    await teacherExist.save();
-  }
-
-  // Updating classLevel
-  if (classLevel) {
-    teacherExist.classLevel = classLevel;
-    await teacherExist.save();
-  }
-
-  // Updating academic year
-  if (academicYear) {
-    teacherExist.academicYear = academicYear;
-    await teacherExist.save();
-  }
-
-  // Updating subject
-  if (subject) {
-    teacherExist.subject = subject;
-    await teacherExist.save();
-  }
-
-  return teacherExist;
+  const responseTeacher = updatedTeacher.toObject();
+  delete responseTeacher.password;
+  return responseStatus(res, 200, "success", responseTeacher);
 };
 
-// Delete teacher account (No implementation provided)
-// exports.deleteTeacherAccountService = async () => {};
+exports.toggleAttendanceManagerService = async (teacherId, res) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
+
+  const updatedTeacher = await Teacher.findByIdAndUpdate(
+    teacherId,
+    { isAttendanceManager: !teacher.isAttendanceManager },
+    { new: true }
+  );
+
+  const responseTeacher = updatedTeacher.toObject();
+  delete responseTeacher.password;
+  return responseStatus(res, 200, "success", responseTeacher);
+};
+
+/**
+ * Admin updates a teacher's name / email / password.
+ * @route PUT /api/v1/teacher/:teacherId/credentials
+ */
+exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
+  const { name, email, password } = data;
+
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
+
+  // If changing email, check uniqueness
+  if (email && email !== teacher.email) {
+    const emailTaken = await Teacher.findOne({ email, _id: { $ne: teacherId } });
+    if (emailTaken) return responseStatus(res, 402, "failed", "Email already in use");
+  }
+
+  const updateFields = {};
+  if (name) updateFields.name = name;
+  if (email) updateFields.email = email;
+  if (password) updateFields.password = await hashPassword(password);
+
+  const updatedTeacher = await Teacher.findByIdAndUpdate(
+    teacherId,
+    { $set: updateFields },
+    { new: true }
+  );
+
+  const responseTeacher = updatedTeacher.toObject();
+  delete responseTeacher.password;
+  return responseStatus(res, 200, "success", responseTeacher);
+};
+
+/**
+ * Admin deletes a teacher.
+ * @route DELETE /api/v1/teacher/:teacherId
+ */
+exports.deleteTeacherService = async (teacherId, res) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
+
+  // Remove teacher reference from the admin who created it
+  await Admin.findByIdAndUpdate(teacher.createdBy, {
+    $pull: { teachers: teacher._id },
+  });
+
+  await Teacher.findByIdAndDelete(teacherId);
+
+  return responseStatus(res, 200, "success", "Teacher deleted");
+};

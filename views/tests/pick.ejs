@@ -1,0 +1,36 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Mark a test</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load tests: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Available tests</h2></div>
+  <% if (tests.length === 0) { %>
+    <div class="empty"><div class="display">No tests yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Date</th><th></th></tr></thead>
+      <tbody>
+        <% tests.forEach(function(t) { %>
+          <tr>
+            <td><strong><%= t.name %></strong></td>
+            <td><%= t.subject ? t.subject.name : '—' %></td>
+            <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
+            <td><%= new Date(t.date).toLocaleDateString() %></td>
+            <td><a href="/tests/mark/<%= t._id %>" class="btn btn-primary" style="padding:6px 12px;">Mark</a></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

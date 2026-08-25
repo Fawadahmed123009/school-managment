@@ -1,0 +1,102 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Analytics</h1>
+  </div>
+  <% if (hasFilters && results.length > 0) { %>
+    <form method="POST" action="/reports/generate" style="display:inline">
+      <input type="hidden" name="reportType" value="analytics" />
+      <% if (filters.studentId) { %><input type="hidden" name="studentId" value="<%= filters.studentId %>" /><% } %>
+      <% if (filters.subjectId) { %><input type="hidden" name="subjectId" value="<%= filters.subjectId %>" /><% } %>
+      <% if (filters.fromDate) { %><input type="hidden" name="fromDate" value="<%= filters.fromDate %>" /><% } %>
+      <% if (filters.toDate) { %><input type="hidden" name="toDate" value="<%= filters.toDate %>" /><% } %>
+      <button type="submit" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">&#128196; Download PDF</button>
+    </form>
+  <% } %>
+</div>
+
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Filters</h2></div>
+  <div class="panel-body">
+    <form method="GET" action="/tests/analytics">
+      <div class="field-row">
+        <div class="field">
+          <label for="studentId">Student</label>
+          <select name="studentId" id="studentId">
+            <option value="">All students</option>
+            <% students.forEach(function(s) { %>
+              <option value="<%= s._id %>" <%= filters.studentId === s._id ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="subjectId">Subject</label>
+          <select name="subjectId" id="subjectId">
+            <option value="">All subjects</option>
+            <% subjects.forEach(function(s) { %>
+              <option value="<%= s._id %>" <%= filters.subjectId === s._id ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fromDate">From</label>
+          <input type="date" name="fromDate" id="fromDate" value="<%= filters.fromDate || '' %>" />
+        </div>
+        <div class="field">
+          <label for="toDate">To</label>
+          <input type="date" name="toDate" id="toDate" value="<%= filters.toDate || '' %>" />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+  </div>
+</div>
+
+<% if (!hasFilters) { %>
+  <div class="empty"><div class="display">Pick at least one filter to see results</div></div>
+<% } else if (results.length === 0) { %>
+  <div class="empty"><div class="display">No results match those filters</div></div>
+<% } else { %>
+  <% const avg = Math.round((results.reduce(function(sum, r) { return sum + r.percent; }, 0) / results.length) * 100) / 100; %>
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= results.length %></div>
+      <div class="l">Matching results</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= avg %>%</div>
+      <div class="l">Average percentage</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Results</h2></div>
+    <table class="ledger">
+      <thead>
+        <tr><th>Student</th><th>Test</th><th>Subject</th><th>Date</th><th class="num">Score</th><th class="num">%</th></tr>
+      </thead>
+      <tbody>
+        <% results.forEach(function(r) { %>
+          <tr>
+            <td><strong><%= r.student.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.student.studentId %></span></td>
+            <td><%= r.test %></td>
+            <td><%= r.subject %></td>
+            <td><%= new Date(r.date).toLocaleDateString() %></td>
+            <td class="num mono"><%= r.score %>/<%= r.totalMarks %></td>
+            <td class="num mono"><%= r.percent %>%</td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

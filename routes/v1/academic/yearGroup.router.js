@@ -18,7 +18,7 @@ yearGroupRouter
   .post(isLoggedIn, isAdmin, createYearGroupController);
 
 yearGroupRouter
-  .route("/year-group/:id")
+  .route("/year-group/:yearGroupId")
   .get(isLoggedIn, isAdmin, getYearGroupController)
   .patch(isLoggedIn, isAdmin, updateYearGroupController)
   .delete(isLoggedIn, isAdmin, deleteYearGroupController);

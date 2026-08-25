@@ -1,0 +1,128 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Roster</p>
+    <h1>Edit student</h1>
+  </div>
+  <a href="/students" class="btn btn-ghost">&#8592; Back to students</a>
+</div>
+
+<% if (editError) { %><div class="flash error"><%= editError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Student details</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/students/<%= student._id %>/update">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Student name</label>
+          <input type="text" name="name" id="name" value="<%= student.name || '' %>" required />
+        </div>
+        <div class="field">
+          <label for="fatherName">Father's name</label>
+          <input type="text" name="fatherName" id="fatherName" value="<%= student.fatherName || '' %>" required />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="email">Email</label>
+          <input type="email" name="email" id="email" value="<%= student.email || '' %>" required />
+        </div>
+        <div class="field">
+          <label for="whatsappNumber">WhatsApp contact number</label>
+          <input type="tel" name="whatsappNumber" id="whatsappNumber" value="<%= student.whatsappNumber || '' %>" required />
+        </div>
+      </div>
+      <div class="field">
+        <label for="address">Address</label>
+        <input type="text" name="address" id="address" value="<%= student.address || '' %>" required />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="gender">Gender</label>
+          <select name="gender" id="gender" required>
+            <option value="">Select gender</option>
+            <option value="Male" <%= student.gender === 'Male' ? 'selected' : '' %>>Male</option>
+            <option value="Female" <%= student.gender === 'Female' ? 'selected' : '' %>>Female</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="religion">Religion</label>
+          <select name="religion" id="religion">
+            <option value="Muslim" <%= student.religion === 'Muslim' ? 'selected' : '' %>>Muslim</option>
+            <option value="Non-Muslim" <%= student.religion === 'Non-Muslim' ? 'selected' : '' %>>Non-Muslim</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="feeAgreed">Fee agreed (Rs)</label>
+          <input type="number" name="feeAgreed" id="feeAgreed" min="0" value="<%= student.feeAgreed ?? 0 %>" required />
+        </div>
+        <div class="field">
+          <label for="classLevel">Class</label>
+          <select name="classLevel" id="classLevel" required>
+            <option value="">Select a class</option>
+            <% classes.forEach(function(c) { %>
+              <option value="<%= c._id %>" <%= (student.classLevel && (student.classLevel._id === c._id || student.classLevel === c._id)) ? 'selected' : '' %>><%= c.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="rollNumber">Roll number</label>
+          <input type="number" name="rollNumber" id="rollNumber" min="1" value="<%= student.rollNumber ?? '' %>" required />
+          <p class="hint">Unique within the selected class.</p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="password">New password <span style="color:var(--ink-soft); font-size:12px;">(leave blank to keep current)</span></label>
+        <input type="text" name="password" id="password" placeholder="Enter new password or leave blank" />
+      </div>
+
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer; font-weight:600; color:var(--muted);">Status flags</summary>
+        <div class="field-row" style="margin-top:12px;">
+          <div class="field">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" name="isSuspended" value="true" <%= student.isSuspended ? 'checked' : '' %> />
+              Suspended
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" name="isWithdrawn" value="true" <%= student.isWithdrawn ? 'checked' : '' %> />
+              Withdrawn
+            </label>
+          </div>
+          <div class="field">
+            <label style="display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" name="isGraduated" value="true" <%= student.isGraduated ? 'checked' : '' %> />
+              Graduated
+            </label>
+          </div>
+        </div>
+      </details>
+
+      <div style="margin-top:16px; display:flex; gap:12px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="/students" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="border:1px solid var(--error, #c00);">
+  <div class="panel-head"><h2 style="color:var(--error, #c00);">Danger zone</h2></div>
+  <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between;">
+    <p>Permanently delete this student record. This cannot be undone.</p>
+    <form method="POST" action="/students/<%= student._id %>/delete" onsubmit="return confirm('Delete <%= student.name %> permanently? This cannot be undone.');">
+      <button type="submit" class="btn" style="background:var(--error, #c00); color:#fff;">Delete student</button>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

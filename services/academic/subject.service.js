@@ -16,8 +16,8 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @param {string} userId - The ID of the user creating the Subject.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.createSubjectService = async (data, programId, userId) => {
-  const { name, description, academicTerm } = data;
+exports.createSubjectService = async (data, programId, userId, res) => {
+  const { name, description, appliesTo } = data;
 
   // Find the program
   const programFound = await Program.findById(programId);
@@ -34,13 +34,12 @@ exports.createSubjectService = async (data, programId, userId) => {
   const SubjectCreated = await Subject.create({
     name,
     description,
-    academicTerm,
+    appliesTo,
     createdBy: userId,
   });
 
   // Push the object ID to program
-  programFound.subjects.push(SubjectCreated._id);
-  await programFound.save();
+  await Program.findByIdAndUpdate(programId, { $push: { subjects: SubjectCreated._id } });
 
   // Send the response
   return responseStatus(res, 200, "success", SubjectCreated);
@@ -76,8 +75,8 @@ exports.getSubjectsService = async (id) => {
  * @param {string} userId - The ID of the user updating the Subject.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.updateSubjectService = async (data, id, userId) => {
-  const { name, description, academicTerm } = data;
+exports.updateSubjectService = async (data, id, userId, res) => {
+  const { name, description, appliesTo } = data;
 
   // Check if the updated name already exists
   const classFound = await Subject.findOne({ name });
@@ -91,7 +90,7 @@ exports.updateSubjectService = async (data, id, userId) => {
     {
       name,
       description,
-      academicTerm,
+      appliesTo,
       createdBy: userId,
     },
     {

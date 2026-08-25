@@ -28,8 +28,8 @@ exports.createQuestionsService = async (data, examId, teacherId, res) => {
 
   // Finding duplicate question
   const isQuestion = await Questions.findOne({ question });
-  if (!isQuestion)
-    return responseStatus(res, 405, "failed", "This Question already exists");
+  if (isQuestion)
+    return responseStatus(res, 409, "failed", "This Question already exists");
 
   // Create question
   const createQuestions = await Questions.create({
@@ -43,8 +43,7 @@ exports.createQuestionsService = async (data, examId, teacherId, res) => {
   });
 
   // If question is created successfully
-  exam.questions.push(createQuestions._id);
-  await exam.save();
+  await Exam.findByIdAndUpdate(examId, { $push: { questions: createQuestions._id } });
   return responseStatus(res, 201, "success", createQuestions);
 };
 

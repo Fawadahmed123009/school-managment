@@ -1,0 +1,67 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<% if (loadError) { %>
+  <div class="page-head"><div><h1>Result sheet</h1></div></div>
+  <div class="flash error"><%= loadError %></div>
+<% } else { %>
+  <div class="page-head">
+    <div>
+      <p class="eyebrow"><%= test.subject ? test.subject.name : '' %></p>
+      <h1><%= test.name %></h1>
+    </div>
+    <a href="/tests/manage" class="btn btn-ghost">← Back to tests</a>
+    <form method="POST" action="/reports/generate" style="display:inline">
+      <input type="hidden" name="reportType" value="result-sheet" />
+      <input type="hidden" name="testId" value="<%= test._id %>" />
+      <button type="submit" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">&#128196; Download PDF</button>
+    </form>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= test.totalMarks %></div>
+      <div class="l">Total marks</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= results.length %></div>
+      <div class="l">Students marked</div>
+    </div>
+    <div class="stat">
+      <div class="n mono">
+        <%= results.length > 0 ? Math.round((results.filter(function(r) { return r.score >= test.passMarks; }).length / results.length) * 100) : 0 %>%
+      </div>
+      <div class="l">Pass rate</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Results — <%= test.classLevels.map(function(c) { return c.name; }).join(', ') %></h2></div>
+    <% if (results.length === 0) { %>
+      <div class="empty"><div class="display">No results entered yet</div></div>
+    <% } else { %>
+      <table class="ledger">
+        <thead>
+          <tr><th>Student</th><th class="num">Score</th><th class="num">%</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          <% results.forEach(function(r) { %>
+            <% const pct = Math.round((r.score / test.totalMarks) * 10000) / 100; %>
+            <tr>
+              <td><strong><%= r.student.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.student.studentId %></span></td>
+              <td class="num mono"><%= r.score %></td>
+              <td class="num mono"><%= pct %>%</td>
+              <td>
+                <% if (r.score >= test.passMarks) { %><span class="pill paid">Pass</span>
+                <% } else { %><span class="pill error">Fail</span><% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

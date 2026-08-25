@@ -1,0 +1,90 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academics</p>
+    <h1>Classes</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load classes: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a class</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/classes/create">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" name="name" id="name" placeholder="9th Computer Science Boys" required />
+        </div>
+        <div class="field">
+          <label for="gradeLevel">Grade level</label>
+          <select name="gradeLevel" id="gradeLevel" required>
+            <option value="">Select</option>
+            <% ["PG","1","2","3","4","5","6","7","8","9","10","11","12"].forEach(function(g) { %>
+              <option value="<%= g %>"><%= g %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="group">Group (optional)</label>
+          <input type="text" name="group" id="group" placeholder="e.g. Computer Science, Pre-Medical" />
+        </div>
+        <div class="field">
+          <label for="section">Section (optional)</label>
+          <select name="section" id="section">
+            <option value="">—</option>
+            <option value="Boys">Boys</option>
+            <option value="Girls">Girls</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description (optional)</label>
+        <input type="text" name="description" id="description" />
+      </div>
+      <button type="submit" class="btn btn-primary">Create class</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All classes</h2></div>
+  <% if (classes.length === 0) { %>
+    <div class="empty"><div class="display">No classes yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Grade</th><th>Group</th><th>Section</th><th class="num">Students</th><th></th></tr></thead>
+      <tbody>
+        <% classes.forEach(function(c) { %>
+          <tr>
+            <td><strong><%= c.name %></strong></td>
+            <td><%= c.gradeLevel %></td>
+            <td><%= c.group || '—' %></td>
+            <td><%= c.section || '—' %></td>
+            <td class="num mono"><%= c.studentCount || 0 %></td>
+            <td>
+              <a href="/classes/<%= c._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <% if (!c.studentCount || c.studentCount === 0) { %>
+                <form method="POST" action="/classes/<%= c._id %>/delete" style="display:inline;" onsubmit="return confirm('Delete this class?');">
+                  <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
+                </form>
+              <% } else { %>
+                <span class="pill review">Has <%= c.studentCount %> student<%= c.studentCount === 1 ? '' : 's' %></span>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

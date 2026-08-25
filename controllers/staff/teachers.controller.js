@@ -6,6 +6,9 @@ const {
   getTeacherProfileService,
   updateTeacherProfileService,
   adminUpdateTeacherProfileService,
+  adminUpdateCredentialsService,
+  adminGetTeacherService,
+  deleteTeacherService,
 } = require("../../services/staff/teachers.service");
 
 /**
@@ -41,7 +44,7 @@ exports.teacherLoginController = async (req, res) => {
  **/
 exports.getAllTeachersController = async (req, res) => {
   try {
-    const result = await getAllTeachersService();
+    const result = await getAllTeachersService(req.query);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -55,7 +58,7 @@ exports.getAllTeachersController = async (req, res) => {
  **/
 exports.getTeacherProfileController = async (req, res) => {
   try {
-    const result = await getTeacherProfileService(req.params.teacherId);
+    const result = await getTeacherProfileService(req.userAuth.id);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -87,10 +90,61 @@ exports.updateTeacherProfileController = async (req, res) => {
  **/
 exports.adminUpdateTeacherProfileController = async (req, res) => {
   try {
-    const result = await adminUpdateTeacherProfileService(
-      req.body,
-      req.params.teachersId
-    );
+    await adminUpdateTeacherProfileService(req.body, req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin toggles a teacher's attendance-manager flag
+ * @route PATCH /api/v1/teacher/:teacherId/toggle-attendance-manager
+ * @access Private (Admin)
+ **/
+exports.toggleAttendanceManagerController = async (req, res) => {
+  try {
+    const { toggleAttendanceManagerService } = require("../../services/staff/teachers.service");
+    await toggleAttendanceManagerService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin update teacher credentials (name/email/password)
+ * @route PUT /api/v1/teacher/:teacherId/credentials
+ * @access Private (Admin)
+ **/
+exports.adminUpdateCredentialsController = async (req, res) => {
+  try {
+    await adminUpdateCredentialsService(req.body, req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin deletes a teacher
+ * @route DELETE /api/v1/teacher/:teacherId
+ * @access Private (Admin)
+ **/
+exports.deleteTeacherController = async (req, res) => {
+  try {
+    await deleteTeacherService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin get a teacher by ID
+ * @route GET /api/v1/admin/teacher/:teacherId
+ * @access Private (Admin)
+ **/
+exports.adminGetTeacherController = async (req, res) => {
+  try {
+    const result = await adminGetTeacherService(req.params.teacherId);
+    if (!result) return responseStatus(res, 404, "failed", "Teacher not found");
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

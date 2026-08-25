@@ -1,0 +1,38 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Staff</p>
+    <h1>Add Teacher</h1>
+  </div>
+  <a href="/staff" class="btn btn-ghost">Back to list</a>
+</div>
+
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>New teacher account</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/staff/create">
+      <div class="field">
+        <label for="name">Full name</label>
+        <input type="text" id="name" name="name" required placeholder="e.g. Ahmed Khan" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required placeholder="teacher@school.local" />
+      </div>
+      <div class="field">
+        <label for="password">Temporary password</label>
+        <input type="text" id="password" name="password" required placeholder="Min 6 characters" />
+      </div>
+      <div style="margin-top: 8px;">
+        <button type="submit" class="btn btn-primary">Create teacher</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

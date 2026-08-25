@@ -1,0 +1,124 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Manage tests</h1>
+  </div>
+  <a href="/sessions/manage" class="btn btn-ghost">Manage sessions →</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load tests: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a test</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/tests/create">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Test name</label>
+          <input type="text" name="name" id="name" required />
+        </div>
+        <div class="field">
+          <label for="subject">Subject</label>
+          <select name="subject" id="subject" required>
+            <option value="">Select a subject</option>
+            <% subjects.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="classLevels">Classes / sections</label>
+        <select name="classLevels" id="classLevels" multiple size="8" required>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>"><%= c.name %></option>
+          <% }); %>
+        </select>
+        <p class="hint">Hold Ctrl/Cmd to select multiple — this creates one unified roster across all selected.</p>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="date">Date</label>
+          <input type="date" name="date" id="date" required />
+        </div>
+        <div class="field">
+          <label for="totalMarks">Total marks</label>
+          <input type="number" name="totalMarks" id="totalMarks" required />
+        </div>
+        <div class="field">
+          <label for="passMarks">Pass marks</label>
+          <input type="number" name="passMarks" id="passMarks" required />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="session">Session (optional)</label>
+          <select name="session" id="session" onchange="updatePhaseOptions()">
+            <option value="">Standalone test — no session</option>
+            <% sessions.forEach(function(s) { %>
+              <option value="<%= s._id %>" data-phases='<%- JSON.stringify(s.phases) %>'><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="phase">Phase (if session selected)</label>
+          <select name="phase" id="phase">
+            <option value="">—</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create test</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All tests</h2></div>
+  <% if (tests.length === 0) { %>
+    <div class="empty"><div class="display">No tests yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Session</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody>
+        <% tests.forEach(function(t) { %>
+          <tr>
+            <td><strong><%= t.name %></strong></td>
+            <td><%= t.subject ? t.subject.name : '—' %></td>
+            <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
+            <td><%= t.session ? t.session.name : 'Standalone' %></td>
+            <td class="num mono"><%= t.totalMarks %></td>
+            <td><a href="/tests/<%= t._id %>/result-sheet" class="btn btn-ghost" style="padding:4px 10px;">Results</a></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<script>
+  function updatePhaseOptions() {
+    const sessionSelect = document.getElementById('session');
+    const phaseSelect = document.getElementById('phase');
+    const selected = sessionSelect.options[sessionSelect.selectedIndex];
+    const phasesAttr = selected.getAttribute('data-phases');
+
+    phaseSelect.innerHTML = '<option value="">—</option>';
+    if (phasesAttr) {
+      const phases = JSON.parse(phasesAttr);
+      phases.forEach(function (p) {
+        const opt = document.createElement('option');
+        opt.value = p._id;
+        opt.textContent = p.name;
+        phaseSelect.appendChild(opt);
+      });
+    }
+  }
+</script>
+
+<%- include('../partials/foot') %>

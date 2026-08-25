@@ -16,6 +16,10 @@ const studentSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    rollNumber: {
+      type: Number,
+      required: true,
+    },
     studentId: {
       type: String,
       required: true,
@@ -36,12 +40,11 @@ const studentSchema = new mongoose.Schema(
       type: String,
       default: "student",
     },
-    currentClassLevels: [
-      {
-        type: ObjectId,
-        ref: "ClassLevel",
-      },
-    ],
+    classLevel: {
+      type: ObjectId,
+      ref: "ClassLevel",
+      required: true,
+    },
  
     academicYear: {
       type: ObjectId,
@@ -73,8 +76,48 @@ const studentSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    fatherName: {
+      type: String,
+      default: "",
+    },
+    address: {
+      type: String,
+      default: "",
+    },
+    whatsappNumber: {
+      type: String,
+      default: "",
+    },
+    feeAgreed: {
+      type: Number,
+      default: 0,
+    },
+    gender: {
+      type: String,
+      enum: ["Male", "Female"],
+      default: "Male",
+    },
     prefectName: {
       type: String,
+    },
+    religion: {
+      type: String,
+      enum: ["Muslim", "Non-Muslim"],
+      default: "Muslim",
+    },
+    photoUrl: {
+      type: String,
+      default: null,
+    },
+    familyNumber: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    parent: {
+      type: ObjectId,
+      ref: "Parent",
+      default: null,
     },
     // both are commented for future update
     // behaviorReport: [
@@ -100,6 +143,8 @@ const studentSchema = new mongoose.Schema(
 );
 
 //model
+studentSchema.index({ classLevel: 1, rollNumber: 1 }, { unique: true });
+
 const Student = mongoose.model("Student", studentSchema);
 
 module.exports = Student;

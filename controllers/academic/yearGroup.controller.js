@@ -41,7 +41,7 @@ exports.getYearGroupsController = async (req, res) => {
  **/
 exports.getYearGroupController = async (req, res) => {
   try {
-    const result = await getYearGroupsService(req.params.id);
+    const result = await getYearGroupsService(req.params.yearGroupId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -55,7 +55,7 @@ exports.getYearGroupController = async (req, res) => {
  **/
 exports.updateYearGroupController = async (req, res) => {
   try {
-    await updateYearGroupService(req.body, req.params.id, req.userAuth.id, res);
+    await updateYearGroupService(req.body, req.params.yearGroupId, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -68,7 +68,7 @@ exports.updateYearGroupController = async (req, res) => {
  **/
 exports.deleteYearGroupController = async (req, res) => {
   try {
-    const result = await deleteYearGroupService(req.params.id);
+    const result = await deleteYearGroupService(req.params.yearGroupId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

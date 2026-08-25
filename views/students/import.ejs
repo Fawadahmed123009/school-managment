@@ -1,0 +1,63 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Roster</p>
+    <h1>Bulk import students</h1>
+  </div>
+  <a href="/students" class="btn btn-ghost">← Back to students</a>
+</div>
+
+<div id="upload-step">
+  <div class="upload-drop">
+    <div class="display">Upload a student Excel file</div>
+    <p>Needs <strong>Name</strong>, <strong>Admission Number</strong>, <strong>Roll #</strong>, <strong>Class</strong>, <strong>Group</strong>, <strong>Section</strong> columns. You'll confirm every row and fix any class match before anything is saved.</p>
+    <input type="file" id="file-input" accept=".xlsx,.xls" style="display:none" />
+    <button type="button" class="btn btn-accent" id="pick-file-btn">Choose file</button>
+  </div>
+</div>
+
+<div id="review-step" style="display:none">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Review before import</h2>
+      <span id="row-count" class="pill ocr"></span>
+    </div>
+    <table class="ledger">
+      <thead>
+        <tr><th>Name</th><th>Admission #</th><th>Roll #</th><th>Class match</th></tr>
+      </thead>
+      <tbody id="rows-body"></tbody>
+    </table>
+    <div class="review-foot">
+      <div class="total"><span class="l">Ready to import</span> <span id="ready-count">0</span></div>
+      <div style="display:flex; gap:10px;">
+        <button type="button" class="btn btn-ghost" id="rescan-btn">Start over</button>
+        <button type="button" class="btn btn-primary" id="save-btn">Import confirmed rows</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="results-step" style="display:none">
+  <div class="panel">
+    <div class="panel-head"><h2>Import complete</h2></div>
+    <div class="panel-body">
+      <p id="results-summary"></p>
+      <p style="color:var(--error); font-weight:600;">Temporary passwords below — save these now, they won't be shown again.</p>
+      <table class="ledger">
+        <thead><tr><th>Name</th><th>Email</th><th>Temp password</th></tr></thead>
+        <tbody id="created-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.__CLASSES__ = <%- JSON.stringify(classes) %>;
+</script>
+<script src="/js/student-import.js"></script>
+
+<%- include('../partials/foot') %>

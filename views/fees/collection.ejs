@@ -1,0 +1,118 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Daily Collection Report</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Pick a date or range</h2></div>
+  <div class="panel-body">
+    <form method="GET" action="/fees/collection" style="display:flex; gap:16px; flex-wrap:wrap; align-items:end;">
+      <div class="field">
+        <label for="date">Single date</label>
+        <input type="date" name="date" id="date" value="<%= queryDate %>" />
+      </div>
+      <div class="field">
+        <label for="from">From</label>
+        <input type="date" name="from" id="from" value="<%= queryFrom %>" />
+      </div>
+      <div class="field">
+        <label for="to">To</label>
+        <input type="date" name="to" id="to" value="<%= queryTo %>" />
+      </div>
+      <button type="submit" class="btn btn-primary">Generate report</button>
+    </form>
+  </div>
+</div>
+
+<% if (report) { %>
+  <% if (report.totalRecords === 0) { %>
+    <div class="panel">
+      <div class="empty">
+        <div class="display">No collections found</div>
+        <p>No paid fee records for the selected date(s).</p>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="stats">
+      <div class="stat">
+        <div class="n mono"><%= report.totalRecords %></div>
+        <div class="l">Payments collected</div>
+      </div>
+      <div class="stat">
+        <div class="n mono">Rs <%= Number(report.grandTotal).toLocaleString() %></div>
+        <div class="l">Grand total</div>
+      </div>
+    </div>
+
+    <% if (Object.keys(report.byHead).length > 0) { %>
+    <div class="panel">
+      <div class="panel-head"><h2>By fee head</h2></div>
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Fee head</th>
+            <th class="num">Count</th>
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% Object.keys(report.byHead).forEach(function(headName) { %>
+            <tr>
+              <td><strong><%= headName %></strong></td>
+              <td class="num mono"><%= report.byHead[headName].count %></td>
+              <td class="num mono">Rs <%= Number(report.byHead[headName].total).toLocaleString() %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <% } %>
+
+    <% Object.keys(report.byClass).forEach(function(className) { %>
+      <div class="panel">
+        <div class="panel-head">
+          <h2><%= className %></h2>
+        </div>
+        <% Object.keys(report.byClass[className]).forEach(function(section) { %>
+          <% var block = report.byClass[className][section]; %>
+          <div style="padding:0 20px 16px;">
+            <h3 style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">
+              Section: <%= section %>
+              <span class="pill ocr" style="margin-left:8px;">Rs <%= Number(block.total).toLocaleString() %></span>
+            </h3>
+            <table class="ledger">
+              <thead>
+                <tr>
+                  <th>Student</th>
+                  <th>Roll #</th>
+                  <th>Fee head</th>
+                  <th class="num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% block.fees.forEach(function(f) { %>
+                  <tr>
+                    <td><%= f.studentName %></td>
+                    <td class="mono"><%= f.rollNumber || '—' %></td>
+                    <td><%= f.feeHeadName %></td>
+                    <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% }); %>
+      </div>
+    <% }); %>
+  <% } %>
+<% } %>
+
+<%- include('../partials/foot') %>

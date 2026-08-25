@@ -4,78 +4,164 @@ const {
 } = require("../../handlers/passHash.handler");
 const Admin = require("../../models/Staff/admin.model");
 const Student = require("../../models/Students/students.model");
-const Exam = require("../../models/Academic/exams.model");
-const Results = require("../../models/Academic/results.model");
+const Parent = require("../../models/Parents/parents.model");
+const ClassLevel = require("../../models/Academic/class.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
-const { resultCalculate } = require("../../functions/resultCalculate.function");
+const { paginate } = require("../../utils/paginate");
 
-/**
- * Admin registration service for creating a new student.
- *
- * @param {Object} data - The data containing information about the new student.
- * @param {string} data.name - The name of the student.
- * @param {string} data.email - The email of the student.
- * @param {string} data.password - The password of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
+// Generate next family number: FAM-1001, FAM-1002, ...
+const generateFamilyNumber = async () => {
+  const lastParent = await Parent.findOne({ familyNumber: /^FAM-/ })
+    .sort({ familyNumber: -1 })
+    .select("familyNumber");
+  if (!lastParent) return "FAM-1001";
+  const lastNum = parseInt(lastParent.familyNumber.replace("FAM-", ""), 10);
+  return `FAM-${String(lastNum + 1).padStart(4, "0")}`;
+};
+
 exports.adminRegisterStudentService = async (data, adminId, res) => {
-  const { name, email, password } = data;
-  // finding admin
+  const { name, email, password, classLevel, rollNumber, fatherName, address, whatsappNumber, feeAgreed, gender, parentName, parentEmail, parentPhone, relationship, familyAction } = data;
+
   const admin = await Admin.findById(adminId);
   if (!admin) {
-    return responseStatus(res, 405, "failed", "Unauthorized access!");
+    return responseStatus(res, 403, "failed", "Unauthorized access!");
   }
-  //check if teacher already exists
+
   const student = await Student.findOne({ email });
   if (student)
     return responseStatus(res, 402, "failed", "Student already enrolled");
 
-  //Hash password
+  if (!classLevel) {
+    return responseStatus(res, 400, "failed", "A class is required");
+  }
+  const classFound = await ClassLevel.findById(classLevel);
+  if (!classFound) return responseStatus(res, 404, "failed", "Class not found");
+
+  if (rollNumber === undefined || rollNumber === null || rollNumber === "") {
+    return responseStatus(res, 400, "failed", "Roll number is required");
+  }
+
+  const rollTaken = await Student.findOne({ classLevel, rollNumber: Number(rollNumber) });
+  if (rollTaken) {
+    return responseStatus(res, 400, "failed", `Roll number ${rollNumber} is already used in this class`);
+  }
+
+  if (!fatherName) return responseStatus(res, 400, "failed", "Father's name is required");
+  if (!address) return responseStatus(res, 400, "failed", "Address is required");
+  if (!whatsappNumber) return responseStatus(res, 400, "failed", "WhatsApp contact number is required");
+  if (feeAgreed === undefined || feeAgreed === null || feeAgreed === "") {
+    return responseStatus(res, 400, "failed", "Fee agreed is required");
+  }
+  if (!gender) return responseStatus(res, 400, "failed", "Gender is required");
+
+  // ---- Family system: match or create parent ----
+  let familyNumber = null;
+  let parentId = null;
+
+  // Only engage family system if explicit parent details were provided
+  const hasParentDetails = parentName || parentPhone || parentEmail;
+
+  if (hasParentDetails) {
+    const contactPhone = parentPhone || whatsappNumber;
+    const contactEmail = parentEmail || null;
+
+    // Try to find existing parent by phone or email
+    let existingParent = null;
+    if (contactPhone) {
+      existingParent = await Parent.findOne({ phone: contactPhone })
+        .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
+    }
+    if (!existingParent && contactEmail) {
+      existingParent = await Parent.findOne({ email: contactEmail })
+        .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
+    }
+
+    if (existingParent && !familyAction) {
+      // MATCH FOUND — require admin confirmation before linking
+      return res.status(200).json({
+        status: "confirm",
+        data: {
+          matchedParent: {
+            _id: existingParent._id,
+            name: existingParent.name,
+            phone: existingParent.phone,
+            familyNumber: existingParent.familyNumber,
+            children: existingParent.children,
+          },
+        },
+      });
+    }
+
+    if (existingParent && familyAction === "link") {
+      // Admin confirmed: link to existing parent's family
+      familyNumber = existingParent.familyNumber;
+      parentId = existingParent._id;
+    } else if (familyAction === "new" || !existingParent) {
+      // Admin chose "create new" OR no match found — create new parent
+      familyNumber = await generateFamilyNumber();
+      const parentPassword = await hashPassword(contactPhone || "default123");
+      // Ensure unique email — if phone-based email is taken, add timestamp
+      let parentEmail = contactEmail || `${contactPhone}@family.local`;
+      const emailTaken = await Parent.findOne({ email: parentEmail });
+      if (emailTaken) {
+        parentEmail = contactEmail || `${contactPhone}_${Date.now()}@family.local`;
+      }
+      const newParent = await Parent.create({
+        name: parentName || fatherName,
+        email: parentEmail,
+        password: parentPassword,
+        phone: contactPhone,
+        relationship: relationship || "father",
+        familyNumber,
+        children: [],
+      });
+      parentId = newParent._id;
+    }
+  }
+
   const hashedPassword = await hashPassword(password);
-  // create
   const studentRegistered = await Student.create({
     name,
     email,
     password: hashedPassword,
+    classLevel,
+    rollNumber: Number(rollNumber),
+    fatherName,
+    address,
+    whatsappNumber,
+    feeAgreed: Number(feeAgreed),
+    gender,
+    familyNumber,
+    parent: parentId,
   });
-  // saving to admin
-  admin.students.push(studentRegistered._id);
-  await admin.save();
-  return responseStatus(res, 200, "success", studentRegistered);
+
+  // Link student to parent's children array
+  if (parentId) {
+    await Parent.findByIdAndUpdate(parentId, { $push: { children: studentRegistered._id } });
+  }
+
+  await Admin.findByIdAndUpdate(adminId, { $push: { students: studentRegistered._id } });
+  return responseStatus(res, 200, "success", { ...studentRegistered.toObject(), familyNumber, parent: parentId });
 };
-/**
- * Student login service.
- *
- * @param {Object} data - The data containing information about the login.
- * @param {string} data.email - The email of the student.
- * @param {string} data.password - The password of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
+
 exports.studentLoginService = async (data, res) => {
   const { email, password } = data;
-  //find the  user
-  const student = await Student.findOne({ email }).select("-password ");
+  const student = await Student.findOne({ email });
   if (!student)
     return responseStatus(res, 402, "failed", "Invalid login credentials");
 
-  //verify the password
   const isMatched = await isPassMatched(password, student?.password);
   if (!isMatched)
     return responseStatus(res, 401, "failed", "Invalid login credentials");
 
-  const responseData = { student, token: generateToken(student._id) };
+  const responseStudent = student.toObject();
+  delete responseStudent.password;
+
+  const responseData = { student: responseStudent, token: generateToken(student._id) };
   return responseStatus(res, 200, "success", responseData);
 };
-/**
- * Get student profile service.
- *
- * @param {string} id - The ID of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
+
 exports.getStudentsProfileService = async (id, res) => {
   const student = await Student.findById(id).select(
     "-password -createdAt -updatedAt"
@@ -83,170 +169,109 @@ exports.getStudentsProfileService = async (id, res) => {
   if (!student) return responseStatus(res, 402, "failed", "Student not found");
   return responseStatus(res, 200, "success", student);
 };
-/**
- * Get all students service (for admin use).
- *
- * @returns {Array} - An array of all students.
- */
-exports.getAllStudentsByAdminService = async () => {
-  const result = await Student.find({});
+
+exports.getAllStudentsByAdminService = async (adminId, query, res) => {
+  const result = await paginate(Student, {}, {
+    page: query.page,
+    limit: query.limit,
+    select: "-password",
+    sort: "name",
+    populate: { path: "classLevel", select: "name gradeLevel group section" },
+  });
   return responseStatus(res, 200, "success", result);
 };
-/**
- * Get a single student by admin.
- *
- * @param {string} studentID - The ID of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
+
 exports.getStudentByAdminService = async (studentID, res) => {
-  const student = await Student.findById(studentID);
+  const student = await Student.findById(studentID).select("-password").populate("classLevel", "name gradeLevel group section");
   if (!student) return responseStatus(res, 402, "failed", "Student not found");
   return responseStatus(res, 200, "success", student);
 };
-/**
- * Student update profile service.
- *
- * @param {Object} data - The data containing information about the updated profile.
- * @param {string} userId - The ID of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
+
 exports.studentUpdateProfileService = async (data, userId, res) => {
   const { email, password } = data;
-  //if email is taken
-  const emailExist = await Student.findOne({ email });
-  if (emailExist)
-    return responseStatus(res, 402, "failed", "This email is taken/exist");
 
-  //hash password
-  //check if user is updating password
-
-  if (password) {
-    //update
-    const student = await Student.findByIdAndUpdate(
-      userId,
-      {
-        email,
-        password: await hashPassword(password),
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-    return responseStatus(res, 200, "success", student);
-  } else {
-    //update
-    const student = await Student.findByIdAndUpdate(
-      userId,
-      {
-        email,
-      },
-      {
-        new: true,
-        runValidators: true,
-      }
-    );
-    return responseStatus(res, 200, "success", student);
+  // Only check uniqueness if email is being changed
+  if (email) {
+    const emailExist = await Student.findOne({ email, _id: { $ne: userId } });
+    if (emailExist)
+      return responseStatus(res, 402, "failed", "This email is taken by another student");
   }
-};
-/**
- * Admin update Student service.
- *
- * @param {Object} data - The data containing information about the updated student.
- * @param {string} studentId - The ID of the student.
- * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.adminUpdateStudentService = async (data, studentId, res) => {
-  const { classLevels, academicYear, program, name, email, prefectName } = data;
 
-  //find the student by id
-  const studentFound = await Student.findById(studentId, res);
-  if (!studentFound)
-    return responseStatus(res, 402, "failed", "Student not found");
-  //update
-  const studentUpdated = await Student.findByIdAndUpdate(
-    studentId,
-    {
-      $set: {
-        name,
-        email,
-        academicYear,
-        program,
-        prefectName,
-      },
-      $addToSet: {
-        classLevels,
-      },
-    },
-    {
-      new: true,
+  const updateData = {};
+  if (email) updateData.email = email;
+  if (password) updateData.password = await hashPassword(password);
+
+  const student = await Student.findByIdAndUpdate(
+    userId,
+    updateData,
+    { new: true, runValidators: true }
+  ).select("-password");
+  return responseStatus(res, 200, "success", student);
+};
+
+exports.adminUpdateStudentService = async (data, studentId, res) => {
+  const studentFound = await Student.findById(studentId);
+  if (!studentFound) {
+    return responseStatus(res, 404, "failed", "Student not found");
+  }
+
+  // Build $set from whichever fields the caller provides
+  const allowedFields = [
+    "name", "email", "fatherName", "address", "whatsappNumber",
+    "feeAgreed", "gender", "classLevel", "rollNumber", "religion",
+    "prefectName", "academicYear", "program",
+    "isGraduated", "isWithdrawn", "isSuspended",
+  ];
+  const $set = {};
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      // Coerce boolean-like fields
+      if (key === "isGraduated" || key === "isWithdrawn" || key === "isSuspended") {
+        $set[key] = data[key] === true || data[key] === "true" || data[key] === "on";
+      } else if (key === "feeAgreed" || key === "rollNumber") {
+        const num = Number(data[key]);
+        if (!isNaN(num)) $set[key] = num;
+      } else {
+        $set[key] = data[key];
+      }
     }
-  );
-  //send response
+  }
+
+  // If password provided, hash it and add to update
+  if (data.password) {
+    $set.password = await hashPassword(data.password);
+  }
+
+  // If email changed, check uniqueness
+  if ($set.email && $set.email !== studentFound.email) {
+    const emailTaken = await Student.findOne({ email: $set.email, _id: { $ne: studentId } });
+    if (emailTaken) {
+      return responseStatus(res, 400, "failed", "That email is already taken by another student");
+    }
+  }
+
+  // If roll number or class changed, check uniqueness within class
+  const newRoll = $set.rollNumber ?? studentFound.rollNumber;
+  const newClass = $set.classLevel ?? studentFound.classLevel;
+  const rollCollision = await Student.findOne({
+    classLevel: newClass,
+    rollNumber: newRoll,
+    _id: { $ne: studentId },
+  });
+  if (rollCollision) {
+    return responseStatus(res, 400, "failed", "That roll number is already used by another student in this class");
+  }
+
+  const studentUpdated = await Student.findByIdAndUpdate(studentId, { $set }, { new: true }).select("-password");
   return responseStatus(res, 200, "success", studentUpdated);
 };
-/**
- * Student write exam service.
- *
- * @param {string} data - The data containing information about the  exam writing
- * @param {string} studentId - The ID of the student.
- * @param {string} examId - The ID of the exam.
- * @param {Object} res - The Express response object.
- * @returns {void}
- */
-exports.studentWriteExamService = async (data, studentId, examId, res) => {
-  const { answers } = data;
-  // find the student
-  const student = await Student.findById(studentId);
-  if (!student) return responseStatus(res, 404, "failed", "Student not found");
-  // finding the exam
-  const findExam = await Exam.findById(examId);
-  if (!findExam) return responseStatus(res, 404, "failed", "Exam not found");
 
-  // checking if the student already attended the exam
-  const alreadyExamTaken = await Results.findOne({ student: student._id });
-  if (alreadyExamTaken)
-    return responseStatus(res, 400, "failed", "Already written the exam!");
-  //checking if the student is suspended or withdrawn
-  if (student.isSuspended || student.isWithdrawn)
-    return responseStatus(
-      res,
-      401,
-      "failed",
-      "You are eligible to attend this exam"
-    );
-  // getting questions
-  const questions = findExam?.questions;
-  // checking is students answered all the questions
-  if (questions.length !== answers.length)
-    return responseStatus(
-      res,
-      406,
-      "failed",
-      "You have not answered all the questions"
-    );
-  // calculating results
-  const result = await resultCalculate(questions, answers, findExam);
-  // creating results
-  const createResult = await Results.create({
-    studentId: student._id,
-    teacher: findExam.createdBy,
-    exam: findExam._id,
-    score: result.score,
-    grade: result.grade,
-    passMark: findExam.passMark,
-    status: result.status,
-    remarks: result.remarks,
-    answeredQuestions: result.answeredQuestions,
-    classLevel: findExam.classLevel,
-    academicTerm: findExam.academicTerm,
-    academicYear: findExam.academicYear,
-  });
-  // updating student's total scores and number of attempts
-  Student.examResults.push(createResult._id);
-  await Student.save();
-  return responseStatus(res, 200, "success", "Answer Submitted");
+exports.adminDeleteStudentService = async (studentId, res) => {
+  const student = await Student.findById(studentId);
+  if (!student) {
+    return responseStatus(res, 404, "failed", "Student not found");
+  }
+
+  await Student.findByIdAndDelete(studentId);
+  return responseStatus(res, 200, "success", "Student deleted");
 };

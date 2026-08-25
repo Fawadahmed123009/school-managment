@@ -1,0 +1,49 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Fee Records</p>
+    <h1>Child Fees</h1>
+  </div>
+  <a href="/parent-portal" class="btn btn-ghost">← Back to children</a>
+</div>
+
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<% if (fees.length === 0) { %>
+  <div class="panel">
+    <div class="empty">
+      <div class="display">No fee records found</div>
+      <p>No fee records for this child yet.</p>
+    </div>
+  </div>
+<% } else { %>
+  <div class="panel">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Fee Head</th>
+          <th>Type</th>
+          <th class="num">Amount</th>
+          <th>Status</th>
+          <th>Date Paid</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% fees.forEach(function(f) { %>
+          <tr>
+            <td><%= f.feeHead ? f.feeHead.name : '—' %></td>
+            <td><%= f.feeType %></td>
+            <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
+            <td><span class="pill <%= f.status %>"><%= f.status %></span></td>
+            <td><%= f.datePaid ? new Date(f.datePaid).toLocaleDateString() : '—' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

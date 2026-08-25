@@ -1,0 +1,128 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Generate PDF Report</h1>
+  </div>
+  <a href="/dashboard" class="btn btn-ghost">&#8592; Back</a>
+</div>
+
+<% if (typeof loadError !== 'undefined' && loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+<% const errorMsg = typeof query !== 'undefined' && query.error ? query.error : null; %>
+<% if (errorMsg) { %><div class="flash error"><%= errorMsg %></div><% } %>
+
+<form method="POST" action="/reports/generate" id="pdfForm">
+  <div class="panel">
+    <div class="panel-head"><h2>1. Choose report type</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="reportType">Report Type</label>
+          <select name="reportType" id="reportType" required>
+            <option value="result-sheet">Result Sheet (single test)</option>
+            <option value="analytics">Analytics (multi-test filtered)</option>
+            <option value="session-report">Session Report Card (phase report)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Result Sheet fields -->
+  <div class="panel report-fields" data-for="result-sheet">
+    <div class="panel-head"><h2>2. Select test</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="testId_rs">Test</label>
+          <select name="testId" id="testId_rs">
+            <option value="">-- Select test --</option>
+            <% tests.forEach(function(t) { %>
+              <option value="<%= t._id %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Analytics fields -->
+  <div class="panel report-fields" data-for="analytics" style="display:none">
+    <div class="panel-head"><h2>2. Filter results</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="studentId_an">Student</label>
+          <select name="studentId" id="studentId_an">
+            <option value="">All students</option>
+            <% students.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %> (<%= s.rollNumber %>)</option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="subjectId_an">Subject</label>
+          <select name="subjectId" id="subjectId_an">
+            <option value="">All subjects</option>
+            <% (isTeacher && teacherSubjects ? teacherSubjects : subjects).forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="fromDate_an">From</label>
+          <input type="date" name="fromDate" id="fromDate_an" />
+        </div>
+        <div class="field">
+          <label for="toDate_an">To</label>
+          <input type="date" name="toDate" id="toDate_an" />
+        </div>
+      </div>
+      <p class="hint">Select a student to get a single-student report (enables WhatsApp share).</p>
+    </div>
+  </div>
+
+  <!-- Session Report fields -->
+  <div class="panel report-fields" data-for="session-report" style="display:none">
+    <div class="panel-head"><h2>2. Select session & student</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="sessionId_sr">Session</label>
+          <select name="sessionId" id="sessionId_sr">
+            <option value="">-- Select session --</option>
+            <% sessions.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="studentId_sr">Student</label>
+          <select name="studentId" id="studentId_sr">
+            <option value="">-- Select student --</option>
+            <% students.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %> (<%= s.rollNumber %>)</option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <button type="submit" class="btn btn-primary" style="margin-top:16px">Generate PDF</button>
+</form>
+
+<script>
+  document.getElementById("reportType").addEventListener("change", function () {
+    document.querySelectorAll(".report-fields").forEach(function (el) {
+      el.style.display = el.dataset.for === this.value ? "" : "none";
+    }.bind(this));
+  });
+</script>
+
+<%- include('../partials/foot') %>

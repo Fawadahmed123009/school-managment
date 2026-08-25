@@ -7,7 +7,7 @@ const {
   getStudentByAdminService,
   studentUpdateProfileService,
   adminUpdateStudentService,
-  studentWriteExamService,
+  adminDeleteStudentService,
 } = require("../../services/students/students.service");
 
 /**
@@ -56,7 +56,7 @@ exports.getStudentProfileController = async (req, res) => {
  **/
 exports.getAllStudentsByAdminController = async (req, res) => {
   try {
-    await getAllStudentsByAdminService(req.userAuth.id, res);
+    await getAllStudentsByAdminService(req.userAuth.id, req.query, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -69,8 +69,8 @@ exports.getAllStudentsByAdminController = async (req, res) => {
  **/
 exports.getStudentByAdminController = async (req, res) => {
   try {
-    const result = await getStudentByAdminService(req.userAuth.id);
-    responseStatus(res, 200, "success", result);
+    await getStudentByAdminService(req.params.studentId, res);
+
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -96,26 +96,18 @@ exports.studentUpdateProfileController = async (req, res) => {
  **/
 exports.adminUpdateStudentController = async (req, res) => {
   try {
-    await adminUpdateStudentService(req.body, req.params.studentId);
+    await adminUpdateStudentService(req.body, req.params.studentId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
 };
 
-/**
- * @desc Students taking exams
- * @route POST /api/v1/students/:examId/exam-write
- * @access Private Students only
- **/
-exports.studentWriteExamController = async (req, res) => {
+exports.adminDeleteStudentController = async (req, res) => {
   try {
-    await studentWriteExamService(
-      req.body,
-      req.userAuth.id,
-      req.params.examId,
-      res
-    );
+    await adminDeleteStudentService(req.params.studentId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
 };
+
+

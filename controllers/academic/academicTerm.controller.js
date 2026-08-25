@@ -14,7 +14,7 @@ const {
  **/
 exports.createAcademicTermController = async (req, res) => {
   try {
-    createAcademicTermService(req.body, req.userAuth.id, res);
+    await createAcademicTermService(req.body, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -41,7 +41,7 @@ exports.getAcademicTermsController = async (req, res) => {
  **/
 exports.getAcademicTermController = async (req, res) => {
   try {
-    const result = await getAcademicTermService(req.params.id);
+    const result = await getAcademicTermService(req.params.academicTermId);
     responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -57,7 +57,7 @@ exports.updateAcademicTermController = async (req, res) => {
   try {
     await updateAcademicTermService(
       req.body,
-      req.params.id,
+      req.params.academicTermId,
       req.userAuth.id,
       res
     );
@@ -73,7 +73,7 @@ exports.updateAcademicTermController = async (req, res) => {
  **/
 exports.deleteAcademicTermController = async (req, res) => {
   try {
-    const result = await deleteAcademicTermService(req.params.id);
+    const result = await deleteAcademicTermService(req.params.academicTermId);
     responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

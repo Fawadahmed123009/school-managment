@@ -1,0 +1,56 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Attendance</p>
+    <h1>Monthly rollup</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load rollup: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/attendance/rollup" class="field-row" style="align-items:flex-end;">
+      <div class="field" style="max-width:140px;">
+        <label for="year">Year</label>
+        <input type="number" name="year" id="year" value="<%= year %>" />
+      </div>
+      <div class="field" style="max-width:140px;">
+        <label for="month">Month</label>
+        <input type="number" name="month" id="month" min="1" max="12" value="<%= month %>" />
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">View</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<% const classNames = Object.keys(rollup); %>
+<% if (classNames.length === 0) { %>
+  <div class="empty"><div class="display">No attendance recorded for this month</div></div>
+<% } else { %>
+  <div class="panel">
+    <div class="panel-head"><h2><%= year %> - <%= String(month).padStart(2, '0') %></h2></div>
+    <table class="ledger">
+      <thead>
+        <tr><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th></tr>
+      </thead>
+      <tbody>
+        <% classNames.forEach(function(name) { %>
+          <tr>
+            <td><strong><%= name %></strong></td>
+            <td class="num mono"><%= rollup[name].present %></td>
+            <td class="num mono"><%= rollup[name].absent %></td>
+            <td class="num mono"><%= rollup[name].late %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

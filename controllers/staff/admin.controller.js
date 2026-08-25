@@ -41,7 +41,7 @@ exports.loginAdminController = async (req, res) => {
 exports.getAdminsController = async (req, res) => {
   try {
     const result = await getAdminsService();
-    responseStatus(res, 201, "success", result);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

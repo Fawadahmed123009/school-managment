@@ -1,0 +1,64 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Attendance</p>
+    <h1><%= className %></h1>
+  </div>
+  <a href="/attendance" class="btn btn-ghost">← Pick another class</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Attendance saved.</div><% } %>
+<% if (typeof error !== 'undefined' && error) { %><div class="flash error"><%= error %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load roster: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-body">
+    <div class="field" style="max-width:220px;">
+      <label for="date-picker">Date</label>
+      <input type="date" id="date-picker" value="<%= date %>" onchange="window.location.href = '/attendance/mark/<%= classLevelId %>?date=' + this.value;" />
+    </div>
+  </div>
+</div>
+
+<% if (roster.length === 0) { %>
+  <div class="empty"><div class="display">No students in this class yet</div></div>
+<% } else { %>
+  <div class="panel">
+    <div class="panel-head"><h2>Tap to mark</h2></div>
+    <table class="ledger">
+      <thead>
+        <tr><th>Student</th><th>Status</th></tr>
+      </thead>
+      <tbody id="roster-body">
+        <% roster.forEach(function(r) { %>
+          <tr data-student="<%= r.student %>">
+            <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span></td>
+            <td>
+              <div class="attend-toggle">
+                <button type="button" class="attend-btn present <%= r.status === 'present' ? 'active' : '' %>" data-status="present">P</button>
+                <button type="button" class="attend-btn absent <%= r.status === 'absent' ? 'active' : '' %>" data-status="absent">A</button>
+                <button type="button" class="attend-btn late <%= r.status === 'late' ? 'active' : '' %>" data-status="late">L</button>
+              </div>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <div class="review-foot">
+      <div class="total"><span class="l">Marked</span> <span id="marked-count">0</span> / <%= roster.length %></div>
+      <button type="button" class="btn btn-primary" id="save-attendance-btn">Save attendance</button>
+    </div>
+  </div>
+<% } %>
+
+<form id="attendance-form" method="POST" action="/attendance/mark/<%= classLevelId %>" style="display:none;">
+  <input type="hidden" name="date" value="<%= date %>" />
+  <input type="hidden" name="records" id="records-input" />
+</form>
+
+<script src="/js/attendance-mark.js"></script>
+
+<%- include('../partials/foot') %>

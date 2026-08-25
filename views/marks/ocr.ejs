@@ -1,0 +1,77 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Scan &amp; enter</p>
+    <h1>Photo to marks</h1>
+  </div>
+</div>
+
+<div id="upload-step">
+  <div class="panel">
+    <div class="panel-body">
+      <div class="field">
+        <label for="test-select">Which test is this for?</label>
+        <select id="test-select" required>
+          <option value="">Select a test</option>
+          <% tests.forEach(function(t) { %>
+            <option value="<%= t._id %>"><%= t.name %></option>
+          <% }); %>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="upload-drop">
+    <div class="display">Drop a photo of the marks sheet</div>
+    <p>Typed names, handwritten scores — both are read automatically. You'll confirm everything before it's saved.</p>
+    <input type="file" id="photo-input" accept="image/*" style="display:none" />
+    <button type="button" class="btn btn-accent" id="pick-photo-btn">Choose photo</button>
+  </div>
+</div>
+
+<div id="review-step" style="display:none">
+  <div class="ocr-layout">
+    <div class="ocr-source">
+      <img id="source-preview" alt="Uploaded marks sheet" />
+      <p class="hint">Check this against the table if a row looks off.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Extracted rows</h2>
+        <span id="row-count" class="pill ocr"></span>
+      </div>
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Confidence</th>
+            <th>Student</th>
+            <th class="num">Score</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows-body"></tbody>
+      </table>
+      <div class="review-foot">
+        <div class="total">
+          <span class="l">Rows to save</span>
+          <span id="row-total">0</span>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="btn btn-ghost" id="rescan-btn">Start over</button>
+          <button type="button" class="btn btn-primary" id="save-btn">Save all confirmed rows</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.__STUDENTS__ = <%- JSON.stringify(students) %>;
+</script>
+<script src="/js/marks-ocr-review.js"></script>
+
+<%- include('../partials/foot') %>

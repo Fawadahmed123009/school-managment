@@ -1,0 +1,59 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academics</p>
+    <h1>Edit class</h1>
+  </div>
+</div>
+
+<% if (saveError) { %><div class="flash error"><%= saveError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2><%= cls.name %></h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/classes/<%= cls._id %>/edit">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" name="name" id="name" value="<%= cls.name %>" required />
+        </div>
+        <div class="field">
+          <label for="gradeLevel">Grade level</label>
+          <select name="gradeLevel" id="gradeLevel" required>
+            <option value="">Select</option>
+            <% ["PG","1","2","3","4","5","6","7","8","9","10","11","12"].forEach(function(g) { %>
+              <option value="<%= g %>" <%= cls.gradeLevel === g ? 'selected' : '' %>><%= g %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="group">Group (optional)</label>
+          <input type="text" name="group" id="group" value="<%= cls.group || '' %>" placeholder="e.g. Computer Science, Pre-Medical" />
+        </div>
+        <div class="field">
+          <label for="section">Section (optional)</label>
+          <select name="section" id="section">
+            <option value="" <%= !cls.section ? 'selected' : '' %>>—</option>
+            <option value="Boys" <%= cls.section === 'Boys' ? 'selected' : '' %>>Boys</option>
+            <option value="Girls" <%= cls.section === 'Girls' ? 'selected' : '' %>>Girls</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description (optional)</label>
+        <input type="text" name="description" id="description" value="<%= cls.description || '' %>" />
+      </div>
+      <div class="field-row" style="gap:8px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="/classes" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

@@ -1,0 +1,63 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Student photo</p>
+    <h1><%= student.name %></h1>
+  </div>
+  <a href="/students/<%= student._id %>/analysis" class="btn btn-ghost">← Back to student</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Photo saved.</div><% } %>
+<% if (photoError) { %><div class="flash error"><%= photoError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Current photo</h2></div>
+  <div class="panel-body" style="display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap;">
+    <% if (student.photoUrl) { %>
+      <img src="<%= student.photoUrl %>?t=<%= Date.now() %>" alt="Student photo" style="width:160px; height:160px; object-fit:cover; border-radius:8px;" />
+    <% } else { %>
+      <div style="width:160px; height:160px; border-radius:8px; background:#111827; display:flex; align-items:center; justify-content:center; color:#6b7280;">No photo</div>
+    <% } %>
+    <div>
+      <p class="hint">Roll # <%= student.rollNumber ?? '—' %> · <%= student.classLevel ? student.classLevel.name : '—' %></p>
+      <p class="hint">Live capture uses your device camera. Phones over plain http on the LAN block camera access — use HTTPS or a tunnel (e.g. ngrok) for real mobile testing. Laptop webcam works as-is on localhost.</p>
+    </div>
+  </div>
+</div>
+
+<div class="panel" id="capture-panel" data-post-url="/students/<%= student._id %>/photo">
+  <div class="panel-head"><h2>Capture with camera</h2></div>
+  <div class="panel-body">
+    <video id="cam-video" autoplay playsinline muted style="width:100%; max-width:420px; border-radius:8px; background:#000;"></video>
+    <canvas id="cam-canvas" style="display:none;"></canvas>
+    <img id="cam-preview" alt="Captured preview" style="display:none; width:100%; max-width:420px; border-radius:8px;" />
+    <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+      <button type="button" class="btn btn-primary" id="cam-start">Start camera</button>
+      <button type="button" class="btn btn-primary" id="cam-capture" disabled>Capture</button>
+      <button type="button" class="btn btn-ghost" id="cam-switch" disabled>Switch camera</button>
+      <button type="button" class="btn btn-primary" id="cam-save" disabled>Save photo</button>
+      <button type="button" class="btn btn-ghost" id="cam-retake" disabled>Retake</button>
+      <button type="button" class="btn btn-ghost" id="cam-stop" disabled>Stop camera</button>
+    </div>
+    <p id="cam-status" class="hint" style="margin-top:8px;"></p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Or upload an existing photo</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/students/<%= student._id %>/photo" enctype="multipart/form-data">
+      <div class="field">
+        <label for="photo-file">Choose image</label>
+        <input type="file" name="photo" id="photo-file" accept="image/*" required />
+      </div>
+      <button type="submit" class="btn btn-primary">Upload photo</button>
+    </form>
+  </div>
+</div>
+
+<script src="/js/student-photo.js"></script>
+<%- include('../partials/foot') %>

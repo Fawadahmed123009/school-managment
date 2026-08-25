@@ -11,15 +11,13 @@ const {
   updateClassLevelController,
   deleteClassLevelController,
 } = require("../../../controllers/academic/class.controller");
-
 classRouter
   .route("/class-levels")
-  .get(isLoggedIn, isAdmin, getClassLevelsController)
+  .get(isLoggedIn, getClassLevelsController)
   .post(isLoggedIn, isAdmin, createClassLevelController);
 classRouter
-  .route("/class-levels/:id")
-  .get(isLoggedIn, isAdmin, getClassLevelController)
+  .route("/class-levels/:classLevelId")
+  .get(isLoggedIn, getClassLevelController)
   .patch(isLoggedIn, isAdmin, updateClassLevelController)
   .delete(isLoggedIn, isAdmin, deleteClassLevelController);
-
 module.exports = classRouter;

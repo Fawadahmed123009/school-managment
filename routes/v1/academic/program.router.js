@@ -16,7 +16,7 @@ programRouter
   .get(isLoggedIn, isAdmin, getProgramsController)
   .post(isLoggedIn, isAdmin, createProgramController);
 programRouter
-  .route("/programs/:id")
+  .route("/programs/:programId")
   .get(isLoggedIn, isAdmin, getProgramController)
   .patch(isLoggedIn, isAdmin, updateProgramController)
   .delete(isLoggedIn, isAdmin, deleteProgramController);

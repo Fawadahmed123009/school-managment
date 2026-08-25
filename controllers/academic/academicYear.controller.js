@@ -41,7 +41,7 @@ exports.getAcademicYearsController = async (req, res) => {
  **/
 exports.getAcademicYearController = async (req, res) => {
   try {
-    const result = await getAcademicYearService(req.params.id);
+    const result = await getAcademicYearService(req.params.academicYearId);
     responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -55,7 +55,7 @@ exports.getAcademicYearController = async (req, res) => {
  **/
 exports.updateAcademicYearController = async (req, res) => {
   try {
-    await updateAcademicYearService(req.body, req.params.id, req.userAuth.id);
+    await updateAcademicYearService(req.body, req.params.academicYearId, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -68,7 +68,7 @@ exports.updateAcademicYearController = async (req, res) => {
  **/
 exports.deleteAcademicYearController = async (req, res) => {
   try {
-    const result = await deleteAcademicYearService(req.params.id);
+    const result = await deleteAcademicYearService(req.params.academicYearId);
     responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

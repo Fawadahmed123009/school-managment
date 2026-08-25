@@ -1,3 +1,8 @@
+/**
+ * @deprecated This model is superseded by the TestResult model (testResult.model.js).
+ * It is retained only for backward compatibility with the legacy marks system
+ * (marks.service.js). New features should use TestResult.
+ */
 const mongoose = require("mongoose");
 
 const { ObjectId } = mongoose.Schema;
@@ -14,6 +19,10 @@ const examResultSchema = new mongoose.Schema(
       type: ObjectId,
       ref: "Exam",
       required: true,
+    },
+    letterGrade: {
+      type: String,
+      enum: ["A", "B", "C", "D", "F"],
     },
     grade: {
       type: Number,

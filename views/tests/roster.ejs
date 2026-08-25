@@ -1,0 +1,53 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<% if (loadError) { %>
+  <div class="page-head"><div><h1>Mark test</h1></div></div>
+  <div class="flash error"><%= loadError %></div>
+<% } else { %>
+  <div class="page-head">
+    <div>
+      <p class="eyebrow"><%= test.subject ? test.subject.name : '' %></p>
+      <h1><%= test.name %></h1>
+    </div>
+    <a href="/tests/mark" class="btn btn-ghost">← Pick another test</a>
+  </div>
+
+  <% if (ok) { %><div class="flash ok">Results saved.</div><% } %>
+  <% if (typeof error !== 'undefined' && error) { %><div class="flash error"><%= error %></div><% } %>
+
+  <% if (roster.length === 0) { %>
+    <div class="empty"><div class="display">No students in the selected classes yet</div></div>
+  <% } else { %>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Enter scores</h2>
+        <span class="pill ocr">Out of <%= test.totalMarks %></span>
+      </div>
+      <table class="ledger">
+        <thead><tr><th>Student</th><th class="num">Score</th></tr></thead>
+        <tbody id="roster-body">
+          <% roster.forEach(function(r) { %>
+            <tr data-student="<%= r.student %>">
+              <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span></td>
+              <td class="num"><input type="number" class="score-input" min="0" max="<%= test.totalMarks %>" value="<%= r.score ?? '' %>" /></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+      <div class="review-foot">
+        <div class="total"><span class="l">Entered</span> <span id="entered-count">0</span> / <%= roster.length %></div>
+        <button type="button" class="btn btn-primary" id="save-scores-btn">Save scores</button>
+      </div>
+    </div>
+  <% } %>
+
+  <form id="scores-form" method="POST" action="/tests/mark/<%= testId %>" style="display:none;">
+    <input type="hidden" name="records" id="records-input" />
+  </form>
+
+  <script src="/js/test-scores.js"></script>
+<% } %>
+
+<%- include('../partials/foot') %>

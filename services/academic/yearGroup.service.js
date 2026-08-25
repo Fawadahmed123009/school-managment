@@ -32,8 +32,7 @@ exports.createYearGroupService = async (data, userId) => {
   // Push the object ID to admin
   const admin = await Admin.findById(userId);
   if (!admin) return responseStatus(res, 401, "failed", "Admin does not exist");
-  admin.yearGroups.push(YearGroupCreated);
-  await admin.save(); // Saving the data
+  await Admin.findByIdAndUpdate(userId, { $push: { yearGroups: YearGroupCreated._id } });
 
   // Send the response
   return responseStatus(res, 200, "success", YearGroupCreated);

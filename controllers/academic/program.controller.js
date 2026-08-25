@@ -41,7 +41,7 @@ exports.getProgramsController = async (req, res) => {
  **/
 exports.getProgramController = async (req, res) => {
   try {
-    const result = await getProgramsService(req.params.id);
+    const result = await getProgramsService(req.params.programId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -55,7 +55,7 @@ exports.getProgramController = async (req, res) => {
  **/
 exports.updateProgramController = async (req, res) => {
   try {
-    await updateProgramService(req.body, req.params.id, req.userAuth.id, res);
+    await updateProgramService(req.body, req.params.programId, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -68,7 +68,7 @@ exports.updateProgramController = async (req, res) => {
  **/
 exports.deleteProgramController = async (req, res) => {
   try {
-    const result = await deleteProgramService(req.params.id);
+    const result = await deleteProgramService(req.params.programId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

@@ -23,7 +23,7 @@ exports.registerAdminService = async (data, res) => {
   const isAdminExist = await Admin.findOne({ email });
 
   if (isAdminExist) {
-    return responseStatus(res, 401, "failed", "Email Already in use");
+    return responseStatus(res, 409, "failed", "Email Already in use");
   } else {
     // Create a new admin
     await Admin.create({
@@ -48,7 +48,7 @@ exports.loginAdminService = async (data, res) => {
   // Find the admin user by email
   const user = await Admin.findOne({ email });
   if (!user)
-    return responseStatus(res, 405, "failed", "Invalid login credentials");
+    return responseStatus(res, 401, "failed", "Invalid login credentials");
 
   // Check if the provided password is valid
   const isPassValid = await isPassMatched(password, user.password);
@@ -68,7 +68,7 @@ exports.loginAdminService = async (data, res) => {
     // Return user, token, and verification status
     return responseStatus(res, 200, "success", result);
   } else {
-    return responseStatus(res, 405, "failed", "Invalid login credentials");
+    return responseStatus(res, 401, "failed", "Invalid login credentials");
   }
 };
 
@@ -99,9 +99,9 @@ exports.getSingleProfileService = async (id, res) => {
     .populate("students");
 
   if (!user) {
-    return responseStatus(res, 201, "failed", "Admin doesn't exist ");
+    return responseStatus(res, 404, "failed", "Admin doesn't exist ");
   } else {
-    return responseStatus(res, 201, "success", user);
+    return responseStatus(res, 200, "success", user);
   }
 };
 
@@ -118,10 +118,12 @@ exports.getSingleProfileService = async (id, res) => {
 exports.updateAdminService = async (id, data, res) => {
   const { email, name, password } = data;
 
-  // Check if the updated email already exists
-  const emailTaken = await Admin.findOne({ email });
-  if (emailTaken) {
-    return "Email is already in use";
+  // Check if the updated email already exists (excluding current admin)
+  if (email) {
+    const emailTaken = await Admin.findOne({ email, _id: { $ne: id } });
+    if (emailTaken) {
+      return responseStatus(res, 409, "failed", "Email is already in use by another admin");
+    }
   }
 
   if (password) {
@@ -131,7 +133,7 @@ exports.updateAdminService = async (id, data, res) => {
       { name, email, password: await hashPassword(password) },
       { new: true }
     ).select("-password -createdAt -updatedAt");
-    return responseStatus(res, 201, "success", updateResult);
+    return responseStatus(res, 200, "success", updateResult);
   } else {
     // If no password provided, update only email and name
     const findAdminAndUpdate = await Admin.findByIdAndUpdate(
@@ -139,6 +141,6 @@ exports.updateAdminService = async (id, data, res) => {
       { email, name },
       { new: true }
     ).select("-password -createdAt -updatedAt");
-    return responseStatus(res, 201, "success", findAdminAndUpdate);
+    return responseStatus(res, 200, "success", findAdminAndUpdate);
   }
 };

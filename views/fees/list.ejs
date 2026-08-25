@@ -1,0 +1,188 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Ledger</p>
+    <h1>Fees</h1>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <a href="/fees/collection" class="btn btn-ghost">Collection report</a>
+    <a href="/fee-heads" class="btn btn-ghost">Fee heads</a>
+    <a href="/fees/ocr" class="btn btn-accent">Scan a fee list</a>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load fees: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Add a fee record</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/fees/create">
+      <div class="field-row">
+        <div class="field" style="position:relative;">
+          <label for="student-search">Student</label>
+          <input type="text" id="student-search" autocomplete="off"
+                 placeholder="Search by name or roll number..." />
+          <input type="hidden" name="student" id="student" required />
+          <div id="student-results" class="student-search-results" style="display:none;"></div>
+        </div>
+        <div class="field">
+          <label for="feeHead">Fee head</label>
+          <select name="feeHead" id="feeHead">
+            <option value="">— select or type below —</option>
+            <% feeHeads.filter(function(h) { return h.isActive; }).forEach(function(h) { %>
+              <option value="<%= h._id %>" data-amount="<%= h.defaultAmount %>"><%= h.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="feeType">Or type</label>
+          <input type="text" name="feeType" id="feeType" placeholder="custom fee type" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="amount">Amount (Rs)</label>
+        <input type="number" name="amount" id="amount" required min="0" />
+      </div>
+      <button type="submit" class="btn btn-primary">Add record</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All fee records</h2></div>
+  <% if (fees.length === 0) { %>
+    <div class="empty">
+      <div class="display">No fee records yet</div>
+      <p>Add one manually above, or scan a fee list.</p>
+    </div>
+  <% } else { %>
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Fee head</th>
+          <th>Source</th>
+          <th class="num">Amount</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% fees.forEach(function(f) { %>
+          <tr>
+            <td><strong><%= (f.student && f.student.name) || 'Unknown' %></strong></td>
+            <td><%= (f.feeHead && f.feeHead.name) || f.feeType || '—' %></td>
+            <td><span class="pill <%= f.source %>"><%= f.source %></span></td>
+            <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
+            <td><span class="pill <%= f.status %>"><%= f.status %></span></td>
+            <td>
+              <% if (f.status !== 'paid') { %>
+                <form method="POST" action="/fees/<%= f._id %>/update" style="display:inline;">
+                  <button type="submit" class="btn btn-ghost" style="padding:6px 10px;">Mark paid</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<script>
+// Auto-fill amount when a fee head with a default is selected
+document.getElementById('feeHead').addEventListener('change', function() {
+  var opt = this.options[this.selectedIndex];
+  var amt = opt && opt.dataset.amount;
+  if (amt && Number(amt) > 0) {
+    document.getElementById('amount').value = amt;
+  }
+});
+
+// ---- Searchable student selector ----
+// Students are embedded server-side so the school (typically a few hundred
+// students) can be filtered instantly client-side by name or roll number,
+// with class/section shown to disambiguate students who share a name.
+(function () {
+  var STUDENTS = <%- JSON.stringify(students.map(function(s) {
+    return {
+      id: s._id,
+      name: s.name,
+      rollNumber: s.rollNumber || '',
+      className: s.classLevel ? (s.classLevel.gradeLevel + ' — ' + s.classLevel.name) : 'Unassigned',
+      section: s.classLevel && s.classLevel.section ? s.classLevel.section : '—',
+    };
+  })) %>;
+
+  var searchInput = document.getElementById('student-search');
+  var hiddenInput = document.getElementById('student');
+  var resultsBox = document.getElementById('student-results');
+  if (!searchInput) return;
+
+  function render(matches) {
+    if (matches.length === 0) {
+      resultsBox.innerHTML = '<div class="student-search-empty">No matching students</div>';
+      resultsBox.style.display = 'block';
+      return;
+    }
+    resultsBox.innerHTML = matches.slice(0, 30).map(function (s) {
+      return '<div class="student-search-item" data-id="' + s.id + '" data-label="' + s.name.replace(/"/g, '&quot;') + '">' +
+        '<strong>' + s.name + '</strong>' +
+        '<span>Roll ' + (s.rollNumber || '—') + ' · ' + s.className + ' (' + s.section + ')</span>' +
+        '</div>';
+    }).join('');
+    resultsBox.style.display = 'block';
+  }
+
+  searchInput.addEventListener('input', function () {
+    hiddenInput.value = ''; // typing invalidates a previous selection
+    var q = searchInput.value.trim().toLowerCase();
+    if (!q) { resultsBox.style.display = 'none'; return; }
+    var matches = STUDENTS.filter(function (s) {
+      return s.name.toLowerCase().indexOf(q) !== -1 ||
+             String(s.rollNumber).toLowerCase().indexOf(q) !== -1;
+    });
+    render(matches);
+  });
+
+  resultsBox.addEventListener('click', function (e) {
+    var item = e.target.closest('.student-search-item');
+    if (!item) return;
+    hiddenInput.value = item.dataset.id;
+    searchInput.value = item.dataset.label;
+    resultsBox.style.display = 'none';
+  });
+
+  document.addEventListener('click', function (e) {
+    if (e.target !== searchInput && !resultsBox.contains(e.target)) {
+      resultsBox.style.display = 'none';
+    }
+  });
+
+  document.querySelector('form[action="/fees/create"]').addEventListener('submit', function (e) {
+    if (!hiddenInput.value) {
+      e.preventDefault();
+      alert('Please select a student from the search results.');
+    }
+  });
+})();
+</script>
+
+<style>
+.student-search-results {
+  position:absolute; top:100%; left:0; right:0; z-index:20;
+  background:var(--panel-bg, #fff); border:1px solid var(--border, #ddd);
+  border-radius:6px; max-height:260px; overflow-y:auto;
+  box-shadow:0 4px 12px rgba(0,0,0,0.08); margin-top:4px;
+}
+.student-search-item { padding:8px 12px; cursor:pointer; display:flex; flex-direction:column; gap:2px; }
+.student-search-item:hover { background:var(--hover-bg, #f5f5f5); }
+.student-search-item span { font-size:0.78rem; color:var(--muted, #888); }
+.student-search-empty { padding:10px 12px; color:var(--muted, #888); font-size:0.85rem; }
+</style>
+
+<%- include('../partials/foot') %>

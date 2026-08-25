@@ -21,8 +21,7 @@ exports.resultCalculate = async (questions, answers, exam) => {
     }
   }
   // calculating the percentage of correct answers
-  totalQuestions = questions.length;
-  grade = (correctAnswers / questions.length) * 100;
+  grade = questions.length > 0 ? (correctAnswers / questions.length) * 100 : 0;
   answeredQuestions = questions.map((question) => {
     return {
       question: question.question,

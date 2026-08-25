@@ -1,0 +1,56 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Parent Portal</p>
+    <h1>My Children</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<% if (profile && profile.children && profile.children.length > 0) { %>
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= profile.familyNumber || '—' %></div>
+      <div class="l">Family number</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= profile.children.length %></div>
+      <div class="l">Children enrolled</div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Your Children</h2></div>
+    <div class="panel-body">
+      <div class="card-grid">
+        <% profile.children.forEach(function(child) { %>
+          <div class="card">
+            <div class="card-body">
+              <h3><%= child.name %></h3>
+              <p class="muted">Roll # <%= child.rollNumber %></p>
+              <% if (child.classLevel) { %>
+                <p class="muted">Class: <%= child.classLevel.gradeLevel %> — <%= child.classLevel.name %></p>
+              <% } %>
+              <div style="display:flex; gap:8px; margin-top:12px;">
+                <a href="/child/<%= child._id %>/analysis" class="btn btn-ghost">View Progress</a>
+                <a href="/child/<%= child._id %>/fees" class="btn btn-ghost">Fees</a>
+              </div>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </div>
+  </div>
+<% } else { %>
+  <div class="panel">
+    <div class="empty">
+      <div class="display">No children linked yet</div>
+      <p>Contact the school office to link your children to your parent account.</p>
+    </div>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

@@ -46,7 +46,7 @@ exports.getSubjectsController = async (req, res) => {
  **/
 exports.getSubjectController = async (req, res) => {
   try {
-    const result = await getSubjectsService(req.params.id);
+    const result = await getSubjectsService(req.params.subjectId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -60,7 +60,7 @@ exports.getSubjectController = async (req, res) => {
  **/
 exports.updateSubjectController = async (req, res) => {
   try {
-    await updateSubjectService(req.body, req.params.id, req.userAuth.id, res);
+    await updateSubjectService(req.body, req.params.subjectId, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -73,7 +73,7 @@ exports.updateSubjectController = async (req, res) => {
  **/
 exports.deleteSubjectController = async (req, res) => {
   try {
-    const result = await deleteSubjectService(req.params.id);
+    const result = await deleteSubjectService(req.params.subjectId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

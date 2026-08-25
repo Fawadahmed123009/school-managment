@@ -14,7 +14,7 @@ const {
 
 subjectRouter.route("/subject").get(isLoggedIn, isAdmin, getSubjectsController);
 subjectRouter
-  .route("/subject/:id")
+  .route("/subject/:subjectId")
   .get(isLoggedIn, isAdmin, getSubjectController)
   .patch(isLoggedIn, isAdmin, updateSubjectController)
   .delete(isLoggedIn, isAdmin, deleteSubjectController);

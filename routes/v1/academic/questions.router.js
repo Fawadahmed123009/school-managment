@@ -17,7 +17,7 @@ questionsRouter
   .route("/questions/:examId/create")
   .post(isLoggedIn, isTeacher, createQuestionsController);
 questionsRouter
-  .route("/question/:id")
+  .route("/question/:questionId")
   .get(isLoggedIn, isTeacher, getQuestionByIdController)
   .patch(isLoggedIn, isTeacher, updateQuestionController);
 

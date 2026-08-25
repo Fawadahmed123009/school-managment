@@ -1,3 +1,21 @@
 node_modules
 .env
+.env.local
 .vercel
+uploads/
+tmp/
+logs/
+*.log
+.claude/settings.local.json
+_e2e_*.js
+_gen_secret.js
+
+# Dev scratch scripts & one-off debugging (root-level, underscore-prefixed)
+/_*.js
+/_*.sh
+
+# Stray output artifacts accidentally created at repo root
+/node
+/school-management-system@1.0.0
+/xyz.png
+/test-roll-collision.xlsx

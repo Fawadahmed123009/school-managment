@@ -12,6 +12,10 @@ const {
   getTeacherProfileController,
   updateTeacherProfileController,
   adminUpdateTeacherProfileController,
+  toggleAttendanceManagerController,
+  adminUpdateCredentialsController,
+  adminGetTeacherController,
+  deleteTeacherController,
 } = require("../../../controllers/staff/teachers.controller");
 // create teacher
 teachersRouter
@@ -33,7 +37,22 @@ teachersRouter
   .patch(isLoggedIn, isTeacher, updateTeacherProfileController);
 // admin update user profile
 teachersRouter
-  .route("/teacher/:teachersId/update-profile")
+  .route("/teacher/:teacherId/update-profile")
   .patch(isLoggedIn, isAdmin, adminUpdateTeacherProfileController);
-
+// admin toggles a teacher's attendance-manager flag
+teachersRouter
+  .route("/teacher/:teacherId/toggle-attendance-manager")
+  .patch(isLoggedIn, isAdmin, toggleAttendanceManagerController);
+// admin update teacher credentials (name/email/password)
+teachersRouter
+  .route("/teacher/:teacherId/credentials")
+  .put(isLoggedIn, isAdmin, adminUpdateCredentialsController);
+// admin get teacher by ID
+teachersRouter
+  .route("/admin/teacher/:teacherId")
+  .get(isLoggedIn, isAdmin, adminGetTeacherController);
+// admin delete a teacher
+teachersRouter
+  .route("/teacher/:teacherId")
+  .delete(isLoggedIn, isAdmin, deleteTeacherController);
 module.exports = teachersRouter;

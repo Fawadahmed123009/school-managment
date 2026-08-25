@@ -1,0 +1,80 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Test sessions</h1>
+  </div>
+  <a href="/tests/manage" class="btn btn-ghost">Manage tests →</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load sessions: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a session</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/sessions/create">
+      <div class="field">
+        <label for="name">Session name</label>
+        <input type="text" name="name" id="name" placeholder="Term 1 Test Session" required />
+      </div>
+      <div class="field">
+        <label for="classLevels">Classes included</label>
+        <select name="classLevels" id="classLevels" multiple size="8">
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>"><%= c.name %></option>
+          <% }); %>
+        </select>
+        <p class="hint">Hold Ctrl/Cmd to select multiple.</p>
+      </div>
+      <div class="field">
+        <label>Phases</label>
+        <div id="phase-inputs">
+          <input type="text" name="phaseNames" placeholder="Phase 1" style="margin-bottom:6px;" />
+          <input type="text" name="phaseNames" placeholder="Phase 2" style="margin-bottom:6px;" />
+          <input type="text" name="phaseNames" placeholder="Phase 3" style="margin-bottom:6px;" />
+        </div>
+        <button type="button" class="btn btn-ghost" id="add-phase-btn" style="padding:6px 10px;">+ Add another phase</button>
+      </div>
+      <button type="submit" class="btn btn-primary">Create session</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All sessions</h2></div>
+  <% if (sessions.length === 0) { %>
+    <div class="empty"><div class="display">No sessions yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Classes</th><th>Phases</th><th></th></tr></thead>
+      <tbody>
+        <% sessions.forEach(function(s) { %>
+          <tr>
+            <td><strong><%= s.name %></strong></td>
+            <td><%= s.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
+            <td><%= s.phases.map(function(p) { return p.name; }).join(' → ') %></td>
+            <td><a href="/sessions/<%= s._id %>/report" class="btn btn-ghost" style="padding:4px 10px;">Report card</a></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<script>
+  document.getElementById('add-phase-btn').addEventListener('click', function () {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.name = 'phaseNames';
+    input.placeholder = 'Phase ' + (document.querySelectorAll('#phase-inputs input').length + 1);
+    input.style.marginBottom = '6px';
+    document.getElementById('phase-inputs').appendChild(input);
+  });
+</script>
+
+<%- include('../partials/foot') %>

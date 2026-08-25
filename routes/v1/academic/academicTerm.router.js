@@ -10,14 +10,13 @@ const {
   updateAcademicTermController,
   deleteAcademicTermController,
 } = require("../../../controllers/academic/academicTerm.controller");
-
 academicTermRouter
   .route("/academic-term")
-  .get(isLoggedIn, isAdmin, getAcademicTermsController)
+  .get(isLoggedIn, getAcademicTermsController)
   .post(isLoggedIn, isAdmin, createAcademicTermController);
 academicTermRouter
-  .route("/academic-term/:id")
-  .get(isLoggedIn, isAdmin, getAcademicTermController)
+  .route("/academic-term/:academicTermId")
+  .get(isLoggedIn, getAcademicTermController)
   .patch(isLoggedIn, isAdmin, updateAcademicTermController)
   .delete(isLoggedIn, isAdmin, deleteAcademicTermController);
 module.exports = academicTermRouter;

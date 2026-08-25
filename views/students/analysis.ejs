@@ -1,0 +1,101 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<% if (loadError) { %>
+  <div class="page-head"><div><h1>Student analysis</h1></div></div>
+  <div class="flash error">Couldn't load analysis: <%= loadError %></div>
+<% } else { %>
+  <div class="page-head">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <% if (analysis.student.photoUrl) { %>
+        <img src="<%= analysis.student.photoUrl %>?t=<%= Date.now() %>" alt="" style="width:56px; height:56px; border-radius:8px; object-fit:cover;" />
+      <% } %>
+      <div>
+        <p class="eyebrow"><%= analysis.student.classLevel ? analysis.student.classLevel.name : '' %></p>
+        <h1><%= analysis.student.name %></h1>
+      </div>
+    </div>
+    <a href="/students/<%= analysis.student._id %>/photo" class="btn btn-ghost">Photo</a>
+    <a href="/students" class="btn btn-ghost">← Back to students</a>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= analysis.attendance.percent !== null ? analysis.attendance.percent + '%' : '—' %></div>
+      <div class="l">Attendance (<%= analysis.attendance.totalMarked %> days marked)</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= analysis.marks.overallAverage !== null ? analysis.marks.overallAverage + '%' : '—' %></div>
+      <div class="l">Overall test average</div>
+    </div>
+    <div class="stat">
+      <div class="n mono">Rs <%= Number(analysis.fees.paid).toLocaleString() %></div>
+      <div class="l">Fees paid</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--review)">Rs <%= Number(analysis.fees.pending).toLocaleString() %></div>
+      <div class="l">Fees pending</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Attendance breakdown</h2></div>
+    <div class="panel-body" style="display:flex; gap:24px;">
+      <div><span class="pill paid">Present</span> <%= analysis.attendance.present %></div>
+      <div><span class="pill error">Absent</span> <%= analysis.attendance.absent %></div>
+      <div><span class="pill review">Late</span> <%= analysis.attendance.late %></div>
+    </div>
+  </div>
+
+  <% if (analysis.marks.bySession.length === 0) { %>
+    <div class="panel"><div class="empty"><div class="display">No test results yet</div></div></div>
+  <% } else { %>
+    <% analysis.marks.bySession.forEach(function(sessionBlock) { %>
+      <div class="panel">
+        <div class="panel-head">
+          <h2><%= sessionBlock.session %></h2>
+          <% if (sessionBlock.average !== null) { %><span class="pill ocr">Average: <%= sessionBlock.average %>%</span><% } %>
+        </div>
+        <table class="ledger">
+          <thead><tr><th>Subject</th><th>Test</th><th>Date</th><th class="num">Score</th><th class="num">Total</th><th>%</th></tr></thead>
+          <tbody>
+            <% sessionBlock.tests.forEach(function(t) { %>
+              <tr>
+                <td><%= t.subject %></td>
+                <td><%= t.test %></td>
+                <td><%= new Date(t.date).toLocaleDateString() %></td>
+                <td class="num mono"><%= t.score %></td>
+                <td class="num mono"><%= t.totalMarks %></td>
+                <td><%= t.percent !== null ? t.percent + '%' : '—' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% }); %>
+  <% } %>
+
+  <div class="panel">
+    <div class="panel-head"><h2>Fee records</h2></div>
+    <% if (analysis.fees.records.length === 0) { %>
+      <div class="empty"><div class="display">No fee records yet</div></div>
+    <% } else { %>
+      <table class="ledger">
+        <thead><tr><th>Type</th><th class="num">Amount</th><th>Status</th><th>Source</th></tr></thead>
+        <tbody>
+          <% analysis.fees.records.forEach(function(f) { %>
+            <tr>
+              <td><%= f.feeType %></td>
+              <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
+              <td><span class="pill <%= f.status %>"><%= f.status %></span></td>
+              <td><span class="pill <%= f.source %>"><%= f.source %></span></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } %>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>

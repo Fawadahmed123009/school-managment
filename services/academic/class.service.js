@@ -1,104 +1,86 @@
-// Import necessary models
 const ClassLevel = require("../../models/Academic/class.model");
+const Student = require("../../models/Students/students.model");
 const Admin = require("../../models/Staff/admin.model");
-// Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
-/**
- * Create class service.
- *
- * @param {Object} data - The data containing information about the class.
- * @param {string} data.name - The name of the class.
- * @param {string} data.description - The description of the class.
- * @param {string} userId - The ID of the user creating the class.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.createClassLevelService = async (data, userId) => {
-  const { name, description } = data;
 
-  // Check if the class already exists
+exports.createClassLevelService = async (data, userId, res) => {
+  const { name, description, gradeLevel, group, section } = data;
+
+  if (!name || !gradeLevel) {
+    return responseStatus(res, 400, "failed", "Name and grade level are required");
+  }
+
   const classFound = await ClassLevel.findOne({ name });
   if (classFound) {
     return responseStatus(res, 400, "failed", "Class already exists");
   }
 
-  // Create the class
   const classCreated = await ClassLevel.create({
     name,
     description,
+    gradeLevel,
+    group: group || null,
+    section: section || null,
     createdBy: userId,
   });
 
-  // Push the class into the admin's classLevels array
-  const admin = await Admin.findById(userId);
-  admin.classLevels.push(classCreated._id);
-  // Save the changes
-  await admin.save();
+  await Admin.findByIdAndUpdate(userId, { $push: { classLevels: classCreated._id } });
 
-  // Send the response
   return responseStatus(res, 200, "success", classCreated);
 };
 
-/**
- * Get all classes service.
- *
- * @returns {Array} - An array of all classes.
- */
 exports.getAllClassesService = async () => {
-  return await ClassLevel.find();
+  const classes = await ClassLevel.find()
+    .sort({ gradeLevel: 1, group: 1, section: 1 })
+    .lean();
+
+  // ClassLevel.students is a legacy array that nothing in the codebase ever
+  // populates, so it can't be trusted for enrollment checks. Compute real
+  // per-class student counts with a single aggregation against Student.
+  const counts = await Student.aggregate([
+    { $group: { _id: "$classLevel", count: { $sum: 1 } } },
+  ]);
+  const countById = new Map(counts.map((c) => [String(c._id), c.count]));
+
+  return classes.map((c) => ({
+    ...c,
+    studentCount: countById.get(String(c._id)) || 0,
+  }));
 };
 
-/**
- * Get a single class by ID service.
- *
- * @param {string} id - The ID of the class.
- * @returns {Object} - The class object.
- */
 exports.getClassLevelsService = async (id) => {
   return await ClassLevel.findById(id);
 };
 
-/**
- * Update class data service.
- *
- * @param {Object} data - The data containing updated information about the class.
- * @param {string} data.name - The updated name of the class.
- * @param {string} data.description - The updated description of the class.
- * @param {string} id - The ID of the class to be updated.
- * @param {string} userId - The ID of the user updating the class.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.updateClassLevelService = async (data, id, userId) => {
-  const { name, description } = data;
+exports.updateClassLevelService = async (data, id, userId, res) => {
+  const { name, description, gradeLevel, group, section } = data;
 
-  // Check if the updated name already exists
-  const classFound = await ClassLevel.findOne({ name });
-  if (classFound) {
-    return responseStatus(res, 400, "failed", "Class already exists");
+  if (name) {
+    const classFound = await ClassLevel.findOne({ name, _id: { $ne: id } });
+    if (classFound) {
+      return responseStatus(res, 400, "failed", "Another class already uses that name");
+    }
   }
 
-  // Update the class
   const classLevel = await ClassLevel.findByIdAndUpdate(
     id,
     {
-      name,
-      description,
-      createdBy: userId,
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(gradeLevel !== undefined && { gradeLevel }),
+      ...(group !== undefined && { group: group || null }),
+      ...(section !== undefined && { section: section || null }),
     },
-    {
-      new: true,
-    }
+    { new: true }
   );
 
-  // Send the response
+  if (!classLevel) return responseStatus(res, 404, "failed", "Class not found");
+
   return responseStatus(res, 200, "success", classLevel);
 };
 
-/**
- * Delete class data service.
- *
- * @param {string} id - The ID of the class to be deleted.
- * @returns {Object} - The deleted class object.
- */
-exports.deleteClassLevelService = async (id) => {
-  return await ClassLevel.findByIdAndDelete(id);
+exports.deleteClassLevelService = async (id, res) => {
+  const deleted = await ClassLevel.findByIdAndDelete(id);
+  if (!deleted) return responseStatus(res, 404, "failed", "Class not found");
+  return responseStatus(res, 200, "success", deleted);
 };

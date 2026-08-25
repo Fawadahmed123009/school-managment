@@ -1,0 +1,95 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Family match found</p>
+    <h1>Review parent match</h1>
+  </div>
+</div>
+
+<div class="panel" style="border: 2px solid var(--review);">
+  <div class="panel-head" style="background: var(--review);">
+    <h2>A parent with this phone number already exists</h2>
+  </div>
+  <div class="panel-body">
+    <div class="stats" style="margin-bottom: 20px;">
+      <div class="stat">
+        <div class="n"><%= matchedParent.name %></div>
+        <div class="l">Parent name</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= matchedParent.phone %></div>
+        <div class="l">Phone</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= matchedParent.familyNumber %></div>
+        <div class="l">Family number</div>
+      </div>
+    </div>
+
+    <% if (matchedParent.children && matchedParent.children.length > 0) { %>
+      <h3 style="margin-bottom: 8px;">Existing children in this family:</h3>
+      <table class="ledger" style="margin-bottom: 20px;">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Roll #</th>
+            <th>Father</th>
+            <th>Class</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% matchedParent.children.forEach(function(c) { %>
+            <tr>
+              <td><%= c.name %></td>
+              <td class="mono"><%= c.rollNumber || '—' %></td>
+              <td><%= c.fatherName || '—' %></td>
+              <td><%= c.classLevel ? c.classLevel.name : '—' %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    <% } else { %>
+      <p class="muted" style="margin-bottom: 20px;">No children currently linked to this parent.</p>
+    <% } %>
+
+    <p style="font-weight: 600; margin-bottom: 16px;">
+      The new student <strong><%= formData.name %></strong> (father: <strong><%= formData.fatherName %></strong>) has phone match with this parent.
+      What would you like to do?
+    </p>
+
+    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+      <!-- Option 1: Link to this family -->
+      <form method="POST" action="/students/create" style="flex: 1; min-width: 280px;">
+        <% Object.keys(formData).forEach(function(key) { %>
+          <input type="hidden" name="<%= key %>" value="<%= formData[key] %>" />
+        <% }); %>
+        <input type="hidden" name="familyAction" value="link" />
+        <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+          Link to <strong><%= matchedParent.name %></strong>'s family (<%= matchedParent.familyNumber %>)
+        </button>
+        <p class="hint" style="margin-top: 6px;">Student joins this family. Parent portal will show both children.</p>
+      </form>
+
+      <!-- Option 2: Create new family -->
+      <form method="POST" action="/students/create" style="flex: 1; min-width: 280px;">
+        <% Object.keys(formData).forEach(function(key) { %>
+          <input type="hidden" name="<%= key %>" value="<%= formData[key] %>" />
+        <% }); %>
+        <input type="hidden" name="familyAction" value="new" />
+        <button type="submit" class="btn btn-ghost" style="width: 100%; justify-content: center; border: 2px solid var(--review); color: var(--review);">
+          Create separate family for <strong><%= formData.fatherName %></strong>
+        </button>
+        <p class="hint" style="margin-top: 6px;">New parent account + new family number. Keeps families independent.</p>
+      </form>
+    </div>
+
+    <div style="margin-top: 20px;">
+      <a href="/students" class="btn btn-ghost">Cancel and go back</a>
+    </div>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

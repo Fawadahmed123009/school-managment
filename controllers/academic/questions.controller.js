@@ -40,7 +40,7 @@ exports.getAllQuestionsController = async (req, res) => {
  **/
 exports.getQuestionByIdController = async (req, res) => {
   try {
-    const result = await getQuestionsByIdService(req.params.id);
+    const result = await getQuestionsByIdService(req.params.questionId);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
@@ -54,7 +54,7 @@ exports.getQuestionByIdController = async (req, res) => {
  **/
 exports.updateQuestionController = async (req, res) => {
   try {
-    await updateQuestionsService(req.body, req.params.id, res);
+    await updateQuestionsService(req.body, req.params.questionId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

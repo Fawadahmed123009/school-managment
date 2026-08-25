@@ -60,6 +60,10 @@ const teacherSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
+    isAttendanceManager: {
+      type: Boolean,
+      default: false,
+    },
 
     program: {
       type: String,

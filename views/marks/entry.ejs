@@ -1,0 +1,77 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academics</p>
+    <h1>Enter marks</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load data: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Add a mark</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/marks/create">
+      <div class="field-row">
+        <div class="field">
+          <label for="student">Student</label>
+          <select name="student" id="student" required>
+            <option value="">Select a student</option>
+            <% students.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="exam">Exam</label>
+          <select name="exam" id="exam" required>
+            <option value="">Select an exam</option>
+            <% exams.forEach(function(e) { %>
+              <option value="<%= e._id %>"><%= e.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="score">Score</label>
+        <input type="number" name="score" id="score" min="0" required />
+      </div>
+      <button type="submit" class="btn btn-primary">Save mark</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>View a result card</h2></div>
+  <div class="panel-body">
+    <form method="GET" action="#" onsubmit="event.preventDefault(); const sid = document.getElementById('report-student').value; const tid = document.getElementById('report-term').value; if (sid && tid) window.location.href = '/marks/report/' + sid + '/' + tid;">
+      <div class="field-row">
+        <div class="field" style="flex:1">
+          <label for="report-student">Student</label>
+          <select id="report-student" required>
+            <option value="">Select a student</option>
+            <% students.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" style="flex:1">
+          <label for="report-term">Academic term</label>
+          <select id="report-term" required>
+            <option value="">Select a term</option>
+            <% terms.forEach(function(t) { %>
+              <option value="<%= t._id %>"><%= t.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-ghost">View result card</button>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

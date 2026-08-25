@@ -1,0 +1,58 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<% if (loadError) { %>
+  <div class="page-head"><div><h1>Phase report card</h1></div></div>
+  <div class="flash error"><%= loadError %></div>
+<% } else { %>
+  <div class="page-head">
+    <div>
+      <p class="eyebrow"><%= report.session.name %></p>
+      <h1><%= studentName %></h1>
+    </div>
+    <a href="/sessions/<%= sessionId %>/report" class="btn btn-ghost">← Pick another student</a>
+    <form method="POST" action="/reports/generate" style="display:inline">
+      <input type="hidden" name="reportType" value="session-report" />
+      <input type="hidden" name="sessionId" value="<%= sessionId %>" />
+      <input type="hidden" name="studentId" value="<%= studentId %>" />
+      <button type="submit" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">&#128196; Download PDF</button>
+    </form>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= report.overallAverage !== null ? report.overallAverage + '%' : '—' %></div>
+      <div class="l">Overall average</div>
+    </div>
+  </div>
+  <p class="hint" style="margin-bottom:20px; color:var(--pending);">⚠ <%= report.overallAverageNote %></p>
+
+  <% report.phases.forEach(function(phaseBlock) { %>
+    <div class="panel">
+      <div class="panel-head">
+        <h2><%= phaseBlock.phase %></h2>
+        <span class="pill ocr"><%= phaseBlock.average !== null ? phaseBlock.average + '% average' : 'No results yet' %></span>
+      </div>
+      <% if (phaseBlock.tests.length === 0) { %>
+        <div class="empty"><div class="display">No results in this phase yet</div></div>
+      <% } else { %>
+        <table class="ledger">
+          <thead><tr><th>Test</th><th>Subject</th><th class="num">Score</th><th class="num">%</th></tr></thead>
+          <tbody>
+            <% phaseBlock.tests.forEach(function(t) { %>
+              <tr>
+                <td><%= t.test %></td>
+                <td><%= t.subject %></td>
+                <td class="num mono"><%= t.score %>/<%= t.totalMarks %></td>
+                <td class="num mono"><%= t.percent %>%</td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+  <% }); %>
+<% } %>
+
+<%- include('../partials/foot') %>

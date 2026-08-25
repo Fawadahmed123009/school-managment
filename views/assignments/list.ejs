@@ -1,0 +1,81 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academics</p>
+    <h1>Teacher assignments</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load assignments: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Assign a teacher to a subject/class</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/assignments/create">
+      <div class="field-row">
+        <div class="field">
+          <label for="teacher">Teacher</label>
+          <select name="teacher" id="teacher" required>
+            <option value="">Select a teacher</option>
+            <% teachers.forEach(function(t) { %>
+              <option value="<%= t._id %>"><%= t.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="subject">Subject</label>
+          <select name="subject" id="subject" required>
+            <option value="">Select a subject</option>
+            <% subjects.forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="classLevel">Class</label>
+          <select name="classLevel" id="classLevel" required>
+            <option value="">Select a class</option>
+            <% classes.forEach(function(c) { %>
+              <option value="<%= c._id %>"><%= c.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Assign</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Current assignments</h2></div>
+  <% if (assignments.length === 0) { %>
+    <div class="empty"><div class="display">No assignments yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead>
+        <tr><th>Teacher</th><th>Subject</th><th>Class</th><th></th></tr>
+      </thead>
+      <tbody>
+        <% assignments.forEach(function(a) { %>
+          <tr>
+            <td><%= a.teacher ? a.teacher.name : 'Unknown' %></td>
+            <td><%= a.subject ? a.subject.name : 'Unknown' %></td>
+            <td><%= a.classLevel ? a.classLevel.name : 'Unknown' %></td>
+            <td>
+              <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;">
+                <button type="submit" class="btn btn-ghost" style="padding:6px 10px;">Remove</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

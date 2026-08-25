@@ -1,20 +1,33 @@
 const verifyToken = require("../utils/verifyToken");
 
 const isLoggedIn = (req, res, next) => {
-  // get token from header
-  const headerObj = req.headers;
-  const token = headerObj.authorization.split(" ")[1];
-  // verify token
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      status: "failed",
+      message: "No token provided",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).json({
+      status: "failed",
+      message: "No token provided",
+    });
+  }
+
   const verify = verifyToken(token);
   if (verify) {
     req.userAuth = verify;
-    next();
-  } else {
-    res.status(400).json({
-      status: "failed",
-      message: "Invalid/expired token",
-    });
+    return next();
   }
-  //save user to user.obj
+
+  return res.status(401).json({
+    status: "failed",
+    message: "Invalid or expired token",
+  });
 };
+
 module.exports = isLoggedIn;

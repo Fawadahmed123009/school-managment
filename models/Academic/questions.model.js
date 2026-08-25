@@ -1,3 +1,8 @@
+/**
+ * @deprecated This model is part of the legacy Exam system, superseded by the
+ * Test model (test.model.js). It is retained only because the questions router
+ * still references it. New features should not use this model.
+ */
 const mongoose = require("mongoose");
 
 const { ObjectId } = mongoose;

@@ -1,0 +1,48 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Result card</p>
+    <h1><%= (report && report.studentName) || 'Result' %></h1>
+  </div>
+  <a href="/marks" class="btn btn-ghost">← Back to marks</a>
+</div>
+
+<% if (loadError) { %>
+  <div class="flash error">Couldn't load this result card: <%= loadError %></div>
+<% } else { %>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Subject breakdown</h2>
+      <span class="pill paid" style="font-size:13px;">Overall: <%= report.letterGrade %></span>
+    </div>
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Subject</th>
+          <th class="num">Score</th>
+          <th>Grade</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% (report.subjects || []).forEach(function(sub) { %>
+          <tr>
+            <td><%= sub.subject %></td>
+            <td class="num mono"><%= sub.score %></td>
+            <td><%= sub.letterGrade %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <div class="review-foot">
+      <div class="total">
+        <span class="l">Average</span>
+        <%= report.average %>%
+      </div>
+    </div>
+  </div>
+<% } %>
+
+<%- include('../partials/foot') %>
