@@ -59,7 +59,7 @@
       <div class="field-row">
         <div class="field">
           <label for="session">Session (optional)</label>
-          <select name="session" id="session" onchange="updatePhaseOptions()">
+          <select name="session" id="session">
             <option value="">Standalone test — no session</option>
             <% sessions.forEach(function(s) { %>
               <option value="<%= s._id %>" data-phases='<%- JSON.stringify(s.phases) %>'><%= s.name %></option>
@@ -101,24 +101,6 @@
   <% } %>
 </div>
 
-<script>
-  function updatePhaseOptions() {
-    const sessionSelect = document.getElementById('session');
-    const phaseSelect = document.getElementById('phase');
-    const selected = sessionSelect.options[sessionSelect.selectedIndex];
-    const phasesAttr = selected.getAttribute('data-phases');
-
-    phaseSelect.innerHTML = '<option value="">—</option>';
-    if (phasesAttr) {
-      const phases = JSON.parse(phasesAttr);
-      phases.forEach(function (p) {
-        const opt = document.createElement('option');
-        opt.value = p._id;
-        opt.textContent = p.name;
-        phaseSelect.appendChild(opt);
-      });
-    }
-  }
-</script>
+<script src="/js/test-manage.js"></script>
 
 <%- include('../partials/foot') %>

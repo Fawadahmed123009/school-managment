@@ -8,6 +8,7 @@ const {
   updateClassLevelService,
   deleteClassLevelService,
 } = require("../../services/academic/class.service");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 router.get("/classes", requireRole("admin"), async (req, res) => {
   try {
@@ -52,33 +53,37 @@ router.get("/classes/:classLevelId/edit", requireRole("admin"), async (req, res)
 
 router.post("/classes/create", requireRole("admin"), async (req, res) => {
   const { name, gradeLevel, group, section, description } = req.body;
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await createClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.user._id, res);
-    if (!res.headersSent) return res.redirect("/classes?ok=1");
+    await createClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.user._id, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/classes?error=${encodeURIComponent(err.message || "Failed to create class")}`);
   }
-  if (!res.headersSent) return res.redirect(`/classes?error=${encodeURIComponent("Failed to create class")}`);
+  if (result.ok) return res.redirect("/classes?ok=1");
+  return res.redirect(`/classes?error=${encodeURIComponent(result.message || "Failed to create class")}`);
 });
 
 router.post("/classes/:classLevelId/edit", requireRole("admin"), async (req, res) => {
   const { name, gradeLevel, group, section, description } = req.body;
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await updateClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.params.classLevelId, req.user._id, res);
-    if (!res.headersSent) return res.redirect("/classes?ok=1");
+    await updateClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.params.classLevelId, req.user._id, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/classes/${req.params.classLevelId}/edit?error=${encodeURIComponent(err.message || "Update failed")}`);
   }
-  if (!res.headersSent) return res.redirect(`/classes/${req.params.classLevelId}/edit?error=${encodeURIComponent("Update failed")}`);
+  if (result.ok) return res.redirect("/classes?ok=1");
+  return res.redirect(`/classes/${req.params.classLevelId}/edit?error=${encodeURIComponent(result.message || "Update failed")}`);
 });
 
 router.post("/classes/:classLevelId/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await deleteClassLevelService(req.params.classLevelId, res);
+    await deleteClassLevelService(req.params.classLevelId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/classes?error=${encodeURIComponent(err.message || "Delete failed")}`);
   }
-  if (!res.headersSent) res.redirect("/classes?ok=1");
+  if (result.ok) return res.redirect("/classes?ok=1");
+  return res.redirect(`/classes?error=${encodeURIComponent(result.message || "Delete failed")}`);
 });
 
 module.exports = router;

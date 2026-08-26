@@ -1,5 +1,9 @@
 (function () {
-  const students = window.__STUDENTS__ || [];
+  const students = (function () {
+    const el = document.getElementById('ocr-students');
+    if (el) { try { return JSON.parse(el.textContent); } catch (e) {} }
+    return window.__STUDENTS__ || [];
+  })();
   const pickBtn = document.getElementById('pick-photo-btn');
   const fileInput = document.getElementById('photo-input');
   const uploadStep = document.getElementById('upload-step');
@@ -28,7 +32,7 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="4">Extracting…</td></tr>';
 
-    const res = await fetch('/fees/ocr/extract', { method: 'POST', body: formData });
+    const res = await fetch('/fees/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
@@ -108,7 +112,7 @@
 
     const res = await fetch('/fees/ocr/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ fees }),
     });
     const data = await res.json();

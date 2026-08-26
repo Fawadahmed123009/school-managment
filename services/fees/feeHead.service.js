@@ -21,6 +21,23 @@ exports.createFeeHeadService = async (data, adminId, res) => {
   return responseStatus(res, 201, "success", feeHead);
 };
 
+// Find an existing fee head by name (case-insensitive) or create it, returning
+// the FeeHead document directly. Lets the manual fee-entry form promote a head
+// typed inline into a real, reusable catalog entry — same dedupe rule as
+// createFeeHeadService, but usable outside the responseStatus request cycle
+// (it returns the doc instead of writing a response, and reuses rather than
+// 409s on an existing name).
+exports.findOrCreateFeeHeadByName = async (name, adminId) => {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return null;
+  // Escape free-text before building the RegExp so metacharacters can't throw
+  // or match unintended heads.
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const existing = await FeeHead.findOne({ name: { $regex: new RegExp(`^${escaped}$`, "i") } });
+  if (existing) return existing;
+  return await FeeHead.create({ name: trimmed, createdBy: adminId });
+};
+
 exports.getAllFeeHeadsService = async (query) => {
   return await paginate(FeeHead, {}, {
     page: query.page,

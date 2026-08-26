@@ -4,6 +4,10 @@ const { body, validationResult } = require("express-validator");
 const { apiFetch } = require("../../utils/apiClient");
 
 // ── Cookie security options ───────────────
+// NOTE: `secure` follows NODE_ENV — production MUST set NODE_ENV=production for
+// the Secure flag (cookie sent over HTTPS only). There is intentionally no
+// in-code default so http://localhost dev keeps working. .env.example ships
+// NODE_ENV=development.
 const isProduction = process.env.NODE_ENV === "production";
 const cookieOptions = {
   httpOnly: true,
@@ -109,7 +113,9 @@ router.post(
 
 // ── Logout ────────────────────────────────
 router.get("/logout", (req, res) => {
-  res.clearCookie("session");
+  // Clear with attributes matching how the cookie was set, so the browser
+  // reliably removes it (and it carries Secure/SameSite in production).
+  res.clearCookie("session", { httpOnly: true, sameSite: "lax", secure: isProduction, path: "/" });
   res.redirect("/admin/login");
 });
 

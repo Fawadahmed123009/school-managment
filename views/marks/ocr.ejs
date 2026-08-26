@@ -69,9 +69,7 @@
   </div>
 </div>
 
-<script>
-  window.__STUDENTS__ = <%- JSON.stringify(students) %>;
-</script>
+<script type="application/json" id="marks-ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
 <script src="/js/marks-ocr-review.js"></script>
 
 <%- include('../partials/foot') %>

@@ -55,9 +55,7 @@
   </div>
 </div>
 
-<script>
-  window.__CLASSES__ = <%- JSON.stringify(classes) %>;
-</script>
+<script type="application/json" id="import-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
 <script src="/js/student-import.js"></script>
 
 <%- include('../partials/foot') %>

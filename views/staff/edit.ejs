@@ -41,7 +41,7 @@
     <p style="font-size:14px; color:var(--ink-soft); margin:0 0 12px;">
       Permanently delete this teacher account. This cannot be undone.
     </p>
-    <form method="POST" action="/staff/<%= teacher._id %>/delete" onsubmit="return confirm('Are you sure you want to delete <%= teacher.name %>? This cannot be undone.');">
+    <form method="POST" action="/staff/<%= teacher._id %>/delete" data-confirm="Are you sure you want to delete <%= teacher.name %>? This cannot be undone.">
       <button type="submit" class="btn" style="background:var(--error); color:#fff;">Delete teacher</button>
     </form>
   </div>

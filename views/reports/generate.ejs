@@ -117,12 +117,6 @@
   <button type="submit" class="btn btn-primary" style="margin-top:16px">Generate PDF</button>
 </form>
 
-<script>
-  document.getElementById("reportType").addEventListener("change", function () {
-    document.querySelectorAll(".report-fields").forEach(function (el) {
-      el.style.display = el.dataset.for === this.value ? "" : "none";
-    }.bind(this));
-  });
-</script>
+<script src="/js/report-generate.js"></script>
 
 <%- include('../partials/foot') %>

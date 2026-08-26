@@ -8,6 +8,7 @@ const {
   adminDeleteStudentService,
 } = require("../../services/students/students.service");
 const { getAllClassesService } = require("../../services/academic/class.service");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 router.get("/students", requireRole("admin"), async (req, res) => {
   try {
@@ -60,31 +61,27 @@ router.post("/students/create", requireRole("admin"), async (req, res) => {
   const data = {};
   fields.forEach((f) => { if (req.body[f] !== undefined) data[f] = req.body[f]; });
 
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await adminRegisterStudentService(data, req.user._id, res);
-    // Service may have sent a response (family match confirm) or may not have
-    if (!res.headersSent) {
-      // Check if the service returned "confirm" status (family match)
-      // The service sends JSON response, but since we're in a view route,
-      // we need to handle the redirect ourselves
-      return res.redirect("/students?ok=1");
-    }
+    await adminRegisterStudentService(data, req.user._id, cap);
   } catch (err) {
-    if (!res.headersSent) {
-      return res.redirect(`/students?error=${encodeURIComponent(err.message)}`);
-    }
+    return res.redirect(`/students?error=${encodeURIComponent(err.message || "Failed to create student.")}`);
   }
+  if (result.ok) return res.redirect("/students?ok=1");
+  return res.redirect(`/students?error=${encodeURIComponent(result.message || "Failed to create student.")}`);
 });
 
 // GET /students/:studentId/edit — edit form
 router.get("/students/:studentId/edit", requireRole("admin"), async (req, res) => {
   try {
-    const [student, classes] = await Promise.all([
-      getStudentByAdminService(req.params.studentId),
+    const { res: cap, result } = captureServiceResponse();
+    const [, classes] = await Promise.all([
+      getStudentByAdminService(req.params.studentId, cap),
       getAllClassesService(),
     ]);
+    const student = result.ok ? result.body.data : null;
     if (!student) {
-      return res.redirect("/students?error=" + encodeURIComponent("Student not found"));
+      return res.redirect("/students?error=" + encodeURIComponent(result.message || "Student not found"));
     }
     res.render("students/edit", {
       page: "students",
@@ -101,28 +98,26 @@ router.get("/students/:studentId/edit", requireRole("admin"), async (req, res) =
 
 // POST /students/:studentId/update — save edits
 router.post("/students/:studentId/update", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await adminUpdateStudentService(req.body, req.params.studentId, res);
-    if (!res.headersSent) return res.redirect("/students?ok=1");
+    await adminUpdateStudentService(req.body, req.params.studentId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(err.message || "Update failed")}`);
   }
-  if (!res.headersSent) {
-    return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent("Update failed")}`);
-  }
+  if (result.ok) return res.redirect("/students?ok=1");
+  return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(result.message || "Update failed")}`);
 });
 
 // POST /students/:studentId/delete — delete student
 router.post("/students/:studentId/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await adminDeleteStudentService(req.params.studentId, res);
-    if (!res.headersSent) return res.redirect("/students?ok=1");
+    await adminDeleteStudentService(req.params.studentId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/students?error=${encodeURIComponent(err.message || "Delete failed")}`);
   }
-  if (!res.headersSent) {
-    return res.redirect(`/students?error=${encodeURIComponent("Delete failed")}`);
-  }
+  if (result.ok) return res.redirect("/students?ok=1");
+  return res.redirect(`/students?error=${encodeURIComponent(result.message || "Delete failed")}`);
 });
 
 module.exports = router;

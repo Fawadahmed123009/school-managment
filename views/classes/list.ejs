@@ -73,7 +73,7 @@
             <td>
               <a href="/classes/<%= c._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
               <% if (!c.studentCount || c.studentCount === 0) { %>
-                <form method="POST" action="/classes/<%= c._id %>/delete" style="display:inline;" onsubmit="return confirm('Delete this class?');">
+                <form method="POST" action="/classes/<%= c._id %>/delete" style="display:inline;" data-confirm="Delete this class?">
                   <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
                 </form>
               <% } else { %>

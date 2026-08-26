@@ -123,7 +123,7 @@
       const resp = await fetch(postUrl, {
         method: "POST",
         body: fd,
-        headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" },
+        headers: { "X-Requested-With": "XMLHttpRequest", Accept: "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
         redirect: "manual",
       });
       let data = null;

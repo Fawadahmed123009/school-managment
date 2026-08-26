@@ -50,6 +50,7 @@
   <div class="panel-head"><h2>Or upload an existing photo</h2></div>
   <div class="panel-body">
     <form method="POST" action="/students/<%= student._id %>/photo" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field">
         <label for="photo-file">Choose image</label>
         <input type="file" name="photo" id="photo-file" accept="image/*" required />

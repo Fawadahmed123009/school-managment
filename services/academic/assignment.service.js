@@ -61,3 +61,19 @@ exports.isTeacherAssigned = async (teacherId, subjectId, classLevelId) => {
   const assignment = await Assignment.findOne({ teacher: teacherId, subject: subjectId, classLevel: classLevelId });
   return !!assignment;
 };
+
+// Given a set of classLevels (e.g. every section a test covers), returns only
+// the ones this teacher is actually assigned to teach `subjectId` for. Used to
+// scope a test's roster/submission down to the teacher's own sections: on a
+// multi-section test, a teacher assigned to one section must neither see nor
+// grade students in the sections they don't teach.
+exports.getAssignedClassLevels = async (teacherId, subjectId, classLevelIds) => {
+  const ids = (Array.isArray(classLevelIds) ? classLevelIds : [classLevelIds]).filter(Boolean);
+  if (ids.length === 0) return [];
+  const assignments = await Assignment.find({
+    teacher: teacherId,
+    subject: subjectId,
+    classLevel: { $in: ids },
+  }).select("classLevel");
+  return assignments.map((a) => a.classLevel);
+};

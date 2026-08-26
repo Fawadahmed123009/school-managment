@@ -18,7 +18,7 @@
   <div class="panel-body">
     <div class="field" style="max-width:220px;">
       <label for="date-picker">Date</label>
-      <input type="date" id="date-picker" value="<%= date %>" onchange="window.location.href = '/attendance/mark/<%= classLevelId %>?date=' + this.value;" />
+      <input type="date" id="date-picker" value="<%= date %>" data-mark-base="/attendance/mark/<%= classLevelId %>" />
     </div>
   </div>
 </div>

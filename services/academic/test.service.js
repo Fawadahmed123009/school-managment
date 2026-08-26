@@ -3,7 +3,7 @@ const Test = require("../../models/Academic/test.model");
 const TestResult = require("../../models/Academic/testResult.model");
 const TestSession = require("../../models/Academic/testSession.model");
 const Student = require("../../models/Students/students.model");
-const { isTeacherAssigned } = require("./assignment.service");
+const { getAssignedClassLevels } = require("./assignment.service");
 
 exports.createTestService = async (data, adminId, res) => {
   const { name, subject, classLevels, date, totalMarks, passMarks, session, phase } = data;
@@ -84,24 +84,19 @@ exports.getTeacherScopedTestsService = async (teacherId, res) => {
   return responseStatus(res, 200, "success", filtered);
 };
 
-// Unified roster across every class the test covers.
-// Teacher must be assigned to this subject for at least one of the test's classes.
+// Roster is scoped to only the sections this teacher is assigned to teach for
+// the test's subject. On a multi-section test, a teacher assigned to one
+// section must not see students from sections they don't teach.
 exports.getTestRosterService = async (testId, teacherId, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  let assignedToAtLeastOne = false;
-  for (const classId of test.classLevels) {
-    if (await isTeacherAssigned(teacherId, test.subject, classId)) {
-      assignedToAtLeastOne = true;
-      break;
-    }
-  }
-  if (!assignedToAtLeastOne) {
+  const assignedClassLevels = await getAssignedClassLevels(teacherId, test.subject, test.classLevels);
+  if (assignedClassLevels.length === 0) {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
   }
 
-  const students = await Student.find({ classLevel: { $in: test.classLevels } }).select("name studentId classLevel");
+  const students = await Student.find({ classLevel: { $in: assignedClassLevels } }).select("name studentId classLevel");
 
   const existing = await TestResult.find({ test: testId });
   const existingMap = {};
@@ -125,15 +120,27 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  let assignedToAtLeastOne = false;
-  for (const classId of test.classLevels) {
-    if (await isTeacherAssigned(teacherId, test.subject, classId)) {
-      assignedToAtLeastOne = true;
-      break;
-    }
-  }
-  if (!assignedToAtLeastOne) {
+  // Only sections this teacher is assigned to (for the test's subject) are in
+  // scope. A teacher on one section of a multi-section test may not grade
+  // students in sections they don't teach.
+  const assignedClassLevels = await getAssignedClassLevels(teacherId, test.subject, test.classLevels);
+  if (assignedClassLevels.length === 0) {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
+  }
+
+  // Every submitted student must belong to one of the teacher's in-scope
+  // sections. Reject the whole batch if any record is out of scope — hiding the
+  // rows in the roster isn't enough; the write path must enforce it too.
+  const submittedIds = records.map((r) => r.student);
+  const inScope = await Student.find({
+    _id: { $in: submittedIds },
+    classLevel: { $in: assignedClassLevels },
+  }).select("_id");
+  const inScopeSet = new Set(inScope.map((s) => s._id.toString()));
+
+  const outOfScope = records.filter((r) => !inScopeSet.has(String(r.student)));
+  if (outOfScope.length > 0) {
+    return responseStatus(res, 403, "failed", "You can only submit scores for students in the sections you are assigned to");
   }
 
   const results = [];

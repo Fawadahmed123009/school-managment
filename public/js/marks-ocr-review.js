@@ -1,5 +1,9 @@
 (function () {
-  const students = window.__STUDENTS__ || [];
+  const students = (function () {
+    const el = document.getElementById('marks-ocr-students');
+    if (el) { try { return JSON.parse(el.textContent); } catch (e) {} }
+    return window.__STUDENTS__ || [];
+  })();
   const testSelect = document.getElementById('test-select');
   const pickBtn = document.getElementById('pick-photo-btn');
   const fileInput = document.getElementById('photo-input');
@@ -37,7 +41,7 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="4">Extracting…</td></tr>';
 
-    const res = await fetch('/marks/ocr/extract', { method: 'POST', body: formData });
+    const res = await fetch('/marks/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
@@ -120,7 +124,7 @@
 
     const res = await fetch('/marks/ocr/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ testId, records }),
     });
     const data = await res.json();

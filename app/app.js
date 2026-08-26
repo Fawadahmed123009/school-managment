@@ -8,6 +8,7 @@ const mongoSanitize = require("express-mongo-sanitize");
 const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
 const { authView } = require("../middlewares/authView");
+const { attachCsrfToken, verifyCsrf } = require("../middlewares/csrf");
 const errorHandler = require("../middlewares/errorHandler");
 const logger = require("../config/logger");
 
@@ -22,7 +23,11 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net", "'unsafe-inline'"],
+        // No 'unsafe-inline': every script is an external file ('self') or Chart.js
+        // from jsdelivr. Inline on*= handlers stay blocked by Helmet's default
+        // script-src-attr 'none'. Per-request data is passed via non-executed
+        // <script type="application/json"> islands, which script-src does not govern.
+        scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
         styleSrc: ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
@@ -135,6 +140,17 @@ app.use(require("../routes/views/auth.views"));
 // PDF serving (public, UUID-gated) — must be before authView
 app.use(pdfPublicRouter);
 app.use(authView);
+// ── CSRF protection (session-cookie routes only) ──────────────
+// Expose the token to templates, then validate it on every mutating request.
+// Multipart bodies aren't parsed until multer runs inside the upload routers,
+// so those routes validate CSRF after multer (see the *.views.js upload routes).
+// A cross-site multipart POST can't reach a mutation anyway — SameSite=Lax
+// withholds the session cookie and authView redirects to /login first.
+app.use(attachCsrfToken);
+app.use((req, res, next) => {
+  if (req.is("multipart/form-data")) return next();
+  return verifyCsrf(req, res, next);
+});
 app.use(require("../routes/views/dashboard.views"));
 app.use(require("../routes/views/students.views"));
 app.use(require("../routes/views/studentImport.views"));

@@ -57,7 +57,7 @@
             </td>
             <td style="text-align:right;">
               <a href="/staff/<%= t._id %>/edit" class="btn btn-ghost" style="padding:4px 12px; font-size:13px;">Edit</a>
-              <form method="POST" action="/staff/<%= t._id %>/delete" style="display:inline;" onsubmit="return confirm('Delete <%= t.name %>? This cannot be undone.');">
+              <form method="POST" action="/staff/<%= t._id %>/delete" style="display:inline;" data-confirm="Delete <%= t.name %>? This cannot be undone.">
                 <button type="submit" class="btn" style="padding:4px 12px; font-size:13px; background:var(--error); color:#fff; border:none;">Delete</button>
               </form>
             </td>

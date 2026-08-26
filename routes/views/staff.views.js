@@ -9,6 +9,7 @@ const {
   deleteTeacherService,
   toggleAttendanceManagerService,
 } = require("../../services/staff/teachers.service");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 // ── List all teachers ──
 router.get("/staff", requireRole("admin"), async (req, res) => {
@@ -58,20 +59,24 @@ router.post("/staff/create", requireRole("admin"), async (req, res) => {
       schoolName: res.locals.schoolName,
     });
   }
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await createTeacherService({ name, email, password }, req.user._id, res);
-    // If response hasn't been sent (service sends its own response), redirect
-    if (!res.headersSent) return res.redirect("/staff?ok=1");
+    await createTeacherService({ name, email, password }, req.user._id, cap);
   } catch (err) {
-    if (!res.headersSent) {
-      return res.render("staff/new", {
-        page: "staff",
-        user: req.user,
-        error: err.message || "Failed to create teacher.",
-        schoolName: res.locals.schoolName,
-      });
-    }
+    return res.render("staff/new", {
+      page: "staff",
+      user: req.user,
+      error: err.message || "Failed to create teacher.",
+      schoolName: res.locals.schoolName,
+    });
   }
+  if (result.ok) return res.redirect("/staff?ok=1");
+  return res.render("staff/new", {
+    page: "staff",
+    user: req.user,
+    error: result.message || "Failed to create teacher.",
+    schoolName: res.locals.schoolName,
+  });
 });
 
 // ── Edit teacher form ──
@@ -99,44 +104,47 @@ router.post("/staff/:teacherId/edit", requireRole("admin"), async (req, res) => 
   if (email) body.email = email;
   if (password) body.password = password;
 
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await adminUpdateCredentialsService(body, req.params.teacherId, res);
-    if (!res.headersSent) return res.redirect("/staff?ok=1");
+    await adminUpdateCredentialsService(body, req.params.teacherId, cap);
   } catch (err) {
-    // fall through
+    // fall through to the error re-render below
   }
 
-  if (!res.headersSent) {
-    const teacher = await adminGetTeacherService(req.params.teacherId).catch(() => null);
-    res.render("staff/edit", {
-      page: "staff",
-      user: req.user,
-      teacher: teacher || { _id: req.params.teacherId, name, email },
-      error: "Failed to update teacher.",
-      schoolName: res.locals.schoolName,
-    });
-  }
+  if (result.ok) return res.redirect("/staff?ok=1");
+
+  const teacher = await adminGetTeacherService(req.params.teacherId).catch(() => null);
+  res.render("staff/edit", {
+    page: "staff",
+    user: req.user,
+    teacher: teacher || { _id: req.params.teacherId, name, email },
+    error: result.message || "Failed to update teacher.",
+    schoolName: res.locals.schoolName,
+  });
 });
 
 // ── Delete teacher ──
 router.post("/staff/:teacherId/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await deleteTeacherService(req.params.teacherId, res);
-    if (!res.headersSent) return res.redirect("/staff?ok=1");
+    await deleteTeacherService(req.params.teacherId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect("/staff?error=" + encodeURIComponent(err.message || "Failed to delete teacher."));
   }
-  if (!res.headersSent) res.redirect("/staff?error=" + encodeURIComponent("Failed to delete teacher."));
+  if (result.ok) return res.redirect("/staff?ok=1");
+  return res.redirect("/staff?error=" + encodeURIComponent(result.message || "Failed to delete teacher."));
 });
 
 // ── Toggle attendance manager ──
 router.post("/staff/:teacherId/toggle-attendance-manager", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await toggleAttendanceManagerService(req.params.teacherId, res);
+    await toggleAttendanceManagerService(req.params.teacherId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect("/staff?error=" + encodeURIComponent(err.message || "Failed to update attendance manager."));
   }
-  if (!res.headersSent) res.redirect("/staff?ok=1");
+  if (result.ok) return res.redirect("/staff?ok=1");
+  return res.redirect("/staff?error=" + encodeURIComponent(result.message || "Failed to update attendance manager."));
 });
 
 module.exports = router;

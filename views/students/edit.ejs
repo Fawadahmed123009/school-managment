@@ -119,7 +119,7 @@
   <div class="panel-head"><h2 style="color:var(--error, #c00);">Danger zone</h2></div>
   <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between;">
     <p>Permanently delete this student record. This cannot be undone.</p>
-    <form method="POST" action="/students/<%= student._id %>/delete" onsubmit="return confirm('Delete <%= student.name %> permanently? This cannot be undone.');">
+    <form method="POST" action="/students/<%= student._id %>/delete" data-confirm="Delete <%= student.name %> permanently? This cannot be undone.">
       <button type="submit" class="btn" style="background:var(--error, #c00); color:#fff;">Delete student</button>
     </form>
   </div>

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require("multer");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
+const { verifyCsrf } = require("../../middlewares/csrf");
 const { matchStudent } = require("../../utils/fuzzyMatch");
 const fs = require("fs");
 
@@ -18,7 +19,7 @@ router.get("/fees/ocr", requireRole("admin"), async (req, res) => {
   });
 });
 
-router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), async (req, res) => {
+router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), verifyCsrf, async (req, res) => {
   try {
     if (!req.file) return res.json({ status: "failed", message: "No image uploaded" });
 

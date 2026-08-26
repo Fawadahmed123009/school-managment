@@ -41,4 +41,13 @@
       document.getElementById('attendance-form').submit();
     });
   }
+
+  // Date navigation: reload the roster for the chosen date.
+  const datePicker = document.getElementById('date-picker');
+  if (datePicker) {
+    datePicker.addEventListener('change', function () {
+      const base = datePicker.dataset.markBase;
+      if (base) window.location.href = base + '?date=' + this.value;
+    });
+  }
 })();

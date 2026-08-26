@@ -1,5 +1,9 @@
 (function () {
-  const classes = window.__CLASSES__ || [];
+  const classes = (function () {
+    const el = document.getElementById('import-classes');
+    if (el) { try { return JSON.parse(el.textContent); } catch (e) {} }
+    return window.__CLASSES__ || [];
+  })();
   const pickBtn = document.getElementById('pick-file-btn');
   const fileInput = document.getElementById('file-input');
   const uploadStep = document.getElementById('upload-step');
@@ -26,7 +30,7 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="4">Parsing…</td></tr>';
 
-    const res = await fetch('/students/import/parse', { method: 'POST', body: formData });
+    const res = await fetch('/students/import/parse', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
@@ -155,7 +159,7 @@
 
     const res = await fetch('/students/import/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ students }),
     });
     const data = await res.json();

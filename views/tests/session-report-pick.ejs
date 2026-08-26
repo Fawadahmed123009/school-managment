@@ -23,8 +23,10 @@
         <% }); %>
       </select>
     </div>
-    <button type="button" class="btn btn-primary" onclick="const v = document.getElementById('studentId').value; if (v) window.location.href = '/sessions/<%= sessionId %>/report/' + v;">View report</button>
+    <button type="button" class="btn btn-primary" id="view-report-btn" data-session-id="<%= sessionId %>">View report</button>
   </div>
 </div>
+
+<script src="/js/session-report-pick.js"></script>
 
 <%- include('../partials/foot') %>

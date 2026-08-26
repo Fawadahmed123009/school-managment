@@ -3,7 +3,7 @@ const router = express.Router();
 const { requireRole } = require("../../middlewares/authView");
 const Fees = require("../../models/Fees/fees.model");
 const { createFeeService, updateFeeService } = require("../../services/fees/fees.service");
-const { getAllFeeHeadsService } = require("../../services/fees/feeHead.service");
+const { getAllFeeHeadsService, findOrCreateFeeHeadByName } = require("../../services/fees/feeHead.service");
 const { paginate } = require("../../utils/paginate");
 const Student = require("../../models/Students/students.model");
 
@@ -63,7 +63,26 @@ router.post("/fees/create", requireRole("admin"), async (req, res) => {
     const head = (headsResult.data || []).find((h) => h._id.toString() === feeHead);
     if (head) body.feeType = head.name;
   } else {
-    body.feeType = feeType || "tuition";
+    // Admin typed a head inline instead of picking one. Promote it to a real,
+    // reusable FeeHead (dedupe by name) and reference it — same catalog as the
+    // Fee Heads page — so it appears in the dropdown next time. Fall back to a
+    // plain feeType string only if creation fails or nothing was typed.
+    const typed = (feeType || "").trim();
+    if (typed) {
+      try {
+        const head = await findOrCreateFeeHeadByName(typed, req.user._id);
+        if (head) {
+          body.feeHead = head._id;
+          body.feeType = head.name;
+        } else {
+          body.feeType = typed;
+        }
+      } catch (err) {
+        body.feeType = typed;
+      }
+    } else {
+      body.feeType = "tuition";
+    }
   }
   try {
     await createFeeService(body, req.user._id, { status: () => ({ json: () => {} }) });
