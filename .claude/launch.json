@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "school-mgmt",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "ubuntu", "--", "bash", "-c", "cd /home/fawad/project/school-mgmt && exec node server.js"],
+      "port": 5130
+    }
+  ]
+}

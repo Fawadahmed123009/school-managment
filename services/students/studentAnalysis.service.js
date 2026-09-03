@@ -79,6 +79,42 @@ exports.getStudentAnalysisService = async (studentId, res) => {
         ) / 100
       : null;
 
+  // ---- Subject-wise aggregation (average % per subject, across all sessions) ----
+  // The per-session tables list each test as a raw row, so a subject repeats
+  // across rows. Roll those up here so the UI can show one average per subject
+  // instead of a flat, repeating column.
+  const subjectAgg = {};
+  testResults.forEach((r) => {
+    const test = r.test;
+    if (!test || !test.totalMarks) return;
+    const subjectName = test.subject ? test.subject.name : "Unknown";
+    const percent = Math.round((r.score / test.totalMarks) * 10000) / 100;
+    if (!subjectAgg[subjectName]) subjectAgg[subjectName] = { total: 0, count: 0 };
+    subjectAgg[subjectName].total += percent;
+    subjectAgg[subjectName].count += 1;
+  });
+  const bySubject = Object.keys(subjectAgg)
+    .map((subject) => ({
+      subject,
+      count: subjectAgg[subject].count,
+      average:
+        Math.round((subjectAgg[subject].total / subjectAgg[subject].count) * 100) / 100,
+    }))
+    .sort((a, b) => b.average - a.average);
+
+  // ---- Progress series (per-session average %, ordered chronologically) ----
+  // The per-session averages above are only surfaced as pills today; expose them
+  // as a time-ordered series so the UI can plot a progress trend chart.
+  const progress = sessionSummaries
+    .filter((s) => s.average !== null)
+    .map((s) => ({
+      session: s.session,
+      average: s.average,
+      // tests within a session are sorted ascending by date, so [0] is earliest
+      date: s.tests.length ? s.tests[0].date : null,
+    }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
   // ---- Fees ----
   const feeRecords = await Fees.find({ student: studentId });
   const feeTotals = { total: 0, paid: 0, pending: 0 };
@@ -104,6 +140,8 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     marks: {
       overallAverage,
       bySession: sessionSummaries,
+      bySubject,
+      progress,
     },
     fees: {
       ...feeTotals,

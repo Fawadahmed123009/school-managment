@@ -42,6 +42,23 @@
     </div>
   </div>
 
+  <div class="charts-row">
+    <div class="panel chart-panel">
+      <div class="panel-head"><h2>Test progress <span class="chart-subtitle">Average % by session</span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="progressChart"></canvas>
+        <div class="chart-empty" id="progressEmpty" style="display:none;">No test results yet</div>
+      </div>
+    </div>
+    <div class="panel chart-panel">
+      <div class="panel-head"><h2>Subject-wise performance <span class="chart-subtitle">Average % per subject</span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="subjectChart"></canvas>
+        <div class="chart-empty" id="subjectEmpty" style="display:none;">No test results yet</div>
+      </div>
+    </div>
+  </div>
+
   <% if (analysis.marks.bySession.length === 0) { %>
     <div class="panel"><div class="empty"><div class="display">No test results yet</div></div></div>
   <% } else { %>
@@ -90,6 +107,10 @@
       </table>
     <% } %>
   </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script type="application/json" id="analysis-data"><%- JSON.stringify({ progress: analysis.marks.progress || [], bySubject: analysis.marks.bySubject || [] }).replace(/</g, '\\u003c') %></script>
+  <script src="/js/analysis-charts.js"></script>
 <% } else { %>
   <div class="panel"><div class="empty"><div class="display">No data available</div></div></div>
 <% } %>
