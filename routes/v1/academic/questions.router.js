@@ -3,6 +3,7 @@ const questionsRouter = express.Router();
 //middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const isTeacher = require("../../../middlewares/isTeacher");
+const isAssignedToQuestionExam = require("../../../middlewares/isAssignedToQuestionExam");
 const {
   createQuestionsController,
   getAllQuestionsController,
@@ -15,10 +16,10 @@ questionsRouter
   .get(isLoggedIn, isTeacher, getAllQuestionsController);
 questionsRouter
   .route("/questions/:examId/create")
-  .post(isLoggedIn, isTeacher, createQuestionsController);
+  .post(isLoggedIn, isTeacher, isAssignedToQuestionExam, createQuestionsController);
 questionsRouter
   .route("/question/:questionId")
-  .get(isLoggedIn, isTeacher, getQuestionByIdController)
-  .patch(isLoggedIn, isTeacher, updateQuestionController);
+  .get(isLoggedIn, isTeacher, isAssignedToQuestionExam, getQuestionByIdController)
+  .patch(isLoggedIn, isTeacher, isAssignedToQuestionExam, updateQuestionController);
 
 module.exports = questionsRouter;

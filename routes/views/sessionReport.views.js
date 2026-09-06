@@ -20,7 +20,7 @@ router.get("/sessions/:sessionId/report/:studentId", requireRole("admin"), async
   const result = await apiFetch(`/test-sessions/${req.params.sessionId}/report/${req.params.studentId}`, req.token);
   const studentsRes = await apiFetch("/admin/students", req.token);
   const studentsList = studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [];
-  const student = studentsList.find((s) => s._id === req.params.studentId) || null;
+  const student = studentsList.find((s) => s._id.toString() === req.params.studentId.toString()) || null;
 
   res.render("tests/session-report", {
     page: "sessions-manage",

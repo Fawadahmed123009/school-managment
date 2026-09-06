@@ -54,11 +54,22 @@
   });
 
   function renderRows() {
+    if (!students.length) {
+      rowsBody.innerHTML = '<tr><td colspan="4" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
+      rowCount.textContent = '0 rows';
+      saveBtn.disabled = true;
+      return;
+    }
+    saveBtn.disabled = false;
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
-      const options = students.map(s =>
-        `<option value="${s._id}" ${row.studentId === s._id ? 'selected' : ''}>${s.name}</option>`
-      ).join('');
+      const options = students.map(s => {
+        const cls = s.classLevel ? s.classLevel.name : '';
+        const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
+        const parts = [cls, roll].filter(Boolean).join(' · ');
+        const label = parts ? `${s.name} — ${parts}` : s.name;
+        return `<option value="${s._id}" ${row.studentId === s._id ? 'selected' : ''}>${label}</option>`;
+      }).join('');
       return `
         <tr data-row="${i}">
           <td><span class="dot ${row.confidence}"></span> ${row.confidence}</td>
@@ -107,15 +118,25 @@
     const selects = document.querySelectorAll('.student-select');
     const scores = document.querySelectorAll('.score-input');
     const records = [];
+    let missingStudent = 0;
+    let missingScore = 0;
 
     selects.forEach((sel, i) => {
       const studentId = sel.value;
       const score = scores[i].value;
-      if (studentId && score !== '') records.push({ student: studentId, score: Number(score) });
+      if (studentId && score !== '') {
+        records.push({ student: studentId, score: Number(score) });
+      } else {
+        if (!studentId) missingStudent++;
+        if (score === '') missingScore++;
+      }
     });
 
     if (records.length === 0) {
-      alert('Select a student and score for at least one row.');
+      const hints = [];
+      if (missingStudent > 0) hints.push(`${missingStudent} row(s) have no student selected`);
+      if (missingScore > 0) hints.push(`${missingScore} row(s) have no score entered`);
+      alert('No rows are ready to save.\n\n' + (hints.join('\n') || 'Select a student and enter a score for at least one row.'));
       return;
     }
 

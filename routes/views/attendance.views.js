@@ -22,7 +22,7 @@ router.get("/attendance/mark/:classLevelId", requireRole("teacher"), async (req,
   ]);
 
   const classDoc = (classesRes.status === "success" ? classesRes.data : []).find(
-    (c) => c._id === req.params.classLevelId
+    (c) => c._id.toString() === req.params.classLevelId.toString()
   );
 
   res.render("attendance/mark", {

@@ -4,6 +4,27 @@ const fs = require("fs");
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+const RETRY_DELAYS_MS = [1000, 3000];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const callGemini = async (params) => {
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (err) {
+      lastError = err;
+      if (err.status === 503 && attempt < RETRY_DELAYS_MS.length) {
+        await sleep(RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
+};
+
 exports.extractFeesFromImageService = async (filePath, mimeType, res) => {
   const imageData = fs.readFileSync(filePath, { encoding: "base64" });
 
@@ -18,13 +39,22 @@ If a handwritten amount is genuinely illegible or missing, set "amount" to null 
 Example output:
 [{"name": "John Smith", "amount": 5000}, {"name": "Jane Doe", "amount": null}]`;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-3.6-flash",
-    contents: [
-      { text: prompt },
-      { inlineData: { mimeType: mimeType, data: imageData } },
-    ],
-  });
+  let response;
+  try {
+    response = await callGemini({
+      model: "gemini-3.6-flash",
+      contents: [
+        { text: prompt },
+        { inlineData: { mimeType: mimeType, data: imageData } },
+      ],
+    });
+  } catch (err) {
+    fs.unlink(filePath, () => {});
+    if (err.status === 503) {
+      return responseStatus(res, 503, "failed", "OCR service is busy, please try again in a moment");
+    }
+    throw err;
+  }
 
   const responseText = response.text;
 

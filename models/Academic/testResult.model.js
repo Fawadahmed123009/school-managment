@@ -16,6 +16,18 @@ const testResultSchema = new mongoose.Schema(
     score: {
       type: Number,
       required: true,
+      min: [0, "Score cannot be negative"],
+      validate: {
+        validator: async function (value) {
+          // `this` refers to the TestResult document being validated.
+          // Look up the parent Test to check its totalMarks ceiling.
+          const Test = mongoose.model("Test");
+          const testDoc = await Test.findById(this.test);
+          if (!testDoc) return false;
+          return value <= testDoc.totalMarks;
+        },
+        message: "Score cannot exceed the test's total marks",
+      },
     },
     markedBy: {
       type: ObjectId,

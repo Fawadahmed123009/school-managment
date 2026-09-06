@@ -164,6 +164,8 @@ app.use(require("../routes/views/marks.views"));
 app.use(require("../routes/views/marksOcr.views"));
 app.use(require("../routes/views/assignments.views"));
 app.use(require("../routes/views/classAdmin.views"));
+app.use(require("../routes/views/programAdmin.views"));
+app.use(require("../routes/views/subjectAdmin.views"));
 app.use(require("../routes/views/testAdmin.views"));
 app.use(require("../routes/views/testTeacher.views"));
 app.use(require("../routes/views/testResultSheet.views"));

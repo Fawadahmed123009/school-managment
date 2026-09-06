@@ -1,6 +1,7 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const {
   createAssignmentService,
+  createBatchAssignmentService,
   getAllAssignmentsService,
   getMyAssignmentsService,
   deleteAssignmentService,
@@ -8,8 +9,17 @@ const {
 
 exports.createAssignmentController = async (req, res) => {
   try {
-    await createAssignmentService(req.body, req.userAuth.id, res);
+    // Support both single classLevel and batch classLevels[]
+    if (req.body.classLevels && Array.isArray(req.body.classLevels)) {
+      await createBatchAssignmentService(req.body, req.userAuth.id, res);
+    } else {
+      await createAssignmentService(req.body, req.userAuth.id, res);
+    }
   } catch (error) {
+    // Handle MongoDB duplicate key error (E11000)
+    if (error.code === 11000) {
+      return responseStatus(res, 400, "failed", "This teacher is already assigned to this subject for this class");
+    }
     responseStatus(res, 400, "failed", error.message);
   }
 };

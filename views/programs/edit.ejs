@@ -1,0 +1,36 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academic Structure</p>
+    <h1>Edit program</h1>
+  </div>
+</div>
+
+<% if (saveError) { %><div class="flash error"><%= saveError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2><%= program.name %> <span class="mono" style="margin-left:8px;color:#6b7280;font-size:0.85rem;"><%= program.code %></span></h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/programs/<%= program._id %>/edit">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" name="name" id="name" value="<%= program.name %>" required />
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <input type="text" name="description" id="description" value="<%= program.description || '' %>" />
+        </div>
+      </div>
+      <div class="field-row" style="gap:8px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="/programs" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

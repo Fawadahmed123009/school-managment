@@ -1,6 +1,9 @@
 const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
 const Admin = require("../../models/Staff/admin.model");
+const Assignment = require("../../models/Academic/assignment.model");
+const Subject = require("../../models/Academic/subject.model");
+const Test = require("../../models/Academic/test.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 exports.createClassLevelService = async (data, userId, res) => {
@@ -80,7 +83,35 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
 };
 
 exports.deleteClassLevelService = async (id, res) => {
-  const deleted = await ClassLevel.findByIdAndDelete(id);
-  if (!deleted) return responseStatus(res, 404, "failed", "Class not found");
-  return responseStatus(res, 200, "success", deleted);
+  const classLevel = await ClassLevel.findById(id);
+  if (!classLevel) return responseStatus(res, 404, "failed", "Class not found");
+
+  // Block deletion when any Student is enrolled in this classLevel
+  const studentCount = await Student.countDocuments({ classLevel: id });
+  if (studentCount > 0) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      `Cannot delete class level: ${studentCount} student(s) are currently enrolled in this class`
+    );
+  }
+
+  // Cascade cleanup: delete all Assignment records referencing this classLevel
+  await Assignment.deleteMany({ classLevel: id });
+
+  // Cascade cleanup: $pull this classLevel's ID from every Subject's appliesTo array
+  await Subject.updateMany(
+    { "appliesTo.classLevel": id },
+    { $pull: { appliesTo: { classLevel: id } } }
+  );
+
+  // Cascade cleanup: $pull this classLevel's ID from every Test's classLevels array
+  await Test.updateMany(
+    { classLevels: id },
+    { $pull: { classLevels: id } }
+  );
+
+  await ClassLevel.findByIdAndDelete(id);
+  return responseStatus(res, 200, "success", "Class level deleted");
 };

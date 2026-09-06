@@ -67,7 +67,7 @@
           <select name="classLevel" id="classLevel" required>
             <option value="">Select a class</option>
             <% classes.forEach(function(c) { %>
-              <option value="<%= c._id %>" <%= (student.classLevel && (student.classLevel._id === c._id || student.classLevel === c._id)) ? 'selected' : '' %>><%= c.name %></option>
+              <option value="<%= c._id %>" <%= (student.classLevel && (student.classLevel._id.toString() === c._id.toString() || student.classLevel.toString() === c._id.toString())) ? 'selected' : '' %>><%= c.name %></option>
             <% }); %>
           </select>
         </div>

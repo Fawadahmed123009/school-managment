@@ -14,6 +14,7 @@ const feeHeadSchema = new mongoose.Schema(
     defaultAmount: {
       type: Number,
       default: 0,
+      min: [0, "Default amount cannot be negative"],
     },
     isActive: {
       type: Boolean,

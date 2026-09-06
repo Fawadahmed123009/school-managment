@@ -9,17 +9,52 @@ const {
 } = require("../../services/students/students.service");
 const { getAllClassesService } = require("../../services/academic/class.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
+const Parent = require("../../models/Parents/parents.model");
 
 router.get("/students", requireRole("admin"), async (req, res) => {
   try {
+    const page = req.query.page || 1;
+    const limit = req.query.limit || 20;
+    const classFilter = req.query.class || "";
+    const nameSearch = (req.query.name || "").trim();
+    const parentSearch = (req.query.parent || "").trim();
+
+    // Build MongoDB query filter
+    const filter = {};
+    if (classFilter) filter.classLevel = classFilter;
+    if (nameSearch) filter.name = { $regex: nameSearch, $options: "i" };
+
+    // Parent-name search: $or across Student.fatherName and linked Parent.name
+    // (identical logic to the /fees filter)
+    if (parentSearch) {
+      const parentClause = [];
+      // Branch 1: fatherName directly on Student
+      parentClause.push({ fatherName: { $regex: parentSearch, $options: "i" } });
+      // Branch 2: linked Parent document's name
+      const matchingParents = await Parent.find(
+        { name: { $regex: parentSearch, $options: "i" } }
+      ).select("_id");
+      if (matchingParents.length > 0) {
+        parentClause.push({ parent: { $in: matchingParents.map((p) => p._id) } });
+      }
+      const orClause = parentClause.length === 1 ? parentClause[0] : { $or: parentClause };
+
+      // Combine with any existing filter via $and
+      if (Object.keys(filter).length > 0) {
+        const combined = { $and: [filter, orClause] };
+        Object.assign(filter, combined);
+      } else {
+        Object.assign(filter, orClause);
+      }
+    }
+
     const [studentsResult, classes] = await Promise.all([
       (async () => {
-        // Use paginate directly
         const Student = require("../../models/Students/students.model");
         const { paginate } = require("../../utils/paginate");
-        return paginate(Student, {}, {
-          page: req.query.page,
-          limit: req.query.limit,
+        return paginate(Student, filter, {
+          page,
+          limit,
           select: "-password",
           sort: "name",
           populate: { path: "classLevel", select: "name gradeLevel group section" },
@@ -27,6 +62,9 @@ router.get("/students", requireRole("admin"), async (req, res) => {
       })(),
       getAllClassesService(),
     ]);
+
+    const totalStudents = await require("../../models/Students/students.model").countDocuments();
+
     res.render("students/list", {
       page: "students",
       user: req.user,
@@ -35,6 +73,8 @@ router.get("/students", requireRole("admin"), async (req, res) => {
       students: studentsResult.data || [],
       pagination: studentsResult.pagination || null,
       classes: classes || [],
+      filters: { class: classFilter, name: nameSearch, parent: parentSearch },
+      totalStudents,
       loadError: null,
       schoolName: res.locals.schoolName,
     });
@@ -46,6 +86,8 @@ router.get("/students", requireRole("admin"), async (req, res) => {
       createError: null,
       students: [],
       classes: [],
+      filters: { class: "", name: "", parent: "" },
+      totalStudents: 0,
       loadError: err.message,
       schoolName: res.locals.schoolName,
     });

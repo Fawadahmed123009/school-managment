@@ -8,10 +8,13 @@ const isAdmin = require("../../../middlewares/isAdmin");
 const {
   createFeeController,
   bulkCreateFeesController,
+  bulkAssignFeesController,
+  generateMonthlyFeesController,
   getAllFeesController,
   getStudentFeesController,
   updateFeeController,
   deleteFeeController,
+  resolveOcrReviewController,
 } = require("../../../controllers/fees/fees.controller");
 
 const { extractFeesFromImageController } = require("../../../controllers/fees/ocr.controller");
@@ -31,6 +34,9 @@ const upload = multer({ dest: "uploads/" });
 feesRouter.route("/fees").post(isLoggedIn, isAdmin, createFeeController);
 feesRouter.route("/fees").get(isLoggedIn, isAdmin, getAllFeesController);
 feesRouter.route("/fees/bulk").post(isLoggedIn, isAdmin, bulkCreateFeesController);
+feesRouter.route("/fees/bulk-assign").post(isLoggedIn, isAdmin, bulkAssignFeesController);
+feesRouter.route("/fees/generate-monthly").post(isLoggedIn, isAdmin, generateMonthlyFeesController);
+feesRouter.route("/fees/ocr/resolve/:feeId").post(isLoggedIn, isAdmin, resolveOcrReviewController);
 feesRouter.route("/fees/student/:studentId").get(isLoggedIn, isAdmin, getStudentFeesController);
 feesRouter.route("/fees/:feeId").put(isLoggedIn, isAdmin, updateFeeController);
 feesRouter.route("/fees/:feeId").delete(isLoggedIn, isAdmin, deleteFeeController);

@@ -5,16 +5,21 @@ const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 const { matchStudent } = require("../../utils/fuzzyMatch");
+const Student = require("../../models/Students/students.model");
 const fs = require("fs");
 
 const upload = multer({ dest: "uploads/" });
 
+/** Fetch every student (id + name + class + roll#) for OCR dropdowns / fuzzy matching. */
+const fetchAllStudents = () =>
+  Student.find({}).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
+
 router.get("/fees/ocr", requireRole("admin"), async (req, res) => {
-  const studentsRes = await apiFetch("/admin/students", req.token);
+  const students = await fetchAllStudents();
   res.render("fees/ocr", {
     page: "fees-ocr",
     user: req.user,
-    students: studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [],
+    students,
     schoolName: res.locals.schoolName,
   });
 });
@@ -37,8 +42,7 @@ router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), v
 
     if (data.status !== "success") return res.json(data);
 
-    const studentsRes = await apiFetch("/admin/students", req.token);
-    const students = studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [];
+    const students = await fetchAllStudents();
 
     const enriched = data.data.map((row) => {
       const match = matchStudent(row.name, students);
@@ -56,6 +60,14 @@ router.post("/fees/ocr/confirm", requireRole("admin"), async (req, res) => {
   const result = await apiFetch("/fees/bulk", req.token, {
     method: "POST",
     body: JSON.stringify({ fees }),
+  });
+  res.json(result);
+});
+
+router.post("/fees/ocr/resolve/:feeId", requireRole("admin"), verifyCsrf, async (req, res) => {
+  const result = await apiFetch(`/fees/ocr/resolve/${req.params.feeId}`, req.token, {
+    method: "POST",
+    body: JSON.stringify({}),
   });
   res.json(result);
 });

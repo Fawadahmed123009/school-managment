@@ -27,10 +27,18 @@ const testSchema = new mongoose.Schema(
     totalMarks: {
       type: Number,
       required: true,
+      min: [1, "Total marks must be at least 1"],
     },
     passMarks: {
       type: Number,
       required: true,
+      min: [0, "Pass marks cannot be negative"],
+      validate: {
+        validator: function (v) {
+          return v <= this.totalMarks;
+        },
+        message: "Pass marks cannot exceed total marks",
+      },
     },
     session: {
       type: ObjectId,

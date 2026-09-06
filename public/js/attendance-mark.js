@@ -2,12 +2,16 @@
   const rows = document.querySelectorAll('#roster-body tr');
   const countEl = document.getElementById('marked-count');
   const saveBtn = document.getElementById('save-attendance-btn');
+  const markAllBtn = document.getElementById('mark-all-present-btn');
+  const filterName = document.getElementById('filter-name');
+  const filterRoll = document.getElementById('filter-roll');
 
   function updateCount() {
     const marked = document.querySelectorAll('.attend-btn.active').length;
     if (countEl) countEl.textContent = marked;
   }
 
+  // Wire up individual toggle buttons
   rows.forEach((row) => {
     const buttons = row.querySelectorAll('.attend-btn');
     buttons.forEach((btn) => {
@@ -21,6 +25,38 @@
 
   updateCount();
 
+  // ── Mark all as Present ──────────────────────
+  if (markAllBtn) {
+    markAllBtn.addEventListener('click', () => {
+      rows.forEach((row) => {
+        const presentBtn = row.querySelector('.attend-btn[data-status="present"]');
+        if (presentBtn) {
+          row.querySelectorAll('.attend-btn').forEach((b) => b.classList.remove('active'));
+          presentBtn.classList.add('active');
+        }
+      });
+      updateCount();
+    });
+  }
+
+  // ── Roster filters (visibility only) ─────────
+  function applyFilters() {
+    const nameQ = (filterName ? filterName.value : '').toLowerCase().trim();
+    const rollQ = (filterRoll ? filterRoll.value : '').toLowerCase().trim();
+
+    rows.forEach((row) => {
+      const name = row.dataset.name || '';
+      const roll = row.dataset.roll || '';
+      const matchName = !nameQ || name.includes(nameQ);
+      const matchRoll = !rollQ || roll.includes(rollQ);
+      row.style.display = matchName && matchRoll ? '' : 'none';
+    });
+  }
+
+  if (filterName) filterName.addEventListener('input', applyFilters);
+  if (filterRoll) filterRoll.addEventListener('input', applyFilters);
+
+  // ── Save — iterates ALL rows regardless of filter visibility ──
   if (saveBtn) {
     saveBtn.addEventListener('click', () => {
       const records = [];

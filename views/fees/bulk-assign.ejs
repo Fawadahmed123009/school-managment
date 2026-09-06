@@ -1,0 +1,71 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Fees</p>
+    <h1>Bulk Assign Fees</h1>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <a href="/fees" class="btn btn-ghost">Back to fees</a>
+  </div>
+</div>
+
+<% if (successMsg) { %><div class="flash ok"><%= successMsg %></div><% } %>
+<% if (errorMsg) { %><div class="flash error"><%= errorMsg %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Assign a fee to many students at once</h2></div>
+  <div class="panel-body">
+    <p style="color:var(--muted); margin-bottom:16px; font-size:0.9rem;">
+      Pick a fee head and a target group. One fee record will be created per student at the fee head's default amount (or a custom override). Students who already have a record for the same fee head will be skipped automatically.
+    </p>
+    <form method="POST" action="/fees/bulk-assign" id="bulk-assign-form">
+      <div class="field-row">
+        <div class="field">
+          <label for="feeHead">Fee head *</label>
+          <select name="feeHead" id="feeHead" required>
+            <option value="">— select fee head —</option>
+            <% feeHeads.filter(function(h) { return h.isActive; }).forEach(function(h) { %>
+              <option value="<%= h._id %>" data-amount="<%= h.defaultAmount %>"><%= h.name %> (Rs <%= Number(h.defaultAmount).toLocaleString() %>)</option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="amount">Amount override (Rs)</label>
+          <input type="number" name="amount" id="amount" min="0" placeholder="Leave blank for default" />
+          <small style="color:var(--muted); font-size:0.78rem;">Leave empty to use the fee head's default amount.</small>
+        </div>
+      </div>
+
+      <div class="field-row" style="margin-top:12px;">
+        <div class="field">
+          <label for="targetType">Assign to *</label>
+          <select name="targetType" id="targetType" required>
+            <option value="class">A specific class</option>
+            <option value="all">All students</option>
+          </select>
+        </div>
+        <div class="field" id="class-field">
+          <label for="classLevel">Class *</label>
+          <select name="classLevel" id="classLevel">
+            <option value="">— select class —</option>
+            <% classes.forEach(function(c) { %>
+              <option value="<%= c._id %>"><%= c.gradeLevel %> — <%= c.name %> (<%= c.section || '—' %>)</option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+
+      <div style="margin-top:20px; display:flex; align-items:center; gap:16px;">
+        <button type="submit" class="btn btn-primary" id="submit-btn">Create fee records</button>
+        <span id="preview-text" style="color:var(--muted); font-size:0.85rem;"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="/js/bulk-assign.js"></script>
+
+<%- include('../partials/foot') %>

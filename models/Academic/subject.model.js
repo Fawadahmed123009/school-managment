@@ -6,25 +6,31 @@ const subjectSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      index: true,
     },
     description: {
       type: String,
     },
-    // Which {gradeLevel, group} combinations this subject belongs to,
-    // and whether it's compulsory (required: true) or part of a
-    // student-chosen elective pool (required: false) for that combination.
-    // group: null means "applies to the whole grade level" (e.g. Matric compulsory subjects).
+    program: {
+      type: ObjectId,
+      ref: "Program",
+      required: true,
+    },
+    // Which ClassLevel documents or grade levels this subject belongs to.
+    // Two entry types are supported:
+    //   (1) specific:   { classLevel: ObjectId, required: Boolean }
+    //                   Applies to one exact ClassLevel.
+    //   (2) wholeGrade: { gradeLevel: String,   required: Boolean }
+    //                   Applies to every ClassLevel in that grade
+    //                   regardless of group, including classes created later.
     appliesTo: [
       {
+        classLevel: {
+          type: ObjectId,
+          ref: "ClassLevel",
+        },
         gradeLevel: {
           type: String,
-          required: true,
           enum: ["PG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
-        },
-        group: {
-          type: String,
-          default: null,
         },
         required: {
           type: Boolean,
@@ -40,6 +46,10 @@ const subjectSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Compound unique index: same name allowed under different programs,
+// but blocked from being duplicated within the same program.
+subjectSchema.index({ name: 1, program: 1 }, { unique: true });
 
 const Subject = mongoose.model("Subject", subjectSchema);
 module.exports = Subject;

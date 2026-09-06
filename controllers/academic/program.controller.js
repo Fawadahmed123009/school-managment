@@ -68,8 +68,7 @@ exports.updateProgramController = async (req, res) => {
  **/
 exports.deleteProgramController = async (req, res) => {
   try {
-    const result = await deleteProgramService(req.params.programId);
-    responseStatus(res, 200, "success", result);
+    await deleteProgramService(req.params.programId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

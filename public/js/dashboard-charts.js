@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var chartData = payload.charts || {};
   var role = payload.role || '';
 
-  // ── Admin: Attendance trend (line chart) ──
+  // ── Admin / Teacher: Attendance trend (line chart) ──
   if (role === 'admin' || role === 'teacher') {
     var attCanvas = document.getElementById('attendanceChart');
     var attEmpty = document.getElementById('attendanceEmpty');
@@ -81,9 +81,10 @@ document.addEventListener('DOMContentLoaded', function() {
       attEmpty.style.display = 'flex';
     }
 
-    // ── Admin: Fee collection (bar chart) ──
-    var feeCanvas = document.getElementById('feeCollectionChart');
-    var feeEmpty = document.getElementById('feeEmpty');
+    // ── Admin-only: Fee collection (bar chart) ──
+    if (role === 'admin') {
+      var feeCanvas = document.getElementById('feeCollectionChart');
+      var feeEmpty = document.getElementById('feeEmpty');
     if (chartData.feeCollection && chartData.feeCollection.length > 0) {
       var feeLabels = chartData.feeCollection.map(function(d) {
         var parts = d.month.split('-');
@@ -127,10 +128,12 @@ document.addEventListener('DOMContentLoaded', function() {
       feeCanvas.style.display = 'none';
       feeEmpty.style.display = 'flex';
     }
+    }
 
-    // ── Admin: Fee breakdown by type (horizontal bar) ──
-    var breakdownCanvas = document.getElementById('feeBreakdownChart');
-    var breakdownEmpty = document.getElementById('breakdownEmpty');
+    // ── Admin-only: Fee breakdown by type (horizontal bar) ──
+    if (role === 'admin') {
+      var breakdownCanvas = document.getElementById('feeBreakdownChart');
+      var breakdownEmpty = document.getElementById('breakdownEmpty');
     if (chartData.feeBreakdown && chartData.feeBreakdown.length > 0) {
       var colors = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4'];
       new Chart(breakdownCanvas, {
@@ -170,6 +173,7 @@ document.addEventListener('DOMContentLoaded', function() {
     } else {
       breakdownCanvas.style.display = 'none';
       breakdownEmpty.style.display = 'flex';
+    }
     }
   }
 

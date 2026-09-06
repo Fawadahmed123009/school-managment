@@ -1,0 +1,124 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academic Structure</p>
+    <h1>Subjects</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load subjects: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a subject</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/subjects/create" id="createSubjectForm">
+      <div class="field-row">
+        <div class="field">
+          <label for="programId">Program</label>
+          <select name="programId" id="programId" required>
+            <option value="">Select a program</option>
+            <% programs.forEach(function(p) { %>
+              <option value="<%= p._id %>"><%= p.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="name">Subject name</label>
+          <input type="text" name="name" id="name" placeholder="e.g. Mathematics" required />
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description (optional)</label>
+        <input type="text" name="description" id="description" />
+      </div>
+
+      <h3 style="margin:16px 0 8px;font-size:0.95rem;font-weight:600;">Applies to</h3>
+      <p class="hint" style="margin-bottom:8px;color:#6b7280;font-size:0.85rem;">Select which class levels or whole grades this subject applies to. Check "Whole grade" to apply to every class in a grade regardless of group.</p>
+      <div id="appliesToRows">
+        <div class="field-row applies-to-row" data-idx="0">
+          <div class="field applies-to-field">
+            <label class="applies-to-label">Class level</label>
+            <select name="classLevel_0" class="class-level-select" required>
+              <option value="">Select</option>
+              <% classLevels.forEach(function(cl) { %>
+                <option value="<%= cl._id %>"><%= cl.name %> (Grade <%= cl.gradeLevel %><%= cl.group ? ', ' + cl.group : '' %><%= cl.section ? ', ' + cl.section : '' %>)</option>
+              <% }); %>
+            </select>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <label style="display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" name="wholeGrade_0" value="on" class="whole-grade-toggle" />
+              Whole grade (any group)
+            </label>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <label style="display:flex;align-items:center;gap:6px;">
+              <input type="checkbox" name="required_0" value="on" checked />
+              Required
+            </label>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;">
+            <button type="button" class="btn btn-ghost remove-row-btn" style="padding:4px 10px;display:none;">Remove</button>
+          </div>
+        </div>
+      </div>
+      <input type="hidden" name="appliesToCount" value="1" id="appliesToCount" />
+      <button type="button" class="btn btn-ghost" id="addAppliesToRow" style="margin-top:8px;">+ Add class level</button>
+
+      <div style="margin-top:16px;">
+        <button type="submit" class="btn btn-primary">Create subject</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All subjects</h2></div>
+  <% if (subjects.length === 0) { %>
+    <div class="empty"><div class="display">No subjects yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Program</th><th>Applies to</th><th></th></tr></thead>
+      <tbody>
+        <% subjects.forEach(function(s) { %>
+          <% var info = subjectProgramMap.get(String(s._id)) || {}; %>
+          <tr>
+            <td><strong><%= s.name %></strong></td>
+            <td><%= info.programName || '—' %></td>
+            <td>
+              <% if (s.appliesTo && s.appliesTo.length > 0) { %>
+                <% s.appliesTo.forEach(function(a, i) { %>
+                  <% if (a.gradeLevel && !a.classLevel) { %>
+                    <span class="pill <%= a.required ? '' : 'review' %>">Whole grade <%= a.gradeLevel %><%= a.required ? '' : ' · Elective' %></span>
+                  <% } else { %>
+                    <% var clName = ''; if (a.classLevel && typeof a.classLevel === 'object') { clName = a.classLevel.name || ''; } else if (a.classLevel) { clName = String(a.classLevel).substring(0, 8); } %>
+                    <span class="pill <%= a.required ? '' : 'review' %>"><%= clName %><%= a.required ? '' : ' · Elective' %></span>
+                  <% } %>
+                  <% if (i < s.appliesTo.length - 1) { %> <% } %>
+                <% }); %>
+              <% } else { %>
+                <span style="color:#6b7280;">—</span>
+              <% } %>
+            </td>
+            <td>
+              <a href="/subjects/<%= s._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <form method="POST" action="/subjects/<%= s._id %>/delete" style="display:inline;" data-confirm="Delete this subject?">
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<script id="classLevelOptions" type="application/json"><%- JSON.stringify(classLevels.map(function(cl) { return { _id: cl._id, name: cl.name, gradeLevel: cl.gradeLevel, group: cl.group, section: cl.section }; })) %></script>
+<script src="/js/subject-applies-to.js"></script>
+
+<%- include('../partials/foot') %>

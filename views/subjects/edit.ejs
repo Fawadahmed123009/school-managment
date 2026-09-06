@@ -1,0 +1,124 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academic Structure</p>
+    <h1>Edit subject</h1>
+  </div>
+</div>
+
+<% if (saveError) { %><div class="flash error"><%= saveError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2><%= subject.name %></h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/subjects/<%= subject._id %>/edit" id="editSubjectForm">
+      <div class="field-row">
+        <div class="field">
+          <label>Program</label>
+          <p style="margin:0;padding:8px 12px;background:#f3f4f6;border-radius:6px;font-size:0.9rem;">
+            <% var matchedProgram = programs.find(function(p) { return String(p._id) === currentProgramId; }); %>
+            <%= matchedProgram ? matchedProgram.name : '—' %>
+          </p>
+        </div>
+        <div class="field">
+          <label for="name">Subject name</label>
+          <input type="text" name="name" id="name" value="<%= subject.name %>" required />
+        </div>
+      </div>
+      <div class="field">
+        <label for="description">Description (optional)</label>
+        <input type="text" name="description" id="description" value="<%= subject.description || '' %>" />
+      </div>
+
+      <h3 style="margin:16px 0 8px;font-size:0.95rem;font-weight:600;">Applies to</h3>
+      <p class="hint" style="margin-bottom:8px;color:#6b7280;font-size:0.85rem;">Select which class levels or whole grades this subject applies to. Check "Whole grade" to apply to every class in a grade regardless of group.</p>
+      <div id="appliesToRows">
+        <% var appliesTo = subject.appliesTo || []; %>
+        <% if (appliesTo.length === 0) { %>
+          <div class="field-row applies-to-row" data-idx="0">
+            <div class="field applies-to-field">
+              <label class="applies-to-label">Class level</label>
+              <select name="classLevel_0" class="class-level-select" required>
+                <option value="">Select</option>
+                <% classLevels.forEach(function(cl) { %>
+                  <option value="<%= cl._id %>"><%= cl.name %> (Grade <%= cl.gradeLevel %><%= cl.group ? ', ' + cl.group : '' %><%= cl.section ? ', ' + cl.section : '' %>)</option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end;">
+              <label style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" name="wholeGrade_0" value="on" class="whole-grade-toggle" />
+                Whole grade (any group)
+              </label>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end;">
+              <label style="display:flex;align-items:center;gap:6px;">
+                <input type="checkbox" name="required_0" value="on" checked />
+                Required
+              </label>
+            </div>
+            <div class="field" style="display:flex;align-items:flex-end;">
+              <button type="button" class="btn btn-ghost remove-row-btn" style="padding:4px 10px;display:none;">Remove</button>
+            </div>
+          </div>
+        <% } else { %>
+          <% appliesTo.forEach(function(a, idx) { %>
+            <% var isWholeGrade = !!(a.gradeLevel && !a.classLevel); %>
+            <% var selectedClassLevelId = a.classLevel ? (typeof a.classLevel === 'object' ? String(a.classLevel._id) : String(a.classLevel)) : ''; %>
+            <% var selectedGradeLevel = a.gradeLevel || ''; %>
+            <div class="field-row applies-to-row" data-idx="<%= idx %>">
+              <div class="field applies-to-field">
+                <label class="applies-to-label"><%= isWholeGrade ? 'Grade level' : 'Class level' %></label>
+                <% if (isWholeGrade) { %>
+                  <select name="gradeLevel_<%= idx %>" class="grade-level-select" required>
+                    <option value="">Select grade</option>
+                    <% ["PG","1","2","3","4","5","6","7","8","9","10","11","12"].forEach(function(g) { %>
+                      <option value="<%= g %>" <%= selectedGradeLevel === g ? 'selected' : '' %>>Grade <%= g %></option>
+                    <% }); %>
+                  </select>
+                <% } else { %>
+                  <select name="classLevel_<%= idx %>" class="class-level-select" required>
+                    <option value="">Select</option>
+                    <% classLevels.forEach(function(cl) { %>
+                      <option value="<%= cl._id %>" <%= selectedClassLevelId === String(cl._id) ? 'selected' : '' %>><%= cl.name %> (Grade <%= cl.gradeLevel %><%= cl.group ? ', ' + cl.group : '' %><%= cl.section ? ', ' + cl.section : '' %>)</option>
+                    <% }); %>
+                  </select>
+                <% } %>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end;">
+                <label style="display:flex;align-items:center;gap:6px;">
+                  <input type="checkbox" name="wholeGrade_<%= idx %>" value="on" class="whole-grade-toggle" <%= isWholeGrade ? 'checked' : '' %> />
+                  Whole grade (any group)
+                </label>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end;">
+                <label style="display:flex;align-items:center;gap:6px;">
+                  <input type="checkbox" name="required_<%= idx %>" value="on" <%= a.required ? 'checked' : '' %> />
+                  Required
+                </label>
+              </div>
+              <div class="field" style="display:flex;align-items:flex-end;">
+                <button type="button" class="btn btn-ghost remove-row-btn" style="padding:4px 10px;<%= appliesTo.length <= 1 ? 'display:none;' : '' %>">Remove</button>
+              </div>
+            </div>
+          <% }); %>
+        <% } %>
+      </div>
+      <input type="hidden" name="appliesToCount" value="<%= Math.max(appliesTo.length, 1) %>" id="appliesToCount" />
+      <button type="button" class="btn btn-ghost" id="addAppliesToRow" style="margin-top:8px;">+ Add class level</button>
+
+      <div class="field-row" style="gap:8px;margin-top:16px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="/subjects" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script id="classLevelOptions" type="application/json"><%- JSON.stringify(classLevels.map(function(cl) { return { _id: cl._id, name: cl.name, gradeLevel: cl.gradeLevel, group: cl.group, section: cl.section }; })) %></script>
+<script src="/js/subject-applies-to.js"></script>
+
+<%- include('../partials/foot') %>

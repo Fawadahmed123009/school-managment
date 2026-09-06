@@ -13,9 +13,15 @@ exports.createAssignmentService = async (data, adminId, res) => {
   if (!classDoc) return responseStatus(res, 404, "failed", "Class not found");
 
   const applies = subjectDoc.appliesTo.some((a) => {
-    const gradeMatches = a.gradeLevel === classDoc.gradeLevel;
-    const groupMatches = a.group === null || a.group === classDoc.group;
-    return gradeMatches && groupMatches;
+    // (1) specific: exact ClassLevel ID match
+    if (a.classLevel) {
+      return a.classLevel.toString() === classDoc._id.toString();
+    }
+    // (2) wholeGrade: gradeLevel matches the class's gradeLevel
+    if (a.gradeLevel) {
+      return a.gradeLevel === classDoc.gradeLevel;
+    }
+    return false;
   });
 
   if (!applies) {
@@ -34,6 +40,68 @@ exports.createAssignmentService = async (data, adminId, res) => {
 
   const assignment = await Assignment.create({ teacher, subject, classLevel, createdBy: adminId });
   return responseStatus(res, 201, "success", assignment);
+};
+
+exports.createBatchAssignmentService = async (data, adminId, res) => {
+  const { teacher, subject, classLevels } = data;
+
+  if (!teacher) return responseStatus(res, 400, "failed", "Teacher is required");
+  if (!subject) return responseStatus(res, 400, "failed", "Subject is required");
+  if (!classLevels || !Array.isArray(classLevels) || classLevels.length === 0) {
+    return responseStatus(res, 400, "failed", "At least one class must be selected");
+  }
+
+  const subjectDoc = await Subject.findById(subject);
+  if (!subjectDoc) return responseStatus(res, 404, "failed", "Subject not found");
+
+  const classDocs = await ClassLevel.find({ _id: { $in: classLevels } });
+  if (classDocs.length !== classLevels.length) {
+    return responseStatus(res, 404, "failed", "One or more classes not found");
+  }
+
+  const created = [];
+  const skipped = [];
+  const errors = [];
+
+  for (const classDoc of classDocs) {
+    // Check subject appliesTo this classLevel
+    const applies = subjectDoc.appliesTo.some((a) => {
+      if (a.classLevel) return a.classLevel.toString() === classDoc._id.toString();
+      if (a.gradeLevel) return a.gradeLevel === classDoc.gradeLevel;
+      return false;
+    });
+
+    if (!applies) {
+      errors.push(`"${subjectDoc.name}" is not taught in "${classDoc.name}"`);
+      continue;
+    }
+
+    // Skip duplicates silently
+    const existing = await Assignment.findOne({ teacher, subject, classLevel: classDoc._id });
+    if (existing) {
+      skipped.push(classDoc.name);
+      continue;
+    }
+
+    const assignment = await Assignment.create({
+      teacher,
+      subject,
+      classLevel: classDoc._id,
+      createdBy: adminId,
+    });
+    created.push(assignment);
+  }
+
+  if (created.length === 0 && errors.length > 0) {
+    return responseStatus(res, 400, "failed", errors.join("; "));
+  }
+
+  return responseStatus(res, 201, "success", {
+    created: created.length,
+    skipped: skipped.length,
+    errors,
+    assignments: created,
+  });
 };
 
 exports.getAllAssignmentsService = async (res) => {

@@ -19,6 +19,7 @@ const studentSchema = new mongoose.Schema(
     rollNumber: {
       type: Number,
       required: true,
+      min: [1, "Roll number must be at least 1"],
     },
     studentId: {
       type: String,

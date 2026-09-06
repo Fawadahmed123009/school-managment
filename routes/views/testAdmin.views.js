@@ -88,4 +88,15 @@ router.post("/sessions/create", requireRole("admin"), async (req, res) => {
   res.redirect("/sessions/manage?ok=1");
 });
 
+router.post("/tests/:testId/delete", requireRole("admin"), async (req, res) => {
+  const result = await apiFetch(`/tests/${req.params.testId}`, req.token, {
+    method: "DELETE",
+  });
+
+  if (result.status !== "success") {
+    return res.redirect(`/tests/manage?error=${encodeURIComponent(result.message)}`);
+  }
+  res.redirect("/tests/manage?ok=1");
+});
+
 module.exports = router;

@@ -1,6 +1,8 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Attendance = require("../../models/Academic/attendance.model");
 const Student = require("../../models/Students/students.model");
+const ClassLevel = require("../../models/Academic/class.model");
+const mongoose = require("mongoose");
 
 // Bulk mark a whole class's attendance for one day in a single call
 exports.markClassAttendanceService = async (classLevel, date, records, teacherId, res) => {
@@ -70,4 +72,90 @@ exports.getMonthlyRollupService = async (year, month, res) => {
   }
 
   return responseStatus(res, 200, "success", byClass);
+};
+
+// Day-by-day attendance rollup for a month (admin view)
+// Reuses the same $group aggregation pattern from the dashboard's attendance trend
+exports.getDailyRollupService = async (year, month, classLevel, res) => {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 1);
+
+  const matchStage = { date: { $gte: start, $lt: end } };
+  if (classLevel && mongoose.Types.ObjectId.isValid(classLevel)) {
+    matchStage.classLevel = new mongoose.Types.ObjectId(classLevel);
+  }
+
+  const agg = await Attendance.aggregate([
+    { $match: matchStage },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+        present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]);
+
+  const days = agg.map((d) => ({
+    date: d._id,
+    present: d.present,
+    absent: d.absent,
+    late: d.late,
+    total: d.present + d.absent + d.late,
+  }));
+
+  return responseStatus(res, 200, "success", days);
+};
+
+// Search students for attendance history + optionally load one student's full history
+exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, res) => {
+  const { classLevel, rollNumber, name } = filters;
+
+  // Build student search filter — same pattern as students list / fees list
+  const studentFilter = {};
+  if (classLevel && mongoose.Types.ObjectId.isValid(classLevel)) {
+    studentFilter.classLevel = new mongoose.Types.ObjectId(classLevel);
+  }
+  if (rollNumber) {
+    const asNum = Number(rollNumber);
+    if (!isNaN(asNum)) studentFilter.rollNumber = asNum;
+    else studentFilter.rollNumber = { $regex: rollNumber, $options: "i" };
+  }
+  if (name) studentFilter.name = { $regex: name, $options: "i" };
+
+  const students = await Student.find(studentFilter)
+    .select("name rollNumber email")
+    .populate({ path: "classLevel", select: "name gradeLevel section" })
+    .sort("name")
+    .lean();
+
+  let history = null;
+  let summary = null;
+
+  if (selectedStudentId && mongoose.Types.ObjectId.isValid(selectedStudentId)) {
+    const records = await Attendance.find({ student: new mongoose.Types.ObjectId(selectedStudentId) })
+      .sort({ date: 1 })
+      .lean();
+
+    const counts = { present: 0, absent: 0, late: 0 };
+    history = records.map((r) => {
+      counts[r.status]++;
+      return {
+        date: r.date.toISOString().slice(0, 10),
+        status: r.status,
+      };
+    });
+
+    const total = records.length;
+    summary = {
+      present: counts.present,
+      absent: counts.absent,
+      late: counts.late,
+      total,
+    };
+  }
+
+  return responseStatus(res, 200, "success", { students, history, summary });
 };

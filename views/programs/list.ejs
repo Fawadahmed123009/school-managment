@@ -1,0 +1,65 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academic Structure</p>
+    <h1>Programs</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load programs: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a program</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/programs/create">
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" name="name" id="name" placeholder="e.g. Matriculation" required />
+        </div>
+        <div class="field">
+          <label for="description">Description</label>
+          <input type="text" name="description" id="description" placeholder="e.g. Secondary school program" />
+        </div>
+      </div>
+      <p class="hint" style="margin-top:4px;color:#6b7280;font-size:0.85rem;">A unique code will be generated automatically.</p>
+      <button type="submit" class="btn btn-primary">Create program</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All programs</h2></div>
+  <% if (programs.length === 0) { %>
+    <div class="empty"><div class="display">No programs yet</div></div>
+  <% } else { %>
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Code</th><th>Description</th><th class="num">Teachers</th><th class="num">Subjects</th><th class="num">Students</th><th></th></tr></thead>
+      <tbody>
+        <% programs.forEach(function(p) { %>
+          <tr>
+            <td><strong><%= p.name %></strong></td>
+            <td><span class="mono"><%= p.code %></span></td>
+            <td><%= p.description || '—' %></td>
+            <td class="num mono"><%= p.teachers ? p.teachers.length : 0 %></td>
+            <td class="num mono"><%= p.subjects ? p.subjects.length : 0 %></td>
+            <td class="num mono"><%= p.students ? p.students.length : 0 %></td>
+            <td>
+              <a href="/programs/<%= p._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <form method="POST" action="/programs/<%= p._id %>/delete" style="display:inline;" data-confirm="Delete this program?">
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

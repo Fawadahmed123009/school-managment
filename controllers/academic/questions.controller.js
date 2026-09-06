@@ -26,7 +26,7 @@ exports.createQuestionsController = async (req, res) => {
  **/
 exports.getAllQuestionsController = async (req, res) => {
   try {
-    const result = await getAllQuestionsService();
+    const result = await getAllQuestionsService(req.userAuth.id);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);

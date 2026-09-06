@@ -22,7 +22,10 @@ const {
   submitTestResultsController,
   getTestResultSheetController,
   getTestAnalyticsController,
+  getEnhancedTestAnalyticsController,
+  getTestTrendController,
   getSessionReportCardController,
+  deleteTestController,
 } = require("../../../controllers/academic/test.controller");
 
 // ── Combined middleware: allows both admin and teacher ──────────────────────
@@ -54,11 +57,16 @@ testRouter.route("/tests").post(isLoggedIn, isAdmin, createTestController);
 // GET /tests — admin sees all; teacher sees only their assigned subjects/classes
 testRouter.route("/tests").get(isLoggedIn, isAdminOrTeacher, getTestsByRoleController);
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdmin, getTestAnalyticsController);
+testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdmin, getEnhancedTestAnalyticsController);
+testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdmin, getTestTrendController);
 
 // Teacher-facing test routes — assignment check via middleware (primary gate)
 // Service-level checks in test.service.js are kept as defense-in-depth.
 testRouter.route("/tests/:testId/roster").get(isLoggedIn, isTeacher, isAssignedToSubject, getTestRosterController);
 testRouter.route("/tests/:testId/results").post(isLoggedIn, isTeacher, isAssignedToSubject, submitTestResultsController);
 testRouter.route("/tests/:testId/result-sheet").get(isLoggedIn, isAdmin, getTestResultSheetController);
+
+// DELETE /tests/:testId — admin only; cascades to TestResult documents
+testRouter.route("/tests/:testId").delete(isLoggedIn, isAdmin, deleteTestController);
 
 module.exports = testRouter;

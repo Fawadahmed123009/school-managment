@@ -14,6 +14,16 @@ exports.createMarkService = async (data, teacherId, res) => {
   const examFound = await Exam.findById(exam);
   if (!examFound) return responseStatus(res, 404, "failed", "Exam not found");
 
+  // Reject scores outside the valid 0–totalMark range.
+  if (typeof score !== "number" || isNaN(score) || score < 0 || score > examFound.totalMark) {
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      `Invalid score — must be 0–${examFound.totalMark}, got ${score}`
+    );
+  }
+
   const existing = await ExamResult.findOne({ student, exam });
   if (existing) return responseStatus(res, 400, "failed", "Mark already entered for this student/exam");
 
@@ -50,12 +60,33 @@ exports.bulkCreateMarksService = async (rows, teacherId, res) => {
   const prepared = [];
   const skipped = [];
 
+  // Validate every row's score before writing anything.
+  const invalidRows = [];
   for (const row of rows) {
     const examFound = await Exam.findById(row.exam);
     if (!examFound) {
       skipped.push({ row, reason: "Exam not found" });
       continue;
     }
+    if (typeof row.score !== "number" || isNaN(row.score) || row.score < 0 || row.score > examFound.totalMark) {
+      invalidRows.push({ student: row.student, score: row.score, max: examFound.totalMark });
+    }
+  }
+  if (invalidRows.length > 0) {
+    const details = invalidRows
+      .map((r) => `student ${r.student}: ${r.score} (max ${r.max})`)
+      .join("; ");
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      `Invalid score(s) — each score must be within its exam's total. ${details}`
+    );
+  }
+
+  for (const row of rows) {
+    const examFound = await Exam.findById(row.exam);
+    if (!examFound) continue; // already counted in skipped above
 
     const assigned = await isTeacherAssigned(teacherId, examFound.subject, examFound.classLevel);
     if (!assigned) {

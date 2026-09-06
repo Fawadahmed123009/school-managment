@@ -7,19 +7,142 @@
     <p class="eyebrow">Tests</p>
     <h1>Analytics</h1>
   </div>
-  <% if (hasFilters && results.length > 0) { %>
-    <form method="POST" action="/reports/generate" style="display:inline">
-      <input type="hidden" name="reportType" value="analytics" />
-      <% if (filters.studentId) { %><input type="hidden" name="studentId" value="<%= filters.studentId %>" /><% } %>
-      <% if (filters.subjectId) { %><input type="hidden" name="subjectId" value="<%= filters.subjectId %>" /><% } %>
-      <% if (filters.fromDate) { %><input type="hidden" name="fromDate" value="<%= filters.fromDate %>" /><% } %>
-      <% if (filters.toDate) { %><input type="hidden" name="toDate" value="<%= filters.toDate %>" /><% } %>
-      <button type="submit" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">&#128196; Download PDF</button>
-    </form>
-  <% } %>
 </div>
 
 <% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<!-- ── View mode toggle ─────────────────────────────────── -->
+<div style="display:flex; gap:8px; margin-bottom:16px;">
+  <a href="/tests/analytics" class="btn <%= (!viewMode || viewMode === 'single') ? 'btn-primary' : 'btn-ghost' %>">Single test</a>
+  <a href="/tests/analytics?viewMode=trend&mode=student" class="btn <%= viewMode === 'trend' && (!trendMode || trendMode === 'student') ? 'btn-primary' : 'btn-ghost' %>">Trend — Student</a>
+  <a href="/tests/analytics?viewMode=trend&mode=class" class="btn <%= viewMode === 'trend' && trendMode === 'class' ? 'btn-primary' : 'btn-ghost' %>">Trend — Class</a>
+</div>
+
+<% if (viewMode === 'trend') { %>
+  <!-- ════════════════════════════════════════════════════════ -->
+  <!-- ── TREND MODE ──────────────────────────────────────── -->
+  <!-- ════════════════════════════════════════════════════════ -->
+
+  <div class="panel">
+    <div class="panel-head"><h2><%= trendMode === 'class' ? 'Class trend filters' : 'Student trend filters' %></h2></div>
+    <div class="panel-body">
+      <form method="GET" action="/tests/analytics">
+        <input type="hidden" name="viewMode" value="trend" />
+        <input type="hidden" name="mode" value="<%= trendMode || 'student' %>" />
+        <div class="field-row">
+          <% if (trendMode === 'class') { %>
+            <div class="field">
+              <label for="classLevelId">Class</label>
+              <select name="classLevelId" id="classLevelId">
+                <option value="">All classes</option>
+                <% classes.forEach(function(c) { %>
+                  <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+                <% }); %>
+              </select>
+            </div>
+          <% } %>
+          <% if (!trendMode || trendMode === 'student') { %>
+            <div class="field">
+              <label for="classLevelId">Filter by class</label>
+              <select name="classLevelId" id="classLevelId">
+                <option value="">All classes</option>
+                <% classes.forEach(function(c) { %>
+                  <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            <div class="field">
+              <label for="studentId">Student</label>
+              <select name="studentId" id="studentId">
+                <option value="">Select a student…</option>
+                <% students.forEach(function(s) { %>
+                  <option value="<%= s._id %>" <%= filters.studentId === String(s._id) ? 'selected' : '' %>><%= s.name %> (<%= s.studentId %>)<% if (s.classLevel) { %> — <%= s.classLevel.name %><% } %></option>
+                <% }); %>
+              </select>
+            </div>
+          <% } %>
+          <div class="field">
+            <label for="subjectId">Subject</label>
+            <select name="subjectId" id="subjectId">
+              <option value=""><%= trendMode === 'class' ? 'Select a subject…' : 'All subjects' %></option>
+              <% subjects.forEach(function(s) { %>
+                <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+              <% }); %>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Apply filters</button>
+      </form>
+    </div>
+  </div>
+
+  <% if (trendLines.length === 0 && trendTableRows.length === 0) { %>
+    <div class="empty"><div class="display"><%= !filters.studentId && trendMode !== 'class' ? 'Select a student to see trends' : (!filters.subjectId && trendMode === 'class' ? 'Select a subject to see class trends' : 'No trend data for those filters') %></div></div>
+  <% } else { %>
+
+    <!-- ── Trend chart ─────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-head"><h2><%= trendMode === 'class' ? 'Class average trend' : 'Student score trend' %></h2></div>
+      <div class="chart-body" style="height:320px; padding:16px;">
+        <canvas id="trendChart"></canvas>
+      </div>
+    </div>
+
+    <!-- ── Trend data table ────────────────────────────────── -->
+    <% if (trendTableRows.length > 0) { %>
+      <div class="panel">
+        <div class="panel-head"><h2>Test details</h2></div>
+        <table class="ledger">
+          <thead>
+            <% if (trendMode === 'class') { %>
+              <tr><th>Test</th><th>Date</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th><th class="num">Students</th></tr>
+            <% } else { %>
+              <tr><th>Test</th><th>Date</th><th>Subject</th><th class="num">Score</th><th class="num">Total</th><th class="num">%</th></tr>
+            <% } %>
+          </thead>
+          <tbody>
+            <% if (trendMode === 'class') { %>
+              <% trendTableRows.forEach(function(r) { %>
+                <tr>
+                  <td><strong><%= r.testName %></strong></td>
+                  <td><%= new Date(r.date).toLocaleDateString() %></td>
+                  <td class="num mono"><%= r.avgPercent %>%</td>
+                  <td class="num mono"><%= r.minPercent %>%</td>
+                  <td class="num mono"><%= r.maxPercent %>%</td>
+                  <td class="num mono"><%= r.count %></td>
+                </tr>
+              <% }); %>
+            <% } else { %>
+              <% trendTableRows.forEach(function(r) { %>
+                <tr>
+                  <td><strong><%= r.testName %></strong></td>
+                  <td><%= new Date(r.date).toLocaleDateString() %></td>
+                  <td><%= r.subjectName %></td>
+                  <td class="num mono"><%= r.score %></td>
+                  <td class="num mono"><%= r.totalMarks %></td>
+                  <td><%= r.percent !== null ? r.percent + '%' : '—' %></td>
+                </tr>
+              <% }); %>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+
+    <!-- ── Chart data island (CSP-safe) ────────────────────── -->
+    <script type="application/json" id="trend-chart-data">{
+      "trendMode": <%- JSON.stringify(trendMode) %>,
+      "trendLines": <%- JSON.stringify(trendLines) %>,
+      "trendTableRows": <%- JSON.stringify(trendTableRows) %>
+    }</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="/js/trend-charts.js"></script>
+  <% } %>
+
+<% } else { %>
+  <!-- ════════════════════════════════════════════════════════ -->
+  <!-- ── SINGLE-TEST MODE (existing) ─────────────────────── -->
+  <!-- ════════════════════════════════════════════════════════ -->
 
 <div class="panel">
   <div class="panel-head"><h2>Filters</h2></div>
@@ -27,11 +150,26 @@
     <form method="GET" action="/tests/analytics">
       <div class="field-row">
         <div class="field">
-          <label for="studentId">Student</label>
-          <select name="studentId" id="studentId">
-            <option value="">All students</option>
-            <% students.forEach(function(s) { %>
-              <option value="<%= s._id %>" <%= filters.studentId === s._id ? 'selected' : '' %>><%= s.name %></option>
+          <label for="testId">Test / Phase</label>
+          <select name="testId" id="testId">
+            <option value="">Select a test…</option>
+            <% tests.forEach(function(t) { %>
+              <%
+                var label = t.name;
+                if (t.subject) label += ' — ' + t.subject.name;
+                if (t.classLevels && t.classLevels.length) label += ' (' + t.classLevels.map(function(cl){ return cl.name; }).join(', ') + ')';
+                if (t.date) label += ' · ' + new Date(t.date).toLocaleDateString();
+              %>
+              <option value="<%= t._id %>" <%= filters.testId === String(t._id) ? 'selected' : '' %>><%= label %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field">
+          <label for="classLevelId">Class</label>
+          <select name="classLevelId" id="classLevelId">
+            <option value="">All classes</option>
+            <% classes.forEach(function(c) { %>
+              <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
             <% }); %>
           </select>
         </div>
@@ -40,63 +178,167 @@
           <select name="subjectId" id="subjectId">
             <option value="">All subjects</option>
             <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>" <%= filters.subjectId === s._id ? 'selected' : '' %>><%= s.name %></option>
+              <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
             <% }); %>
           </select>
         </div>
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="fromDate">From</label>
-          <input type="date" name="fromDate" id="fromDate" value="<%= filters.fromDate || '' %>" />
+          <label for="nameSearch">Student name</label>
+          <input type="text" name="nameSearch" id="nameSearch" value="<%= filters.nameSearch || '' %>" placeholder="Search by name…" />
         </div>
         <div class="field">
-          <label for="toDate">To</label>
-          <input type="date" name="toDate" id="toDate" value="<%= filters.toDate || '' %>" />
+          <label for="rollNumberSearch">Roll number</label>
+          <input type="text" name="rollNumberSearch" id="rollNumberSearch" value="<%= filters.rollNumberSearch || '' %>" placeholder="Search by roll #…" />
         </div>
       </div>
-      <button type="submit" class="btn btn-primary">Search</button>
+      <button type="submit" class="btn btn-primary">Apply filters</button>
     </form>
   </div>
 </div>
 
 <% if (!hasFilters) { %>
-  <div class="empty"><div class="display">Pick at least one filter to see results</div></div>
-<% } else if (results.length === 0) { %>
+  <div class="empty"><div class="display">Select a test to see analytics</div></div>
+<% } else if (!current || current.count === 0) { %>
   <div class="empty"><div class="display">No results match those filters</div></div>
 <% } else { %>
-  <% const avg = Math.round((results.reduce(function(sum, r) { return sum + r.percent; }, 0) / results.length) * 100) / 100; %>
+
+  <!-- ── Current test stat cards ─────────────────────────── -->
+  <div style="margin-bottom:8px; font-size:13px; color:var(--ink-soft); font-weight:500;">
+    Current test: <strong style="color:var(--ink);"><%= current.testName %></strong>
+    <% if (current.totalMarks) { %> · out of <span class="mono"><%= current.totalMarks %></span><% } %>
+    <% if (current.testDate) { %> · <%= new Date(current.testDate).toLocaleDateString() %><% } %>
+  </div>
   <div class="stats">
     <div class="stat">
-      <div class="n mono"><%= results.length %></div>
-      <div class="l">Matching results</div>
+      <div class="n mono"><%= current.count %></div>
+      <div class="l">Students</div>
     </div>
     <div class="stat">
-      <div class="n mono"><%= avg %>%</div>
-      <div class="l">Average percentage</div>
+      <div class="n mono"><%= current.avg %></div>
+      <div class="l">Average</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= current.max %></div>
+      <div class="l">Highest</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= current.min %></div>
+      <div class="l">Lowest</div>
+    </div>
+    <div class="stat">
+      <div class="n mono"><%= current.stddev %></div>
+      <div class="l">Std deviation</div>
     </div>
   </div>
 
+  <!-- ── Distribution chart ──────────────────────────────── -->
   <div class="panel">
-    <div class="panel-head"><h2>Results</h2></div>
-    <table class="ledger">
-      <thead>
-        <tr><th>Student</th><th>Test</th><th>Subject</th><th>Date</th><th class="num">Score</th><th class="num">%</th></tr>
-      </thead>
-      <tbody>
-        <% results.forEach(function(r) { %>
-          <tr>
-            <td><strong><%= r.student.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.student.studentId %></span></td>
-            <td><%= r.test %></td>
-            <td><%= r.subject %></td>
-            <td><%= new Date(r.date).toLocaleDateString() %></td>
-            <td class="num mono"><%= r.score %>/<%= r.totalMarks %></td>
-            <td class="num mono"><%= r.percent %>%</td>
-          </tr>
-        <% }); %>
-      </tbody>
-    </table>
+    <div class="panel-head"><h2>Mark distribution</h2></div>
+    <div class="chart-body" style="height:280px; padding:16px;">
+      <canvas id="distributionChart"></canvas>
+    </div>
   </div>
+
+  <!-- ── Comparison with previous test ───────────────────── -->
+  <% if (previous && previous.count > 0) { %>
+    <div style="margin:28px 0 8px; font-size:13px; color:var(--ink-soft); font-weight:500;">
+      Comparison: <strong style="color:var(--ink);"><%= current.testName %></strong> vs
+      <strong style="color:var(--ink);"><%= previous.testName %></strong>
+      <% if (previous.testDate) { %> (<%= new Date(previous.testDate).toLocaleDateString() %>)<% } %>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="l" style="margin-bottom:6px;">Average</div>
+        <div style="display:flex; gap:12px; align-items:baseline;">
+          <span class="n mono" style="font-size:20px; color:var(--partial);"><%= current.avg %></span>
+          <span style="color:var(--ink-soft); font-size:13px;">vs</span>
+          <span class="n mono" style="font-size:20px; color:var(--ink-soft);"><%= previous.avg %></span>
+          <% var avgDiff = (current.avg - previous.avg).toFixed(2); %>
+          <span class="mono" style="font-size:12px; color:<%= avgDiff >= 0 ? 'var(--paid)' : 'var(--error)' %>;">
+            <%= avgDiff >= 0 ? '+' : '' %><%= avgDiff %>
+          </span>
+        </div>
+      </div>
+      <div class="stat">
+        <div class="l" style="margin-bottom:6px;">Highest</div>
+        <div style="display:flex; gap:12px; align-items:baseline;">
+          <span class="n mono" style="font-size:20px; color:var(--partial);"><%= current.max %></span>
+          <span style="color:var(--ink-soft); font-size:13px;">vs</span>
+          <span class="n mono" style="font-size:20px; color:var(--ink-soft);"><%= previous.max %></span>
+        </div>
+      </div>
+      <div class="stat">
+        <div class="l" style="margin-bottom:6px;">Lowest</div>
+        <div style="display:flex; gap:12px; align-items:baseline;">
+          <span class="n mono" style="font-size:20px; color:var(--partial);"><%= current.min %></span>
+          <span style="color:var(--ink-soft); font-size:13px;">vs</span>
+          <span class="n mono" style="font-size:20px; color:var(--ink-soft);"><%= previous.min %></span>
+        </div>
+      </div>
+      <div class="stat">
+        <div class="l" style="margin-bottom:6px;">Std deviation</div>
+        <div style="display:flex; gap:12px; align-items:baseline;">
+          <span class="n mono" style="font-size:20px; color:var(--partial);"><%= current.stddev %></span>
+          <span style="color:var(--ink-soft); font-size:13px;">vs</span>
+          <span class="n mono" style="font-size:20px; color:var(--ink-soft);"><%= previous.stddev %></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grouped bar chart: current vs previous -->
+    <div class="panel">
+      <div class="panel-head"><h2>Test comparison</h2></div>
+      <div class="chart-body" style="height:280px; padding:16px;">
+        <canvas id="comparisonChart"></canvas>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="panel" style="margin-top:20px;">
+      <div class="panel-body" style="text-align:center; color:var(--ink-soft); padding:32px;">
+        <div style="font-size:14px; font-weight:500; color:var(--ink); margin-bottom:4px;">No previous test to compare</div>
+        <div style="font-size:13px;">This is the first (or only) test for this subject and class combination.</div>
+      </div>
+    </div>
+  <% } %>
+
+  <!-- ── Results table ───────────────────────────────────── -->
+  <% if (resultRows.length > 0) { %>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Student results</h2>
+        <span class="muted" style="font-size:13px;"><%= resultCount %> student<%= resultCount !== 1 ? 's' : '' %></span>
+      </div>
+      <table class="ledger">
+        <thead>
+          <tr><th>Roll #</th><th>Name</th><th>Class</th><th class="num">Score</th></tr>
+        </thead>
+        <tbody>
+          <% resultRows.forEach(function(r) { %>
+            <tr>
+              <td class="mono"><%= r.rollNumber %></td>
+              <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft); font-size:12px;"><%= r.studentIdStr %></span></td>
+              <td><%= r.className %></td>
+              <td class="num mono"><%= r.score %><% if (current.totalMarks) { %>/<%= current.totalMarks %><% } %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+
+  <!-- ── Chart data island (CSP-safe) ────────────────────── -->
+  <script type="application/json" id="analytics-chart-data">{
+    "distribution": <%- JSON.stringify(distribution) %>,
+    "current": <%- JSON.stringify(current) %>,
+    "previous": <%- JSON.stringify(previous) %>
+  }</script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="/js/test-analytics-charts.js"></script>
+
+<% } %>
+
 <% } %>
 
 <%- include('../partials/foot') %>

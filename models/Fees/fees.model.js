@@ -26,6 +26,11 @@ const feesSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
+      min: [0, "Amount cannot be negative"],
+      validate: {
+        validator: (v) => v > 0,
+        message: "Fee amount must be greater than zero",
+      },
     },
     status: {
       type: String,
@@ -43,6 +48,11 @@ const feesSchema = new mongoose.Schema(
     recordedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
+    },
+    billingMonth: {
+      type: String,
+      // format "YYYY-MM", e.g. "2026-09"
+      match: [/^\d{4}-\d{2}$/, "billingMonth must be in YYYY-MM format"],
     },
     notes: {
       type: String,

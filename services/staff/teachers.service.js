@@ -4,6 +4,9 @@ const {
 } = require("../../handlers/passHash.handler");
 const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
+const Assignment = require("../../models/Academic/assignment.model");
+const TestResult = require("../../models/Academic/testResult.model");
+const Attendance = require("../../models/Academic/attendance.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
@@ -179,6 +182,23 @@ exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
 exports.deleteTeacherService = async (teacherId, res) => {
   const teacher = await Teacher.findById(teacherId);
   if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
+
+  // Cascade cleanup: delete all Assignment records referencing this teacher
+  await Assignment.deleteMany({ teacher: teacherId });
+
+  // Cascade cleanup: null out this teacher's ID on TestResult.markedBy
+  // (preserve the academic history, just remove the dangling reference)
+  await TestResult.updateMany(
+    { markedBy: teacherId },
+    { $set: { markedBy: null } }
+  );
+
+  // Cascade cleanup: null out this teacher's ID on Attendance.markedBy
+  // (preserve the attendance history, just remove the dangling reference)
+  await Attendance.updateMany(
+    { markedBy: teacherId },
+    { $set: { markedBy: null } }
+  );
 
   // Remove teacher reference from the admin who created it
   await Admin.findByIdAndUpdate(teacher.createdBy, {

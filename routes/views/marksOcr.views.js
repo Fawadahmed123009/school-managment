@@ -5,18 +5,23 @@ const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 const { matchStudent } = require("../../utils/fuzzyMatch");
+const Student = require("../../models/Students/students.model");
 const fs = require("fs");
 const upload = multer({ dest: "uploads/" });
 
+/** Fetch every student (id + name + class + roll#) for OCR dropdowns / fuzzy matching. */
+const fetchAllStudents = () =>
+  Student.find({}).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
+
 router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
-  const [studentsRes, testsRes] = await Promise.all([
-    apiFetch("/admin/students", req.token),
+  const [students, testsRes] = await Promise.all([
+    fetchAllStudents(),
     apiFetch("/tests", req.token),
   ]);
   res.render("marks/ocr", {
     page: "marks-ocr",
     user: req.user,
-    students: studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [],
+    students,
     tests: testsRes.status === "success" ? testsRes.data : [],
     schoolName: res.locals.schoolName,
   });
@@ -36,8 +41,7 @@ router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image")
     const data = await extractRes.json();
     fs.unlink(req.file.path, () => {});
     if (data.status !== "success") return res.json(data);
-    const studentsRes = await apiFetch("/admin/students", req.token);
-    const students = studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [];
+    const students = await fetchAllStudents();
     const enriched = data.data.map((row) => {
       const match = matchStudent(row.name, students);
       return { ...row, ...match };

@@ -1,7 +1,9 @@
 // Import necessary models
 const Subject = require("../../models/Academic/subject.model");
-// const ClassLevel = require("../../models/Academic/class.model");
+const ClassLevel = require("../../models/Academic/class.model");
 const Program = require("../../models/Academic/program.model");
+const Assignment = require("../../models/Academic/assignment.model");
+const Test = require("../../models/Academic/test.model");
 // Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -24,10 +26,25 @@ exports.createSubjectService = async (data, programId, userId, res) => {
   if (!programFound)
     return responseStatus(res, 402, "failed", "Program not found");
 
-  // Check if the Subject already exists
-  const SubjectFound = await Subject.findOne({ name });
+  // Check if a Subject with the same name already exists within this program
+  const SubjectFound = await Subject.findOne({ name, program: programId });
   if (SubjectFound) {
-    return responseStatus(res, 402, "failed", "Subject already exists");
+    return responseStatus(res, 402, "failed", "Subject already exists in this program");
+  }
+
+  // Validate that all classLevel IDs in appliesTo exist (only for specific entries).
+  // wholeGrade entries (with gradeLevel instead of classLevel) don't need this check.
+  if (appliesTo && appliesTo.length > 0) {
+    const classLevelIds = appliesTo
+      .filter((a) => a.classLevel && !a.gradeLevel)
+      .map((a) => a.classLevel)
+      .filter(Boolean);
+    if (classLevelIds.length > 0) {
+      const existingClasses = await ClassLevel.find({ _id: { $in: classLevelIds } });
+      if (existingClasses.length !== classLevelIds.length) {
+        return responseStatus(res, 400, "failed", "One or more class levels not found");
+      }
+    }
   }
 
   // Create the Subject
@@ -35,6 +52,7 @@ exports.createSubjectService = async (data, programId, userId, res) => {
     name,
     description,
     appliesTo,
+    program: programId,
     createdBy: userId,
   });
 
@@ -78,10 +96,31 @@ exports.getSubjectsService = async (id) => {
 exports.updateSubjectService = async (data, id, userId, res) => {
   const { name, description, appliesTo } = data;
 
-  // Check if the updated name already exists
-  const classFound = await Subject.findOne({ name });
-  if (classFound) {
-    return responseStatus(res, 402, "failed", "Subject already exists");
+  // Look up the subject being updated to get its program
+  const existingSubject = await Subject.findById(id);
+  if (!existingSubject) {
+    return responseStatus(res, 404, "failed", "Subject not found");
+  }
+
+  // Check if the updated name already exists within the same program
+  const classFound = await Subject.findOne({ name, program: existingSubject.program });
+  if (classFound && classFound._id.toString() !== id) {
+    return responseStatus(res, 402, "failed", "Subject already exists in this program");
+  }
+
+  // Validate that all classLevel IDs in appliesTo exist (only for specific entries).
+  // wholeGrade entries (with gradeLevel instead of classLevel) don't need this check.
+  if (appliesTo && appliesTo.length > 0) {
+    const classLevelIds = appliesTo
+      .filter((a) => a.classLevel && !a.gradeLevel)
+      .map((a) => a.classLevel)
+      .filter(Boolean);
+    if (classLevelIds.length > 0) {
+      const existingClasses = await ClassLevel.find({ _id: { $in: classLevelIds } });
+      if (existingClasses.length !== classLevelIds.length) {
+        return responseStatus(res, 400, "failed", "One or more class levels not found");
+      }
+    }
   }
 
   // Update the Subject
@@ -108,6 +147,29 @@ exports.updateSubjectService = async (data, id, userId, res) => {
  * @param {string} id - The ID of the Subject to be deleted.
  * @returns {Object} - The deleted Subject object.
  */
-exports.deleteSubjectService = async (id) => {
-  return await Subject.findByIdAndDelete(id);
+exports.deleteSubjectService = async (id, res) => {
+  const subject = await Subject.findById(id);
+  if (!subject) return responseStatus(res, 404, "failed", "Subject not found");
+
+  // Block deletion when any Test references this subject
+  const testCount = await Test.countDocuments({ subject: id });
+  if (testCount > 0) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      `Cannot delete subject: ${testCount} test(s) still reference this subject`
+    );
+  }
+
+  // Cascade cleanup: delete all Assignment records referencing this subject
+  await Assignment.deleteMany({ subject: id });
+
+  // Delete the subject
+  const deleted = await Subject.findByIdAndDelete(id);
+  if (deleted) {
+    // Remove the deleted subject's _id from every Program that references it
+    await Program.updateMany({ subjects: id }, { $pull: { subjects: id } });
+  }
+  return responseStatus(res, 200, "success", "Subject deleted");
 };

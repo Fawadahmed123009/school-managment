@@ -6,6 +6,9 @@ const Admin = require("../../models/Staff/admin.model");
 const Student = require("../../models/Students/students.model");
 const Parent = require("../../models/Parents/parents.model");
 const ClassLevel = require("../../models/Academic/class.model");
+const Attendance = require("../../models/Academic/attendance.model");
+const TestResult = require("../../models/Academic/testResult.model");
+const Fees = require("../../models/Fees/fees.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
@@ -272,6 +275,30 @@ exports.adminDeleteStudentService = async (studentId, res) => {
     return responseStatus(res, 404, "failed", "Student not found");
   }
 
+  // Block deletion when any Paid fee records exist for this student
+  const paidFees = await Fees.findOne({ student: studentId, status: "paid" });
+  if (paidFees) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      "Cannot delete student with paid fee records"
+    );
+  }
+
+  // Cascade cleanup: delete related Attendance records
+  await Attendance.deleteMany({ student: studentId });
+
+  // Cascade cleanup: delete related TestResult records
+  await TestResult.deleteMany({ student: studentId });
+
+  // Cascade cleanup: remove student ID from any Parent.children array
+  await Parent.updateMany(
+    { children: studentId },
+    { $pull: { children: studentId } }
+  );
+
+  // Delete the student
   await Student.findByIdAndDelete(studentId);
   return responseStatus(res, 200, "success", "Student deleted");
 };

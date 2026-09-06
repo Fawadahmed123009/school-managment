@@ -5,6 +5,7 @@ const Teacher = require("../../models/Staff/teachers.model");
 const Fees = require("../../models/Fees/fees.model");
 const Attendance = require("../../models/Academic/attendance.model");
 const TestResult = require("../../models/Academic/testResult.model");
+const Assignment = require("../../models/Academic/assignment.model");
 const logger = require("../../config/logger");
 
 // ── Helper: start-of-month date for MongoDB queries ──
@@ -179,6 +180,66 @@ router.get("/dashboard", async (req, res) => {
         { label: "Paid", value: feeTotals.paid },
         { label: "Pending", value: feeTotals.pending },
       ];
+    } else if (req.user.role === "teacher") {
+      const teacherId = req.user._id;
+
+      // ── Fetch teacher's class assignments ──
+      const assignments = await Assignment.find({ teacher: teacherId })
+        .populate("subject", "name")
+        .populate("classLevel", "name gradeLevel group section");
+
+      const classLevelIds = assignments.map((a) => a.classLevel && a.classLevel._id).filter(Boolean);
+
+      // ── Count students enrolled in the teacher's assigned classes ──
+      const enrolledStudents = classLevelIds.length > 0
+        ? await Student.countDocuments({ classLevel: { $in: classLevelIds }, isWithdrawn: { $ne: true } })
+        : 0;
+
+      stats.teacher = {
+        assignments: assignments.map((a) => ({
+          subject: a.subject ? a.subject.name : "Unknown",
+          classLevel: a.classLevel ? a.classLevel.name : "Unknown",
+          gradeLevel: a.classLevel ? a.classLevel.gradeLevel : "",
+          group: a.classLevel ? a.classLevel.group : null,
+          section: a.classLevel ? a.classLevel.section : null,
+        })),
+        totalClasses: assignments.length,
+        enrolledStudents,
+      };
+
+      // ── Chart data: Attendance trend for teacher's classes (last 30 days) ──
+      if (classLevelIds.length > 0) {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+        const attAgg = await Attendance.aggregate([
+          {
+            $match: {
+              classLevel: { $in: classLevelIds },
+              date: { $gte: thirtyDaysAgo },
+            },
+          },
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+              present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+              absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+              late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]);
+
+        charts.attendanceTrend = attAgg.map((d) => ({
+          date: d._id,
+          rate:
+            d.present + d.absent + d.late > 0
+              ? Math.round(((d.present + d.late) / (d.present + d.absent + d.late)) * 100)
+              : 0,
+          total: d.present + d.absent + d.late,
+        }));
+      }
     }
   } catch (err) {
     logger.warn("Dashboard stats error", { error: err.message, userId: req.user?._id });

@@ -335,6 +335,105 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .empty { padding: 48px 20px; text-align: center; color: var(--ink-soft); }
 .empty .display { font-size: 20px; color: var(--ink); margin-bottom: 8px; }
 
+/* ── Tabs ────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 24px;
+}
+.tab-bar a {
+  padding: 10px 22px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab-bar a:hover { color: var(--ink); }
+.tab-bar a.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Attendance day cells ────────────────── */
+.day-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+}
+.day-cell {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  background: var(--panel);
+}
+.day-cell .day-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.day-cell .day-counts {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+.day-cell .day-counts .c-present { color: var(--paid); }
+.day-cell .day-counts .c-absent { color: var(--error); }
+.day-cell .day-counts .c-late { color: var(--review); }
+
+/* ── Student search results ──────────────── */
+.att-student-list {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.att-student-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.att-student-row:last-child { border-bottom: none; }
+.att-student-row:hover { background: #fafbfd; }
+.att-student-row .att-s-info { display: flex; flex-direction: column; gap: 2px; }
+.att-student-row .att-s-name { font-weight: 600; color: var(--ink); }
+.att-student-row .att-s-meta { font-size: 11px; color: var(--ink-soft); }
+
+/* ── Attendance history timeline ─────────── */
+.att-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 500px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.att-timeline-row {
+  display: flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  gap: 16px;
+}
+.att-timeline-row:last-child { border-bottom: none; }
+.att-timeline-row:hover { background: #fafbfd; }
+.att-timeline-row .att-date { min-width: 110px; font-weight: 500; color: var(--ink); }
+.att-timeline-row .att-day { min-width: 50px; font-size: 11px; color: var(--ink-soft); text-transform: uppercase; }
+
 /* ── Login ───────────────────────────────── */
 .login-wrap {
   min-height: 100vh;
@@ -491,6 +590,41 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .attend-btn.present.active { background: var(--paid); border-color: var(--paid); color: #fff; }
 .attend-btn.absent.active { background: var(--error); border-color: var(--error); color: #fff; }
 .attend-btn.late.active { background: var(--pending); border-color: var(--pending); color: #fff; }
+
+.attend-filters {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.attend-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  flex: 1;
+  max-width: 260px;
+}
+.attend-filter-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.attend-filter-field input {
+  padding: 8px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+.attend-filter-field input:focus {
+  outline: none;
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px rgba(44,62,90,0.08);
+}
 
 /* ── Hamburger button ────────────────────── */
 .hamburger {
@@ -654,6 +788,70 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .activity-dot.gold { background: var(--accent); }
 .activity-text { font-size: 13.5px; flex: 1; }
 .activity-time { font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+
+/* ── Pagination ──────────────────────────── */
+.pagination-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  background: #fafbfd;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.pagination-info {
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+.pagination-links {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.page-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--ink);
+  border: 1px solid var(--border);
+  background: #fff;
+  transition: all 0.15s ease;
+}
+a.page-link:hover {
+  background: var(--paper);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+.page-link.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  pointer-events: none;
+}
+.page-link.disabled {
+  color: #d1d5db;
+  border-color: var(--border);
+  background: #fafbfd;
+  pointer-events: none;
+}
+.page-ellipsis {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 32px;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
 
 /* ── Responsive ──────────────────────────── */
 

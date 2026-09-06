@@ -8,6 +8,10 @@
     <h1>Fees</h1>
   </div>
   <div style="display:flex; gap:8px;">
+    <form method="POST" action="/fees/generate-monthly" style="display:inline;">
+      <button type="submit" class="btn btn-primary">Generate this month's fees</button>
+    </form>
+    <a href="/fees/bulk-assign" class="btn btn-primary">Bulk assign fees</a>
     <a href="/fees/collection" class="btn btn-ghost">Collection report</a>
     <a href="/fee-heads" class="btn btn-ghost">Fee heads</a>
     <a href="/fees/ocr" class="btn btn-accent">Scan a fee list</a>
@@ -15,6 +19,8 @@
 </div>
 
 <% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (typeof genMsg !== 'undefined' && genMsg) { %><div class="flash ok"><%= genMsg %></div><% } %>
+<% if (typeof genErr !== 'undefined' && genErr) { %><div class="flash error"><%= genErr %></div><% } %>
 <% if (loadError) { %><div class="flash error">Couldn't load fees: <%= loadError %></div><% } %>
 
 <div class="panel">
@@ -54,10 +60,46 @@
 
 <div class="panel">
   <div class="panel-head"><h2>All fee records</h2></div>
+
+  <!-- Filter bar -->
+  <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
+    <form method="GET" action="/fees" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:150px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Roll number</label>
+        <input type="text" name="roll" value="<%= filters.roll %>" placeholder="Search by roll#..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
+        <select name="class" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="">All classes</option>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= filters.class == c._id ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
+        <input type="text" name="student" value="<%= filters.student %>" placeholder="Search by student name..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Parent name</label>
+        <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+      </div>
+      <div style="display:flex; gap:6px; align-items:flex-end;">
+        <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
+        <% if (filters.class || filters.roll || filters.parent || filters.student) { %>
+          <a href="/fees" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
+        <% } %>
+      </div>
+    </form>
+  </div>
+
   <% if (fees.length === 0) { %>
     <div class="empty">
-      <div class="display">No fee records yet</div>
-      <p>Add one manually above, or scan a fee list.</p>
+      <div class="display"><%= (filters.class || filters.roll || filters.parent || filters.student) ? 'No fee records match your filters' : 'No fee records yet' %></div>
+      <% if (!filters.class && !filters.roll && !filters.parent && !filters.student) { %>
+        <p>Add one manually above, or scan a fee list.</p>
+      <% } %>
     </div>
   <% } else { %>
     <table class="ledger">
@@ -90,6 +132,64 @@
         <% }); %>
       </tbody>
     </table>
+
+    <!-- Pagination controls -->
+    <% if (pagination && pagination.pages > 1) { %>
+      <%
+        /* Build query string preserving any active filters */
+        var qs = '';
+        Object.keys(filters || {}).forEach(function(key) {
+          if (filters[key]) qs += '&' + key + '=' + encodeURIComponent(filters[key]);
+        });
+      %>
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= pagination.pages %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/fees?page=<%= pagination.page - 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+
+          <%
+            /* Show page numbers with ellipsis for large page counts */
+            var cur = pagination.page;
+            var total = pagination.pages;
+            var pages = [];
+            /* always include first page */
+            pages.push(1);
+            /* window around current page */
+            for (var i = Math.max(2, cur - 2); i <= Math.min(total - 1, cur + 2); i++) {
+              pages.push(i);
+            }
+            /* always include last page */
+            if (total > 1) pages.push(total);
+            /* deduplicate and sort */
+            pages = pages.filter(function(v, idx, arr) { return arr.indexOf(v) === idx; }).sort(function(a, b) { return a - b; });
+          %>
+          <% var prev = 0; %>
+          <% pages.forEach(function(p) { %>
+            <% if (p - prev > 1) { %>
+              <span class="page-ellipsis">&hellip;</span>
+            <% } %>
+            <% if (p === cur) { %>
+              <span class="page-link active"><%= p %></span>
+            <% } else { %>
+              <a href="/fees?page=<%= p %>&limit=<%= pagination.limit %><%= qs %>" class="page-link"><%= p %></a>
+            <% } %>
+            <% prev = p; %>
+          <% }); %>
+
+          <% if (pagination.hasNext) { %>
+            <a href="/fees?page=<%= pagination.page + 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
   <% } %>
 </div>
 

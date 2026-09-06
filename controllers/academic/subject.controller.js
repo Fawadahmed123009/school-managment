@@ -73,8 +73,7 @@ exports.updateSubjectController = async (req, res) => {
  **/
 exports.deleteSubjectController = async (req, res) => {
   try {
-    const result = await deleteSubjectService(req.params.subjectId);
-    responseStatus(res, 200, "success", result);
+    await deleteSubjectService(req.params.subjectId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

@@ -1,6 +1,7 @@
 // Import necessary models
 const Program = require("../../models/Academic/program.model");
 const Admin = require("../../models/Staff/admin.model");
+const Subject = require("../../models/Academic/subject.model");
 // Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -97,6 +98,21 @@ exports.updateProgramService = async (data, id, userId, res) => {
  * @param {string} id - The ID of the program to be deleted.
  * @returns {Object} - The deleted program object.
  */
-exports.deleteProgramService = async (id) => {
-  return await Program.findByIdAndDelete(id);
+exports.deleteProgramService = async (id, res) => {
+  const program = await Program.findById(id);
+  if (!program) return responseStatus(res, 404, "failed", "Program not found");
+
+  // Block deletion when any Subject still belongs to this program
+  const subjectCount = await Subject.countDocuments({ program: id });
+  if (subjectCount > 0) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      `Cannot delete program: ${subjectCount} subject(s) still belong to this program`
+    );
+  }
+
+  await Program.findByIdAndDelete(id);
+  return responseStatus(res, 200, "success", "Program deleted");
 };

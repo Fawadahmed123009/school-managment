@@ -9,14 +9,14 @@
   </div>
 </div>
 
-<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (ok) { %><div class="flash ok"><%= okMsg || 'Saved.' %></div><% } %>
 <% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
 <% if (loadError) { %><div class="flash error">Couldn't load assignments: <%= loadError %></div><% } %>
 
 <div class="panel">
-  <div class="panel-head"><h2>Assign a teacher to a subject/class</h2></div>
+  <div class="panel-head"><h2>Assign a teacher to class sections</h2></div>
   <div class="panel-body">
-    <form method="POST" action="/assignments/create">
+    <form method="POST" action="/assignments/create" id="assignmentForm">
       <div class="field-row">
         <div class="field">
           <label for="teacher">Teacher</label>
@@ -36,17 +36,20 @@
             <% }); %>
           </select>
         </div>
-        <div class="field">
-          <label for="classLevel">Class</label>
-          <select name="classLevel" id="classLevel" required>
-            <option value="">Select a class</option>
-            <% classes.forEach(function(c) { %>
-              <option value="<%= c._id %>"><%= c.name %></option>
-            <% }); %>
-          </select>
+      </div>
+
+      <!-- Class selection: checkbox list grouped by grade -->
+      <div class="field" style="margin-top:8px;">
+        <label>Class sections <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(select one or more)</span></label>
+        <div id="classCheckboxes" style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <p id="classPrompt" style="color:var(--ink-soft);font-size:13px;margin:0;">Select a subject above to see available classes.</p>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary">Assign</button>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:16px;">
+        <button type="submit" class="btn btn-primary">Assign</button>
+        <span id="selectionCount" style="font-size:13px;color:var(--ink-soft);"></span>
+      </div>
     </form>
   </div>
 </div>
@@ -56,26 +59,54 @@
   <% if (assignments.length === 0) { %>
     <div class="empty"><div class="display">No assignments yet</div></div>
   <% } else { %>
-    <table class="ledger">
-      <thead>
-        <tr><th>Teacher</th><th>Subject</th><th>Class</th><th></th></tr>
-      </thead>
-      <tbody>
-        <% assignments.forEach(function(a) { %>
-          <tr>
-            <td><%= a.teacher ? a.teacher.name : 'Unknown' %></td>
-            <td><%= a.subject ? a.subject.name : 'Unknown' %></td>
-            <td><%= a.classLevel ? a.classLevel.name : 'Unknown' %></td>
-            <td>
-              <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;">
-                <button type="submit" class="btn btn-ghost" style="padding:6px 10px;">Remove</button>
-              </form>
-            </td>
-          </tr>
-        <% }); %>
-      </tbody>
-    </table>
+    <%
+      // Group assignments by teacher, then by subject
+      var byTeacher = {};
+      assignments.forEach(function(a) {
+        var tId = a.teacher ? a.teacher._id : 'unknown';
+        var tName = a.teacher ? a.teacher.name : 'Unknown';
+        if (!byTeacher[tId]) byTeacher[tId] = { name: tName, subjects: {} };
+        var sId = a.subject ? a.subject._id : 'unknown';
+        var sName = a.subject ? a.subject.name : 'Unknown';
+        if (!byTeacher[tId].subjects[sId]) byTeacher[tId].subjects[sId] = { name: sName, items: [] };
+        byTeacher[tId].subjects[sId].items.push(a);
+      });
+    %>
+    <% Object.keys(byTeacher).forEach(function(tId) { %>
+      <% var teacher = byTeacher[tId]; %>
+      <div style="padding:16px 24px 8px;border-bottom:1px solid var(--border);background:#fafbfd;">
+        <strong style="font-size:14px;"><%= teacher.name %></strong>
+        <span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">
+          <% var totalItems = 0; Object.keys(teacher.subjects).forEach(function(sId) { totalItems += teacher.subjects[sId].items.length; }); %>
+          (<%= totalItems %> section<%= totalItems !== 1 ? 's' : '' %>)
+        </span>
+      </div>
+      <% Object.keys(teacher.subjects).forEach(function(sId) { %>
+        <% var subj = teacher.subjects[sId]; %>
+        <div style="padding:12px 24px 12px 40px;border-bottom:1px solid var(--border);">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:var(--ink);"><%= subj.name %></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            <% subj.items.forEach(function(a) { %>
+              <span class="pill" style="background:rgba(37,99,235,0.08);color:var(--partial);display:inline-flex;align-items:center;gap:4px;">
+                <%= a.classLevel ? a.classLevel.name : 'Unknown' %>
+                <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;margin:0;">
+                  <button type="submit" class="btn btn-ghost" style="padding:0 4px;font-size:11px;color:var(--error);background:none;border:none;cursor:pointer;line-height:1;" title="Remove">&times;</button>
+                </form>
+              </span>
+            <% }); %>
+          </div>
+        </div>
+      <% }); %>
+    <% }); %>
   <% } %>
 </div>
+
+<!-- Pass data to external JS via CSP-safe JSON islands -->
+<script type="application/json" id="subjectClassMap"><%- subjectClassMap %></script>
+<script type="application/json" id="subjectHasAppliesTo"><%- subjectHasAppliesTo %></script>
+<script type="application/json" id="allClassesData"><%- JSON.stringify(classes) %></script>
+<script type="application/json" id="sortedGradesData"><%- JSON.stringify(sortedGrades) %></script>
+<script type="application/json" id="classesByGradeData"><%- JSON.stringify(classesByGrade) %></script>
+<script src="/js/assignment-classes.js"></script>
 
 <%- include('../partials/foot') %>

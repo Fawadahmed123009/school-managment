@@ -7,6 +7,9 @@ const {
   submitTestResultsService,
   getTestResultSheetService,
   getTestAnalyticsService,
+  getEnhancedTestAnalyticsService,
+  getTestTrendService,
+  deleteTestService,
 } = require("../../services/academic/test.service");
 
 exports.createTestController = async (req, res) => {
@@ -73,10 +76,34 @@ exports.getTestAnalyticsController = async (req, res) => {
   }
 };
 
+exports.getEnhancedTestAnalyticsController = async (req, res) => {
+  try {
+    await getEnhancedTestAnalyticsService(req.query, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
 exports.getSessionReportCardController = async (req, res) => {
   try {
     const { getSessionReportCardService } = require("../../services/academic/test.service");
     await getSessionReportCardService(req.params.sessionId, req.params.studentId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.getTestTrendController = async (req, res) => {
+  try {
+    await getTestTrendService(req.query, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.deleteTestController = async (req, res) => {
+  try {
+    await deleteTestService(req.params.testId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

@@ -2,10 +2,13 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const {
   createFeeService,
   bulkCreateFeesService,
+  bulkAssignFeesService,
+  generateMonthlyFeesService,
   getAllFeesService,
   getStudentFeesService,
   updateFeeService,
   deleteFeeService,
+  resolveOcrReviewService,
 } = require("../../services/fees/fees.service");
 
 exports.createFeeController = async (req, res) => {
@@ -52,6 +55,30 @@ exports.updateFeeController = async (req, res) => {
 exports.deleteFeeController = async (req, res) => {
   try {
     await deleteFeeService(req.params.feeId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.bulkAssignFeesController = async (req, res) => {
+  try {
+    await bulkAssignFeesService(req.body, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.resolveOcrReviewController = async (req, res) => {
+  try {
+    await resolveOcrReviewService(req.params.feeId, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.generateMonthlyFeesController = async (req, res) => {
+  try {
+    await generateMonthlyFeesService(req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

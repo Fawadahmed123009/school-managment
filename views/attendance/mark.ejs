@@ -27,14 +27,27 @@
   <div class="empty"><div class="display">No students in this class yet</div></div>
 <% } else { %>
   <div class="panel">
-    <div class="panel-head"><h2>Tap to mark</h2></div>
+    <div class="panel-head">
+      <h2>Tap to mark</h2>
+      <button type="button" class="btn btn-accent" id="mark-all-present-btn">✓ Mark all as Present</button>
+    </div>
+    <div class="attend-filters">
+      <div class="attend-filter-field">
+        <label for="filter-name">Student Name</label>
+        <input type="search" id="filter-name" placeholder="Search by name…" autocomplete="off" />
+      </div>
+      <div class="attend-filter-field">
+        <label for="filter-roll">Roll Number</label>
+        <input type="search" id="filter-roll" placeholder="Search by roll…" autocomplete="off" />
+      </div>
+    </div>
     <table class="ledger">
       <thead>
         <tr><th>Student</th><th>Status</th></tr>
       </thead>
       <tbody id="roster-body">
         <% roster.forEach(function(r) { %>
-          <tr data-student="<%= r.student %>">
+          <tr data-student="<%= r.student %>" data-name="<%= r.name.toLowerCase() %>" data-roll="<%= r.studentId.toLowerCase() %>">
             <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span></td>
             <td>
               <div class="attend-toggle">

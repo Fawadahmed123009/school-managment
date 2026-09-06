@@ -2,6 +2,7 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Exam = require("../../models/Academic/exams.model");
 const Questions = require("../../models/Academic/questions.model");
+const Assignment = require("../../models/Academic/assignment.model");
 
 /**
  * Create questions service.
@@ -48,12 +49,29 @@ exports.createQuestionsService = async (data, examId, teacherId, res) => {
 };
 
 /**
- * Get all questions service.
+ * Get all questions service — scoped to exams the teacher is assigned to.
  *
- * @returns {Array} - An array of all questions.
+ * Finds every Exam where the teacher has a matching Assignment record,
+ * then returns only the questions referenced by those exams.
+ *
+ * @param {string} teacherId - The logged-in teacher's ID.
+ * @returns {Array} - Scoped array of questions.
  */
-exports.getAllQuestionsService = async () => {
-  return await Questions.find();
+exports.getAllQuestionsService = async (teacherId) => {
+  // Find all (subject, classLevel) pairs this teacher is assigned to
+  const assignments = await Assignment.find({ teacher: teacherId }).select(
+    "subject classLevel"
+  );
+
+  // Collect the Exam IDs that match any of those assignments
+  const examQuery = assignments.length
+    ? { $or: assignments.map((a) => ({ subject: a.subject, classLevel: a.classLevel })) }
+    : { _id: null }; // no assignments → match nothing
+
+  const exams = await Exam.find(examQuery).select("questions");
+  const questionIds = exams.flatMap((e) => e.questions.map((q) => q.toString()));
+
+  return await Questions.find({ _id: { $in: questionIds } });
 };
 
 /**
