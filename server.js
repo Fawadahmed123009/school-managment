@@ -1,3 +1,35 @@
+// ── Direct file-write crash logger (before ANY requires) ────────
+// Bypasses console/Winston entirely — writes raw errors to crash.log
+// so they survive even when Passenger/swallow stderr.
+(() => {
+  const fs = require("fs");
+  const path = require("path");
+  const crashLog = path.join(__dirname, "crash.log");
+
+  const writeCrash = (label, err) => {
+    const ts = new Date().toISOString();
+    const msg = err instanceof Error ? err.stack || err.message : String(err);
+    const entry = `\n[${ts}] ${label}\n${msg}\n${"─".repeat(60)}\n`;
+    try {
+      fs.appendFileSync(crashLog, entry);
+    } catch (_) {
+      // last-resort: if even this fails, there's nothing we can do
+    }
+  };
+
+  process.on("uncaughtException", (err) => {
+    writeCrash("UNCAUGHT EXCEPTION", err);
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    writeCrash("UNHANDLED REJECTION", reason);
+  });
+
+  process.on("SIGSEGV", () => {
+    writeCrash("SIGSEGV", new Error("Segmentation fault"));
+  });
+})();
+
 require("dotenv").config();
 
 // ── Crash handlers — registered BEFORE any app requires ──────────
