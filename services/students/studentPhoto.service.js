@@ -1,6 +1,12 @@
 const fs = require("fs");
 const path = require("path");
-const sharp = require("sharp");
+
+let sharp;
+try {
+  sharp = require("sharp");
+} catch (_) {
+  // sharp native binary unavailable — photo compression will be skipped
+}
 const Student = require("../../models/Students/students.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { uploadToR2, deleteFromR2, saveLocally, isR2Configured } = require("../../utils/r2Client");
@@ -9,6 +15,9 @@ const { uploadToR2, deleteFromR2, saveLocally, isR2Configured } = require("../..
 // Max 600x600 (fit inside, no upscaling), JPEG quality 70.
 // Targets ~20-50 KB for typical student photos.
 const compressPhoto = async (filePath) => {
+  // If sharp failed to load, skip compression and return the original file
+  if (!sharp) return filePath;
+
   const parsed = path.parse(filePath);
   const jpgPath = path.join(parsed.dir, `${parsed.name}.jpg`);
   const tmpPath = `${jpgPath}.tmp`;
