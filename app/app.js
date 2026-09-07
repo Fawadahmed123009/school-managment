@@ -29,9 +29,9 @@ app.use(
         // <script type="application/json"> islands, which script-src does not govern.
         scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
         styleSrc: ["'self'", "https://fonts.googleapis.com", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
+        imgSrc: ["'self'", "data:", "blob:", ...(process.env.R2_PUBLIC_URL ? [process.env.R2_PUBLIC_URL] : [])],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", ...(process.env.R2_PUBLIC_URL ? [process.env.R2_PUBLIC_URL] : [])],
         frameSrc: ["'none'"],
         objectSrc: ["'none'"],
       },
@@ -41,12 +41,12 @@ app.use(
 );
 
 // ── CORS — restrict API access to same-origin + localhost dev ─
-// APP_URL should be set in production (e.g. https://your-app.onrender.com).
-// Comma-separate multiple values in EXTRA_ALLOWED_ORIGINS if needed (e.g. a
-// custom domain alongside the platform-assigned one).
+// APP_URL should be set in production (e.g. https://avenslms.com).
+// Comma-separate multiple values in EXTRA_ALLOWED_ORIGINS if needed.
+const isProd = process.env.NODE_ENV === "production";
 const allowedOrigins = [
-  "http://localhost:5130",
-  "http://127.0.0.1:5130",
+  // In production, do NOT include localhost — only allow the real domain(s)
+  ...(isProd ? [] : ["http://localhost:3001", "http://127.0.0.1:3001"]),
   process.env.APP_URL,
   ...(process.env.EXTRA_ALLOWED_ORIGINS ? process.env.EXTRA_ALLOWED_ORIGINS.split(",").map((o) => o.trim()) : []),
 ].filter(Boolean);
@@ -92,7 +92,7 @@ app.use(cookieParser());
 app.use(mongoSanitize());
 
 // ── Request logging ───────────────────────────────────────────
-app.use(morgan("dev"));
+app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ---------- JSON API (rate-limited for login endpoints) -------
 // Apply login rate limit to auth API routes before general route loading

@@ -34,5 +34,8 @@ const attendanceSchema = new mongoose.Schema(
 // one attendance record per student per day
 attendanceSchema.index({ student: 1, date: 1 }, { unique: true });
 
+// Auto-expire attendance records after 90 days
+attendanceSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
+
 const Attendance = mongoose.model("Attendance", attendanceSchema);
 module.exports = Attendance;
