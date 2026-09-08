@@ -110,17 +110,13 @@
     /* ── Hero / Slideshow ───────────────── */
     .hero {
       position: relative;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 100%;
       overflow: hidden;
-      background: var(--ink);
+      background: #0d1526;
     }
     .hero-slides {
-      position: absolute;
-      inset: 0;
-      z-index: 0;
+      position: relative;
+      width: 100%;
     }
     .hero-slide {
       position: absolute;
@@ -129,85 +125,38 @@
       transition: opacity 1.5s ease-in-out;
     }
     .hero-slide.active { opacity: 1; }
-    .hero-slide:nth-child(1) {
-      background: linear-gradient(135deg, #1a2744 0%, #2d3a56 40%, #1a2744 100%);
-    }
-    .hero-slide:nth-child(2) {
-      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1a2744 100%);
-    }
-    .hero-slide:nth-child(3) {
-      background: linear-gradient(135deg, #1a2744 0%, #374151 50%, #111827 100%);
-    }
-    .hero-slide::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23c8a84b' fill-opacity='0.04'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-    }
-    .hero-content {
+    /* First slide stays in-flow so its image sets the container height */
+    .hero-slide:first-child {
       position: relative;
+    }
+    .hero-slide img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .hero-cta {
+      position: absolute;
+      bottom: 48px;
+      left: 50%;
+      transform: translateX(-50%);
       z-index: 2;
-      text-align: center;
-      max-width: 720px;
-      padding: 0 24px;
     }
-    .hero-content .hero-logo {
-      width: 80px;
-      height: 80px;
-      border-radius: 20px;
-      margin: 0 auto 28px;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-    }
-    .hero-content .hero-tagline {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.2em;
-      color: var(--accent);
-      font-weight: 700;
-      margin-bottom: 16px;
-    }
-    .hero-content h1 {
-      font-size: clamp(36px, 6vw, 64px);
-      color: #fff;
-      line-height: 1.1;
-      margin-bottom: 20px;
-    }
-    .hero-content p {
-      font-size: 18px;
-      color: rgba(255,255,255,0.7);
-      line-height: 1.6;
-      margin-bottom: 36px;
-      max-width: 560px;
-      margin-left: auto;
-      margin-right: auto;
-    }
-    .hero-btns {
-      display: flex;
-      gap: 14px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-    .hero-btns .btn-hero {
-      padding: 14px 32px;
+    .hero-cta .btn-hero {
+      padding: 14px 36px;
       border-radius: 10px;
       font-size: 14px;
       font-weight: 600;
       transition: all 0.25s;
-    }
-    .btn-hero-primary {
       background: var(--accent);
       color: var(--ink);
+      display: inline-block;
+      white-space: nowrap;
     }
-    .btn-hero-primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(200,168,75,0.3); }
-    .btn-hero-outline {
-      border: 1px solid rgba(255,255,255,0.3);
-      color: #fff;
-    }
-    .btn-hero-outline:hover { border-color: #fff; background: rgba(255,255,255,0.06); }
+    .hero-cta .btn-hero:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(200,168,75,0.3); }
 
     .hero-indicators {
       position: absolute;
-      bottom: 40px;
+      bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 3;
@@ -575,10 +524,17 @@
       .staff-grid { grid-template-columns: 1fr; max-width: 400px; }
       .contact-grid { grid-template-columns: 1fr; }
       .footer-grid { grid-template-columns: 1fr; gap: 28px; }
-      .hero-content h1 { font-size: 32px; }
-      .hero-content p { font-size: 16px; }
+      .hero-cta { bottom: 44px; }
+      .hero-cta .btn-hero { padding: 12px 28px; font-size: 13px; }
+      .hero-indicators { bottom: 18px; }
       .stats-bar { padding: 48px 20px; }
       .stat-item .stat-num { font-size: 32px; }
+    }
+    @media (max-width: 375px) {
+      .hero-cta { bottom: 40px; }
+      .hero-cta .btn-hero { padding: 10px 22px; font-size: 12px; }
+      .hero-indicators { bottom: 16px; gap: 8px; }
+      .hero-dot { width: 8px; height: 8px; }
     }
   </style>
 </head>
@@ -607,24 +563,19 @@
   <!-- ── Hero / Slideshow ────────────────── -->
   <section class="hero" id="hero">
     <div class="hero-slides">
-      <div class="hero-slide active"></div>
-      <div class="hero-slide"></div>
-      <div class="hero-slide"></div>
+      <div class="hero-slide active"><img src="/images/slideshow/1.jpg" alt="Slide 1" /></div>
+      <div class="hero-slide"><img src="/images/slideshow/2.png" alt="Slide 2" /></div>
+      <div class="hero-slide"><img src="/images/slideshow/3.png" alt="Slide 3" /></div>
+      <div class="hero-slide"><img src="/images/slideshow/4.jpg" alt="Slide 4" /></div>
     </div>
-    <div class="hero-content">
-      <img src="/images/logo.jpg" alt="Avenir Academy" class="hero-logo" />
-      <p class="hero-tagline">Welcome to Avenir Academy</p>
-      <h1>Shaping Tomorrow's Leaders Today</h1>
-      <p>A nurturing environment where academic excellence meets character development. Empowering every student to discover their potential and shape a brighter future.</p>
-      <div class="hero-btns">
-        <a href="#about" class="btn-hero btn-hero-primary">Discover More</a>
-        <a href="#contact" class="btn-hero btn-hero-outline">Contact Us</a>
-      </div>
+    <div class="hero-cta">
+      <a href="/login" class="btn-hero">Get Started</a>
     </div>
     <div class="hero-indicators">
       <div class="hero-dot active" data-slide="0"></div>
       <div class="hero-dot" data-slide="1"></div>
       <div class="hero-dot" data-slide="2"></div>
+      <div class="hero-dot" data-slide="3"></div>
     </div>
   </section>
 
