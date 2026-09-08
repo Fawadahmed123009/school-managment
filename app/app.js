@@ -139,8 +139,44 @@ app.use(require("../routes/views/landing.views"));
 app.use(require("../routes/views/auth.views"));
 // PDF serving (public, UUID-gated) — must be before authView
 app.use(pdfPublicRouter);
+app.use(authView);
+// ── CSRF protection (session-cookie routes only) ──────────────
+// Expose the token to templates, then validate it on every mutating request.
+// Multipart bodies aren't parsed until multer runs inside the upload routers,
+// so those routes validate CSRF after multer (see the *.views.js upload routes).
+// A cross-site multipart POST can't reach a mutation anyway — SameSite=Lax
+// withholds the session cookie and authView redirects to /login first.
+app.use(attachCsrfToken);
+app.use((req, res, next) => {
+  if (req.is("multipart/form-data")) return next();
+  return verifyCsrf(req, res, next);
+});
+app.use(require("../routes/views/dashboard.views"));
+app.use(require("../routes/views/students.views"));
+app.use(require("../routes/views/studentImport.views"));
+app.use(require("../routes/views/studentAnalysis.views"));
+app.use(require("../routes/views/studentPhoto.views"));
+app.use(require("../routes/views/staff.views"));
+app.use(require("../routes/views/fees.views"));
+app.use(require("../routes/views/feeHeads.views"));
+app.use(require("../routes/views/feesOcr.views"));
+app.use(require("../routes/views/marks.views"));
+app.use(require("../routes/views/marksOcr.views"));
+app.use(require("../routes/views/assignments.views"));
+app.use(require("../routes/views/classAdmin.views"));
+app.use(require("../routes/views/programAdmin.views"));
+app.use(require("../routes/views/subjectAdmin.views"));
+app.use(require("../routes/views/testAdmin.views"));
+app.use(require("../routes/views/testTeacher.views"));
+app.use(require("../routes/views/testResultSheet.views"));
+app.use(require("../routes/views/testAnalytics.views"));
+app.use(require("../routes/views/sessionReport.views"));
+app.use(pdfGenerateRouter);
+app.use(require("../routes/views/attendance.views"));
+app.use(require("../routes/views/attendanceRollup.views"));
+app.use(require("../routes/views/parentPortal.views"));
+
 // ── TEMP DEBUG ROUTE — remove after diagnosing production timeout ──
-// Mounted before authView so it's publicly accessible without a session.
 app.get("/debug/db-test", async (req, res) => {
   const dns = require("dns");
   const { MongoClient } = require("mongodb");
@@ -185,42 +221,6 @@ app.get("/debug/db-test", async (req, res) => {
   res.json(results);
 });
 // ── END TEMP DEBUG ROUTE ─────────────────────────────────────────────
-app.use(authView);
-// ── CSRF protection (session-cookie routes only) ──────────────
-// Expose the token to templates, then validate it on every mutating request.
-// Multipart bodies aren't parsed until multer runs inside the upload routers,
-// so those routes validate CSRF after multer (see the *.views.js upload routes).
-// A cross-site multipart POST can't reach a mutation anyway — SameSite=Lax
-// withholds the session cookie and authView redirects to /login first.
-app.use(attachCsrfToken);
-app.use((req, res, next) => {
-  if (req.is("multipart/form-data")) return next();
-  return verifyCsrf(req, res, next);
-});
-app.use(require("../routes/views/dashboard.views"));
-app.use(require("../routes/views/students.views"));
-app.use(require("../routes/views/studentImport.views"));
-app.use(require("../routes/views/studentAnalysis.views"));
-app.use(require("../routes/views/studentPhoto.views"));
-app.use(require("../routes/views/staff.views"));
-app.use(require("../routes/views/fees.views"));
-app.use(require("../routes/views/feeHeads.views"));
-app.use(require("../routes/views/feesOcr.views"));
-app.use(require("../routes/views/marks.views"));
-app.use(require("../routes/views/marksOcr.views"));
-app.use(require("../routes/views/assignments.views"));
-app.use(require("../routes/views/classAdmin.views"));
-app.use(require("../routes/views/programAdmin.views"));
-app.use(require("../routes/views/subjectAdmin.views"));
-app.use(require("../routes/views/testAdmin.views"));
-app.use(require("../routes/views/testTeacher.views"));
-app.use(require("../routes/views/testResultSheet.views"));
-app.use(require("../routes/views/testAnalytics.views"));
-app.use(require("../routes/views/sessionReport.views"));
-app.use(pdfGenerateRouter);
-app.use(require("../routes/views/attendance.views"));
-app.use(require("../routes/views/attendanceRollup.views"));
-app.use(require("../routes/views/parentPortal.views"));
 
 // ── 404 handler ──────────────────────────────────────────────
 app.use((req, res) => {
