@@ -139,6 +139,52 @@ app.use(require("../routes/views/landing.views"));
 app.use(require("../routes/views/auth.views"));
 // PDF serving (public, UUID-gated) — must be before authView
 app.use(pdfPublicRouter);
+// ── TEMP DEBUG ROUTE — remove after diagnosing production timeout ──
+// Mounted before authView so it's publicly accessible without a session.
+app.get("/debug/db-test", async (req, res) => {
+  const dns = require("dns");
+  const { MongoClient } = require("mongodb");
+  const results = {};
+
+  // Extract hostname from DB URI for SRV lookup
+  const uri = process.env.DB || "";
+  const hostMatch = uri.match(/\/\/([^/?]+)/);
+  const dbHost = hostMatch ? hostMatch[1] : "cluster0.nrinqhy.mongodb.net";
+
+  // 1. SRV DNS resolution
+  try {
+    const records = await new Promise((resolve, reject) => {
+      dns.resolveSrv(`_mongodb._tcp.${dbHost}`, (err, recs) => {
+        if (err) reject(err);
+        else resolve(recs);
+      });
+    });
+    results.dns = { success: true, host: dbHost, records };
+  } catch (err) {
+    results.dns = { success: false, host: dbHost, error: err.message };
+  }
+
+  // 2. Raw connection test with 5s timeout (using MongoClient to avoid disrupting mongoose)
+  if (!uri) {
+    results.mongo = { success: false, error: "DB environment variable not set" };
+  } else {
+    let client;
+    try {
+      client = await new MongoClient(uri, {
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 5000,
+      }).connect();
+      results.mongo = { success: true, message: "Connection successful" };
+    } catch (err) {
+      results.mongo = { success: false, error: err.message };
+    } finally {
+      if (client) await client.close();
+    }
+  }
+
+  res.json(results);
+});
+// ── END TEMP DEBUG ROUTE ─────────────────────────────────────────────
 app.use(authView);
 // ── CSRF protection (session-cookie routes only) ──────────────
 // Expose the token to templates, then validate it on every mutating request.
