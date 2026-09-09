@@ -169,13 +169,13 @@ exports.deleteFeeService = async (feeId, res) => {
  * @param {string} params.feeHead       – FeeHead ObjectId
  * @param {number} [params.amount]      – override amount (defaults to feeHead.defaultAmount)
  * @param {string} params.targetType    – "class" | "all"
- * @param {string} [params.classLevel]  – ClassLevel ObjectId (required when targetType=class)
+ * @param {string|string[]} [params.classLevel] – ClassLevel ObjectId(s) (required when targetType=class)
  * @param {string} [params.academicTerm] – optional AcademicTerm ObjectId
  * @param {string} [params.academicYear] – optional AcademicYear ObjectId
  * @param {string} adminId              – the admin performing the action
  */
 exports.bulkAssignFeesService = async (params, adminId, res) => {
-  const { feeHead: feeHeadId, amount, targetType, classLevel, academicTerm, academicYear } = params;
+  const { feeHead: feeHeadId, amount, targetType, classLevel, academicTerm, academicYear, perStudentAmounts } = params;
 
   if (!feeHeadId) {
     return responseStatus(res, 400, "failed", "Fee head is required");
@@ -191,17 +191,28 @@ exports.bulkAssignFeesService = async (params, adminId, res) => {
     return responseStatus(res, 400, "failed", "Amount must be greater than zero (set a default on the fee head or provide an override)");
   }
 
-  // Build student filter
-  const studentFilter = {};
+  // Normalise classLevel to an array (accepts single string or array from form)
+  let classIds = [];
+  if (classLevel) {
+    classIds = Array.isArray(classLevel) ? classLevel : [classLevel];
+    classIds = classIds.filter(Boolean); // strip empty strings
+  }
+
+  // Build student filter — exclude inactive, graduated, and withdrawn students
+  const studentFilter = {
+    status: { $ne: "inactive" },
+    isGraduated: { $ne: true },
+    isWithdrawn: { $ne: true },
+  };
   if (targetType === "class") {
-    if (!classLevel) {
-      return responseStatus(res, 400, "failed", "Class is required when targeting a class");
+    if (classIds.length === 0) {
+      return responseStatus(res, 400, "failed", "At least one class is required when targeting a class");
     }
-    studentFilter.classLevel = classLevel;
+    studentFilter.classLevel = { $in: classIds };
   }
   // "all" → no class filter (targetType=all or missing)
 
-  const students = await Student.find(studentFilter).select("_id").lean();
+  const students = await Student.find(studentFilter).select("_id feeAgreed").lean();
   if (students.length === 0) {
     return responseStatus(res, 404, "failed", "No students found for the selected group");
   }
@@ -214,20 +225,53 @@ exports.bulkAssignFeesService = async (params, adminId, res) => {
   }).select("student").lean();
   const existingSet = new Set(existingFees.map((f) => f.student.toString()));
 
+  // Build a map of student → effective amount.
+  // Priority order:
+  //   1. perStudentAmounts[studentId]  – explicit per-student manual override (any fee head)
+  //   2. feeAgreed                     – ONLY for Tuition fee head (student's agreed monthly rate)
+  //   3. resolvedAmount                – group-level override or feeHead.defaultAmount
+  const isTuition = /^tuition$/i.test(head.name);
+  const studentAmountMap = {};
+
+  // Layer 1: per-student manual overrides (from the bulk-assign form)
+  let perStudentMap = {};
+  if (perStudentAmounts) {
+    if (typeof perStudentAmounts === 'string') {
+      try { perStudentMap = JSON.parse(perStudentAmounts); } catch (_) { /* ignore parse errors */ }
+    } else if (typeof perStudentAmounts === 'object') {
+      perStudentMap = perStudentAmounts;
+    }
+  }
+
+  // Layer 2: Tuition-specific feeAgreed (only when no per-student override set)
+  students.forEach((s) => {
+    const sid = s._id.toString();
+    if (perStudentMap[sid] !== undefined && perStudentMap[sid] !== null && perStudentMap[sid] !== '') {
+      studentAmountMap[sid] = Number(perStudentMap[sid]);
+    } else if (isTuition && s.feeAgreed !== null && s.feeAgreed !== undefined) {
+      studentAmountMap[sid] = s.feeAgreed;
+    }
+  });
+
   const newRows = studentIds
     .filter((id) => !existingSet.has(id.toString()))
-    .map((student) => ({
-      student,
-      feeHead: feeHeadId,
-      feeType: head.name,
-      amount: resolvedAmount,
-      status: "pending",
-      source: "manual",
-      billingMonth: currentBillingMonth(),
-      recordedBy: adminId,
-      ...(academicTerm ? { academicTerm } : {}),
-      ...(academicYear ? { academicYear } : {}),
-    }));
+    .map((student) => {
+      const studentAmount = studentAmountMap[student.toString()] !== undefined
+        ? studentAmountMap[student.toString()]
+        : resolvedAmount;
+      return {
+        student,
+        feeHead: feeHeadId,
+        feeType: head.name,
+        amount: studentAmount,
+        status: "pending",
+        source: "manual",
+        billingMonth: currentBillingMonth(),
+        recordedBy: adminId,
+        ...(academicTerm ? { academicTerm } : {}),
+        ...(academicYear ? { academicYear } : {}),
+      };
+    });
 
   if (newRows.length === 0) {
     return responseStatus(res, 200, "success", {
@@ -269,15 +313,21 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
     return responseStatus(res, 400, "failed", "Tuition fee head has no default amount set (or it is zero).");
   }
 
-  // Active students: NOT graduated AND NOT withdrawn
+  // Active students: NOT graduated AND NOT withdrawn AND status != 'inactive'
+  // Fetch feeAgreed so we can use per-student override when set
   const activeStudents = await Student.find({
+    status: { $ne: "inactive" },
     isGraduated: { $ne: true },
     isWithdrawn: { $ne: true },
-  }).select("_id").lean();
+  }).select("_id feeAgreed").lean();
 
-  // Count graduated/withdrawn for the summary
+  // Count graduated/withdrawn/inactive for the summary
   const totalExcluded = await Student.countDocuments({
-    $or: [{ isGraduated: true }, { isWithdrawn: true }],
+    $or: [
+      { isGraduated: true },
+      { isWithdrawn: true },
+      { status: "inactive" },
+    ],
   });
 
   const activeIds = activeStudents.map((s) => s._id);
@@ -292,6 +342,14 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
     });
   }
 
+  // Build a map of student → effective amount (feeAgreed overrides default when explicitly set)
+  const studentAmountMap = {};
+  activeStudents.forEach((s) => {
+    if (s.feeAgreed !== null && s.feeAgreed !== undefined) {
+      studentAmountMap[s._id.toString()] = s.feeAgreed;
+    }
+  });
+
   // Find students who already have a Tuition fee for this billing month
   const existingFees = await Fees.find({
     student: { $in: activeIds },
@@ -301,18 +359,25 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
   const alreadyHaveSet = new Set(existingFees.map((f) => f.student.toString()));
 
   // Build new fee records for students who don't have one yet
+  // Use per-student feeAgreed when explicitly set (including 0 for scholarship),
+  // otherwise fall back to the fee head's defaultAmount.
   const newRows = activeIds
     .filter((id) => !alreadyHaveSet.has(id.toString()))
-    .map((student) => ({
-      student,
-      feeHead: tuitionHead._id,
-      feeType: tuitionHead.name,
-      amount,
-      status: "pending",
-      source: "manual",
-      billingMonth,
-      recordedBy: adminId,
-    }));
+    .map((student) => {
+      const studentAmount = studentAmountMap[student.toString()] !== undefined
+        ? studentAmountMap[student.toString()]
+        : amount;
+      return {
+        student,
+        feeHead: tuitionHead._id,
+        feeType: tuitionHead.name,
+        amount: studentAmount,
+        status: "pending",
+        source: "manual",
+        billingMonth,
+        recordedBy: adminId,
+      };
+    });
 
   let generatedCount = 0;
   if (newRows.length > 0) {
@@ -323,10 +388,138 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
   const alreadyGenerated = alreadyHaveSet.size;
 
   return responseStatus(res, 201, "success", {
-    message: `${generatedCount} fee(s) generated, ${alreadyGenerated} student(s) already had this month's fee, ${totalExcluded} student(s) skipped (graduated/withdrawn).`,
+    message: `${generatedCount} fee(s) generated, ${alreadyGenerated} student(s) already had this month's fee, ${totalExcluded} student(s) skipped (graduated/withdrawn/inactive).`,
     generated: generatedCount,
     alreadyGenerated,
     skippedExcluded: totalExcluded,
     billingMonth,
   });
+};
+
+/**
+ * Preview bulk-assign: returns a per-class breakdown of how many students
+ * will receive the fee vs already have it. Does NOT create any records.
+ * @param {Object} params
+ * @param {string} params.feeHead       – FeeHead ObjectId
+ * @param {string} params.targetType    – "class" | "all"
+ * @param {string|string[]} [params.classLevel] – ClassLevel ObjectId(s)
+ */
+exports.bulkAssignPreviewService = async (params) => {
+  const { feeHead: feeHeadId, targetType, classLevel } = params;
+
+  if (!feeHeadId) {
+    throw new Error("Fee head is required");
+  }
+
+  const head = await FeeHead.findById(feeHeadId).select("name defaultAmount").lean();
+  if (!head) {
+    throw new Error("Fee head not found");
+  }
+
+  // Base exclusion filter
+  const baseFilter = {
+    status: { $ne: "inactive" },
+    isGraduated: { $ne: true },
+    isWithdrawn: { $ne: true },
+  };
+
+  // Normalise class IDs
+  let classIds = [];
+  if (classLevel) {
+    classIds = Array.isArray(classLevel) ? classLevel : [classLevel];
+    classIds = classIds.filter(Boolean);
+  }
+
+  // When targeting "all", we return a single row with no per-class breakdown
+  if (targetType === "all" || classIds.length === 0) {
+    const allStudents = await Student.find(baseFilter).select("_id name rollNumber").sort("name").lean();
+    const allIds = allStudents.map((s) => s._id);
+    const existingFees = allIds.length > 0
+      ? await Fees.find({ student: { $in: allIds }, feeHead: feeHeadId }).select("student").lean()
+      : [];
+    const existingSet = new Set(existingFees.map((f) => f.student.toString()));
+    const total = allIds.length;
+    const skipped = allIds.filter((id) => existingSet.has(id.toString())).length;
+    const students = allStudents.map((s) => ({
+      _id: s._id.toString(),
+      name: s.name,
+      rollNumber: s.rollNumber,
+      hasExisting: existingSet.has(s._id.toString()),
+    }));
+    return {
+      feeHeadName: head.name,
+      defaultAmount: head.defaultAmount,
+      breakdown: [],
+      totals: { total, new: total - skipped, skipped },
+      students,
+    };
+  }
+
+  // Per-class breakdown
+  // Fetch class labels for display
+  const ClassLevel = require("../../models/Academic/class.model");
+  const classes = await ClassLevel.find({ _id: { $in: classIds } })
+    .select("name gradeLevel section").lean();
+  const classMap = {};
+  classes.forEach((c) => { classMap[c._id.toString()] = c; });
+
+  // Fetch all eligible students in selected classes with their classLevel
+  const students = await Student.find({
+    ...baseFilter,
+    classLevel: { $in: classIds },
+  }).select("_id name rollNumber classLevel").lean();
+
+  // Fetch existing fee records for these students + feeHead
+  const studentIds = students.map((s) => s._id);
+  const existingFees = studentIds.length > 0
+    ? await Fees.find({ student: { $in: studentIds }, feeHead: feeHeadId }).select("student").lean()
+    : [];
+  const existingSet = new Set(existingFees.map((f) => f.student.toString()));
+
+  // Group students by class
+  const byClass = {};
+  classIds.forEach((id) => {
+    byClass[id.toString()] = { total: 0, skipped: 0, students: [] };
+  });
+  students.forEach((s) => {
+    const cId = s.classLevel ? s.classLevel.toString() : "unknown";
+    if (!byClass[cId]) byClass[cId] = { total: 0, skipped: 0, students: [] };
+    byClass[cId].total++;
+    const hasExisting = existingSet.has(s._id.toString());
+    if (hasExisting) {
+      byClass[cId].skipped++;
+    }
+    byClass[cId].students.push({
+      _id: s._id.toString(),
+      name: s.name,
+      rollNumber: s.rollNumber,
+      hasExisting,
+    });
+  });
+
+  const breakdown = classIds.map((id) => {
+    const cid = id.toString();
+    const c = classMap[cid];
+    const stats = byClass[cid] || { total: 0, skipped: 0, students: [] };
+    return {
+      classId: cid,
+      className: c ? `${c.gradeLevel} — ${c.name} (${c.section || '—'})` : 'Unknown class',
+      total: stats.total,
+      new: stats.total - stats.skipped,
+      skipped: stats.skipped,
+      students: stats.students,
+    };
+  });
+
+  const totals = breakdown.reduce(
+    (acc, r) => ({ total: acc.total + r.total, new: acc.new + r.new, skipped: acc.skipped + r.skipped }),
+    { total: 0, new: 0, skipped: 0 }
+  );
+
+  return {
+    feeHeadName: head.name,
+    defaultAmount: head.defaultAmount,
+    breakdown,
+    totals,
+  };
 };

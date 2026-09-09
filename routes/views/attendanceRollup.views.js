@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
-router.get("/attendance/rollup", requireRole("admin"), async (req, res) => {
+router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
   const now = new Date();
   const year = req.query.year || now.getFullYear();
   const month = req.query.month || now.getMonth() + 1;

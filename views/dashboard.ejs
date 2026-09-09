@@ -14,6 +14,66 @@
   </div>
 </div>
 
+<!-- Quick Links bar — sits above stats cards -->
+<div class="quick-links-bar">
+  <% if (user.role === 'student') { %>
+    <a href="/my/analysis" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      My progress
+    </a>
+  <% } else if (user.role === 'teacher' && !user.isManager) { %>
+    <a href="/attendance" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+      Mark attendance
+    </a>
+    <a href="/marks" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+      Enter marks
+    </a>
+    <a href="/tests/mark" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Manage tests
+    </a>
+    <a href="/reports/generate" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      PDF reports
+    </a>
+  <% } else { /* admin or manager */ %>
+    <a href="/students" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+      Add student
+    </a>
+    <a href="/attendance" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+      Mark attendance
+    </a>
+    <a href="/attendance/rollup" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01"/><path d="M12 14h.01"/><path d="M16 14h.01"/><path d="M8 18h.01"/><path d="M12 18h.01"/></svg>
+      Attendance rollup
+    </a>
+    <a href="/tests/mark" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+      Manage tests
+    </a>
+    <a href="/staff" class="ql-chip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Staff
+    </a>
+    <% if (user.role === 'admin') { %>
+      <a href="/fees/bulk-assign" class="ql-chip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+        Bulk assign fees
+      </a>
+      <form method="POST" action="/fees/generate-monthly" style="display:inline;" onsubmit="return confirm('This will generate this month\'s Tuition fees for all active students. Continue?');">
+        <button type="submit" class="ql-chip ql-chip-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+          Generate monthly fees
+        </button>
+      </form>
+    <% } %>
+  <% } %>
+</div>
+
 <% if (user.role === 'student') { %>
   <% if (stats.student) { %>
     <div class="stats">
@@ -31,36 +91,25 @@
         <div class="stat-value" data-count="<%= stats.marks.overallAverage !== null ? stats.marks.overallAverage : 0 %>"><%= stats.marks.overallAverage !== null ? stats.marks.overallAverage + '%' : '—' %></div>
         <div class="stat-label">Test average</div>
       </div>
-      <div class="stat-card accent-gold">
+      <div class="stat-card <%= stats.fees.pending > 0 ? 'accent-red' : 'accent-green' %>">
         <div class="stat-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </div>
-        <div class="stat-value">Rs <%= Number(stats.fees.paid).toLocaleString() %></div>
-        <div class="stat-label">Fees paid</div>
-      </div>
-      <div class="stat-card accent-red">
-        <div class="stat-icon">
+          <% if (stats.fees.pending > 0) { %>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <% } else { %>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <% } %>
         </div>
-        <div class="stat-value">Rs <%= Number(stats.fees.pending).toLocaleString() %></div>
-        <div class="stat-label">Fees pending</div>
+        <div class="stat-value"><%= stats.fees.pending > 0 ? 'Pending' : 'Up to date' %></div>
+        <div class="stat-label">Fee status</div>
       </div>
     </div>
 
     <!-- Student charts -->
-    <div class="charts-row">
-      <div class="panel chart-panel">
-        <div class="panel-head"><h2>My attendance <span class="chart-subtitle">Last 30 days</span></h2></div>
-        <div class="panel-body chart-body">
-          <canvas id="studentAttChart"></canvas>
-          <div class="chart-empty" id="studentAttEmpty" style="display:none;">No attendance data yet</div>
-        </div>
-      </div>
-      <div class="panel chart-panel">
-        <div class="panel-head"><h2>Fee status</h2></div>
-        <div class="panel-body chart-body chart-body--sm">
-          <canvas id="studentFeeChart"></canvas>
-        </div>
+    <div class="panel chart-panel">
+      <div class="panel-head"><h2>My attendance <span class="chart-subtitle">Last 30 days</span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="studentAttChart"></canvas>
+        <div class="chart-empty" id="studentAttEmpty" style="display:none;">No attendance data yet</div>
       </div>
     </div>
 
@@ -88,7 +137,7 @@
     </div>
   <% } %>
 
-<% } else if (user.role === 'teacher') { %>
+<% } else if (user.role === 'teacher' && !user.isManager) { %>
   <!-- Teacher-scoped dashboard -->
   <% if (stats.teacher && stats.teacher.totalClasses > 0) { %>
     <div class="stats">
@@ -202,8 +251,8 @@
     </div>
   <% } %>
 
-<% } else { %>
-  <!-- Admin-only stats -->
+<% } else { /* admin or manager */ %>
+  <!-- Admin / Manager stats -->
   <div class="stats">
     <div class="stat-card accent-blue">
       <div class="stat-icon">
@@ -219,6 +268,7 @@
       <div class="stat-value" data-count="<%= stats.staff %>"><%= stats.staff %></div>
       <div class="stat-label">Teaching staff</div>
     </div>
+    <% if (user.role === 'admin') { %>
     <div class="stat-card accent-green">
       <div class="stat-icon">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -233,9 +283,10 @@
       <div class="stat-value">Rs <%= Number(stats.outstanding).toLocaleString() %></div>
       <div class="stat-label">Fees outstanding</div>
     </div>
+    <% } %>
   </div>
 
-  <!-- Charts: Attendance Trend & Fee Collection -->
+  <!-- Charts: Attendance Trend (and Fee charts for admin only) -->
   <div class="charts-row">
     <div class="panel chart-panel">
       <div class="panel-head"><h2>Attendance trend <span class="chart-subtitle">Last 30 days</span></h2></div>
@@ -244,6 +295,7 @@
         <div class="chart-empty" id="attendanceEmpty" style="display:none;">No attendance data yet</div>
       </div>
     </div>
+    <% if (user.role === 'admin') { %>
     <div class="panel chart-panel">
       <div class="panel-head"><h2>Fee collection <span class="chart-subtitle">Last 6 months</span></h2></div>
       <div class="panel-body chart-body">
@@ -251,8 +303,10 @@
         <div class="chart-empty" id="feeEmpty" style="display:none;">No fee data yet</div>
       </div>
     </div>
+    <% } %>
   </div>
 
+  <% if (user.role === 'admin') { %>
   <div class="charts-row">
     <div class="panel chart-panel chart-panel--wide">
       <div class="panel-head"><h2>Fee breakdown <span class="chart-subtitle">By type</span></h2></div>
@@ -262,6 +316,7 @@
       </div>
     </div>
   </div>
+  <% } %>
 
   <!-- Quick actions -->
   <div class="panel">
@@ -286,6 +341,7 @@
             <span class="action-desc">Add or edit teachers</span>
           </div>
         </a>
+        <% if (user.role === 'admin') { %>
         <a href="/fees" class="action-card">
           <div class="action-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
@@ -304,6 +360,7 @@
             <span class="action-desc">OCR-powered entry</span>
           </div>
         </a>
+        <% } %>
         <a href="/classes" class="action-card">
           <div class="action-icon">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
@@ -338,6 +395,24 @@
           <div class="action-text">
             <span class="action-title">Attendance</span>
             <span class="action-desc">View rollup reports</span>
+          </div>
+        </a>
+        <a href="/tests/mark" class="action-card">
+          <div class="action-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </div>
+          <div class="action-text">
+            <span class="action-title">Mark a test</span>
+            <span class="action-desc">Grade test papers</span>
+          </div>
+        </a>
+        <a href="/attendance" class="action-card">
+          <div class="action-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+          </div>
+          <div class="action-text">
+            <span class="action-title">Mark attendance</span>
+            <span class="action-desc">Class attendance entry</span>
           </div>
         </a>
       </div>

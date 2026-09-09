@@ -50,7 +50,7 @@ beforeEach(() => {
     withPopulate({ _id: "s1", name: "Kid", studentId: "R-1", classLevel: null, photoUrl: null })
   );
   mockAttendanceFind.mockResolvedValue([]);
-  mockFeesFind.mockResolvedValue([]);
+  mockFeesFind.mockReturnValue(withPopulate([]));
 });
 
 describe("getStudentAnalysisService — subject & progress aggregation", () => {

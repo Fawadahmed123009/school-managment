@@ -1,0 +1,56 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Parent account created</p>
+    <h1>Share credentials with parent</h1>
+  </div>
+</div>
+
+<div class="panel" style="border: 2px solid var(--paid, #16a34a);">
+  <div class="panel-head" style="background: var(--paid, #16a34a);">
+    <h2>New parent account for <%= studentName %></h2>
+  </div>
+  <div class="panel-body">
+    <p style="margin-bottom: 16px; font-weight: 600;">
+      A new parent account was created and linked to this student.
+      Please share the login details below with the parent so they can access the parent portal.
+    </p>
+
+    <div class="stats" style="margin-bottom: 20px;">
+      <div class="stat">
+        <div class="n"><%= credentials.name %></div>
+        <div class="l">Parent name</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= credentials.email %></div>
+        <div class="l">Login email</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= credentials.phone %></div>
+        <div class="l">Phone</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= credentials.familyNumber %></div>
+        <div class="l">Family number</div>
+      </div>
+    </div>
+
+    <div style="background: #fefce8; border: 2px dashed #ca8a04; border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 20px;">
+      <p style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #92400e; margin-bottom: 8px; font-weight: 600;">Parent portal password</p>
+      <p class="mono" style="font-size: 28px; font-weight: 700; color: #1e293b; letter-spacing: 0.05em; margin: 0;"><%= credentials.password %></p>
+      <p style="font-size: 12px; color: #92400e; margin-top: 8px;">Write this down &mdash; it will not be shown again.</p>
+    </div>
+
+    <p class="muted" style="font-size: 13px; margin-bottom: 16px;">
+      The parent can log in at <strong>/parent/login</strong> using the email and password above.
+      After logging in, they can view their children&rsquo;s progress reports and fee statements.
+    </p>
+
+    <a href="/students" class="btn btn-primary">Back to students</a>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

@@ -4,7 +4,11 @@ const Student = require("../../models/Students/students.model");
 const { isPassMatched } = require("../../handlers/passHash.handler");
 const generateToken = require("../../utils/tokenGenerator");
 const { hashPassword } = require("../../handlers/passHash.handler");
+const crypto = require("crypto");
 const { paginate } = require("../../utils/paginate");
+
+// Generate a cryptographically random password (10 chars, URL-safe base64)
+const generateRandomPassword = () => crypto.randomBytes(8).toString("base64url").slice(0, 10);
 
 // Generate next family number: FAM-1001, FAM-1002, ...
 const generateFamilyNumber = async () => {
@@ -88,14 +92,16 @@ exports.getChildrenFeesService = async (parentId, childId, res) => {
 
 exports.createParentService = async (data, res) => {
   const { name, email, password, phone, relationship, children } = data;
-  if (!name || !email || !password || !phone) {
-    return responseStatus(res, 400, "failed", "Name, email, password, and phone are required");
+  if (!name || !email || !phone) {
+    return responseStatus(res, 400, "failed", "Name, email, and phone are required");
   }
 
   const exists = await Parent.findOne({ email });
   if (exists) return responseStatus(res, 409, "failed", "A parent with this email already exists");
 
-  const hashedPassword = await hashPassword(password);
+  // If no password provided, generate a random one
+  const plainPassword = password || generateRandomPassword();
+  const hashedPassword = await hashPassword(plainPassword);
   const familyNumber = await generateFamilyNumber();
   const parent = await Parent.create({
     name,
@@ -115,8 +121,9 @@ exports.createParentService = async (data, res) => {
     );
   }
 
+  // Return parent data INCLUDING the plain-text password (shown once to admin)
   const responseParent = parent.toObject();
-  delete responseParent.password;
+  responseParent.plainPassword = plainPassword;
   return responseStatus(res, 201, "success", responseParent);
 };
 

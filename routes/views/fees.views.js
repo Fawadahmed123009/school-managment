@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { requireRole } = require("../../middlewares/authView");
 const Fees = require("../../models/Fees/fees.model");
-const { createFeeService, updateFeeService, bulkAssignFeesService, generateMonthlyFeesService } = require("../../services/fees/fees.service");
+const { createFeeService, updateFeeService, bulkAssignFeesService, bulkAssignPreviewService, generateMonthlyFeesService } = require("../../services/fees/fees.service");
 const { getAllFeeHeadsService, findOrCreateFeeHeadByName } = require("../../services/fees/feeHead.service");
 const { paginate } = require("../../utils/paginate");
 const Student = require("../../models/Students/students.model");
@@ -11,14 +11,20 @@ const ClassLevel = require("../../models/Academic/class.model");
 
 router.get("/fees", requireRole("admin"), async (req, res) => {
   try {
-    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, ok, genMsg, genErr, ...restFilters } = req.query;
+    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, feeHead: feeHeadFilterRaw, ok, genMsg, genErr, ...restFilters } = req.query;
     const okFlag = ok === "1";
     const genMessage = genMsg || null;
     const genError = genErr || null;
     const classFilter = (classFilterRaw || "").trim();
+    const feeHeadFilter = (feeHeadFilterRaw || "").trim();
     const rollSearch = (roll || "").trim();
     const parentSearch = (parent || "").trim();
     const studentNameSearch = (studentNameRaw || "").trim();
+
+    // If a feeHead filter was provided, add it directly to the fee query
+    if (feeHeadFilter) {
+      restFilters.feeHead = feeHeadFilter;
+    }
 
     // Build a Student-level filter to resolve matching student IDs.
     // Fee records reference students, so roll / class / parent searches
@@ -88,7 +94,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
           user: req.user,
           fees: [],
           pagination: { total: 0, page: 1, limit: 20, pages: 0, hasPrev: false, hasNext: false },
-          filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, ...restFilters },
+          filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, ...restFilters },
           students: studentsResult || [],
           feeHeads: headsResult.data || [],
           classes,
@@ -128,7 +134,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       user: req.user,
       fees: feesResult.data || [],
       pagination: feesResult.pagination || null,
-      filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, ...restFilters },
+      filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, ...restFilters },
       students: studentsResult || [],
       feeHeads: headsResult.data || [],
       classes,
@@ -245,6 +251,16 @@ router.post("/fees/bulk-assign", requireRole("admin"), async (req, res) => {
     return res.redirect("/fees/bulk-assign?ok=1&msg=" + encodeURIComponent(msg));
   } catch (err) {
     return res.redirect("/fees/bulk-assign?err=" + encodeURIComponent(err.message));
+  }
+});
+
+// ---- Bulk-assign preview (AJAX) ----
+router.post("/fees/bulk-assign/preview", requireRole("admin"), async (req, res) => {
+  try {
+    const data = await bulkAssignPreviewService(req.body);
+    return res.json({ ok: true, data });
+  } catch (err) {
+    return res.status(400).json({ ok: false, error: err.message });
   }
 });
 

@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const {
   adminRegisterStudentService,
   getStudentByAdminService,
@@ -11,7 +11,7 @@ const { getAllClassesService } = require("../../services/academic/class.service"
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const Parent = require("../../models/Parents/parents.model");
 
-router.get("/students", requireRole("admin"), async (req, res) => {
+router.get("/students", requireAdminOrManager(), async (req, res) => {
   try {
     const page = req.query.page || 1;
     const limit = req.query.limit || 20;
@@ -94,7 +94,7 @@ router.get("/students", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/students/create", requireRole("admin"), async (req, res) => {
+router.post("/students/create", requireAdminOrManager(), async (req, res) => {
   const fields = [
     "name", "email", "password", "classLevel", "rollNumber", "fatherName",
     "address", "whatsappNumber", "feeAgreed", "gender", "parentName",
@@ -109,12 +109,38 @@ router.post("/students/create", requireRole("admin"), async (req, res) => {
   } catch (err) {
     return res.redirect(`/students?error=${encodeURIComponent(err.message || "Failed to create student.")}`);
   }
-  if (result.ok) return res.redirect("/students?ok=1");
+
+  // --- Family-match confirmation: service returned status "confirm" ---
+  if (result.body && result.body.status === "confirm") {
+    return res.render("students/family-confirm", {
+      page: "students",
+      user: req.user,
+      matchedParent: result.body.data.matchedParent,
+      formData: data,
+      schoolName: res.locals.schoolName,
+    });
+  }
+
+  // --- Success: check if a new parent account was auto-created ---
+  if (result.ok) {
+    const creds = result.body.data && result.body.data.newParentCredentials;
+    if (creds) {
+      return res.render("students/parent-created", {
+        page: "students",
+        user: req.user,
+        credentials: creds,
+        studentName: data.name,
+        schoolName: res.locals.schoolName,
+      });
+    }
+    return res.redirect("/students?ok=1");
+  }
+
   return res.redirect(`/students?error=${encodeURIComponent(result.message || "Failed to create student.")}`);
 });
 
 // GET /students/:studentId/edit — edit form
-router.get("/students/:studentId/edit", requireRole("admin"), async (req, res) => {
+router.get("/students/:studentId/edit", requireAdminOrManager(), async (req, res) => {
   try {
     const { res: cap, result } = captureServiceResponse();
     const [, classes] = await Promise.all([
@@ -139,7 +165,7 @@ router.get("/students/:studentId/edit", requireRole("admin"), async (req, res) =
 });
 
 // POST /students/:studentId/update — save edits
-router.post("/students/:studentId/update", requireRole("admin"), async (req, res) => {
+router.post("/students/:studentId/update", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await adminUpdateStudentService(req.body, req.params.studentId, cap);
@@ -151,7 +177,7 @@ router.post("/students/:studentId/update", requireRole("admin"), async (req, res
 });
 
 // POST /students/:studentId/delete — delete student
-router.post("/students/:studentId/delete", requireRole("admin"), async (req, res) => {
+router.post("/students/:studentId/delete", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await adminDeleteStudentService(req.params.studentId, cap);

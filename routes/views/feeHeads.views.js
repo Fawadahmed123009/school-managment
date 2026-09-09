@@ -8,6 +8,7 @@ const {
   deleteFeeHeadService,
   getDailyCollectionData,
   getDefaulterListData,
+  getInactiveStudentDuesData,
 } = require("../../services/fees/feeHead.service");
 const ClassLevel = require("../../models/Academic/class.model");
 
@@ -124,6 +125,35 @@ router.get("/fees/defaulters", requireRole("admin"), async (req, res) => {
       page: "fees-defaulters",
       user: req.user,
       defaulters: null,
+      classLevels: [],
+      loadError: err.message,
+      queryClassLevel: req.query.classLevel || "",
+      schoolName: res.locals.schoolName,
+    });
+  }
+});
+
+// ---- Inactive Student Dues page ----
+router.get("/fees/inactive-dues", requireRole("admin"), async (req, res) => {
+  try {
+    const [dues, classLevels] = await Promise.all([
+      getInactiveStudentDuesData(req.query),
+      ClassLevel.find({}).select("name gradeLevel group section").sort("gradeLevel"),
+    ]);
+    res.render("fees/inactive-dues", {
+      page: "fees-inactive-dues",
+      user: req.user,
+      dues,
+      classLevels,
+      loadError: null,
+      queryClassLevel: req.query.classLevel || "",
+      schoolName: res.locals.schoolName,
+    });
+  } catch (err) {
+    res.render("fees/inactive-dues", {
+      page: "fees-inactive-dues",
+      user: req.user,
+      dues: null,
       classLevels: [],
       loadError: err.message,
       queryClassLevel: req.query.classLevel || "",

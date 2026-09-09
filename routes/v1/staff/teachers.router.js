@@ -2,7 +2,7 @@ const express = require("express");
 const teachersRouter = express.Router();
 //middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isTeacher = require("../../../middlewares/isTeacher");
 //controllers
 const {
@@ -20,13 +20,13 @@ const {
 // create teacher
 teachersRouter
   .route("/create-teacher")
-  .post(isLoggedIn, isAdmin, createTeacherController);
+  .post(isLoggedIn, isAdminOrManager, createTeacherController);
 // teacher login
 teachersRouter.route("/teacher/login").post(teacherLoginController);
 //get all teachers
 teachersRouter
   .route("/teachers")
-  .get(isLoggedIn, isAdmin, getAllTeachersController);
+  .get(isLoggedIn, isAdminOrManager, getAllTeachersController);
 // get teacher profile
 teachersRouter
   .route("/teacher/:teacherId/profile")
@@ -38,21 +38,21 @@ teachersRouter
 // admin update user profile
 teachersRouter
   .route("/teacher/:teacherId/update-profile")
-  .patch(isLoggedIn, isAdmin, adminUpdateTeacherProfileController);
+  .patch(isLoggedIn, isAdminOrManager, adminUpdateTeacherProfileController);
 // admin toggles a teacher's attendance-manager flag
 teachersRouter
   .route("/teacher/:teacherId/toggle-attendance-manager")
-  .patch(isLoggedIn, isAdmin, toggleAttendanceManagerController);
+  .patch(isLoggedIn, isAdminOrManager, toggleAttendanceManagerController);
 // admin update teacher credentials (name/email/password)
 teachersRouter
   .route("/teacher/:teacherId/credentials")
-  .put(isLoggedIn, isAdmin, adminUpdateCredentialsController);
+  .put(isLoggedIn, isAdminOrManager, adminUpdateCredentialsController);
 // admin get teacher by ID
 teachersRouter
   .route("/admin/teacher/:teacherId")
-  .get(isLoggedIn, isAdmin, adminGetTeacherController);
+  .get(isLoggedIn, isAdminOrManager, adminGetTeacherController);
 // admin delete a teacher
 teachersRouter
   .route("/teacher/:teacherId")
-  .delete(isLoggedIn, isAdmin, deleteTeacherController);
+  .delete(isLoggedIn, isAdminOrManager, deleteTeacherController);
 module.exports = teachersRouter;

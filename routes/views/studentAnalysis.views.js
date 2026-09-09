@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
 // Admin views any student's analysis
-router.get("/students/:studentId/analysis", requireRole("admin"), async (req, res) => {
+router.get("/students/:studentId/analysis", requireAdminOrManager(), async (req, res) => {
   const result = await apiFetch(`/students/${req.params.studentId}/analysis`, req.token);
 
   res.render("students/analysis", {

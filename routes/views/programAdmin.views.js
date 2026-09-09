@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const {
   getAllProgramsService,
   getProgramsService,
@@ -11,7 +11,7 @@ const {
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 // ── List ────────────────────────────────────────────────────────
-router.get("/programs", requireRole("admin"), async (req, res) => {
+router.get("/programs", requireAdminOrManager(), async (req, res) => {
   try {
     const programs = await getAllProgramsService();
     res.render("programs/list", {
@@ -37,7 +37,7 @@ router.get("/programs", requireRole("admin"), async (req, res) => {
 });
 
 // ── Edit form ───────────────────────────────────────────────────
-router.get("/programs/:programId/edit", requireRole("admin"), async (req, res) => {
+router.get("/programs/:programId/edit", requireAdminOrManager(), async (req, res) => {
   try {
     const program = await getProgramsService(req.params.programId);
     if (!program) return res.redirect(`/programs?error=${encodeURIComponent("Program not found")}`);
@@ -54,7 +54,7 @@ router.get("/programs/:programId/edit", requireRole("admin"), async (req, res) =
 });
 
 // ── Create ──────────────────────────────────────────────────────
-router.post("/programs/create", requireRole("admin"), async (req, res) => {
+router.post("/programs/create", requireAdminOrManager(), async (req, res) => {
   const { name, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
@@ -67,7 +67,7 @@ router.post("/programs/create", requireRole("admin"), async (req, res) => {
 });
 
 // ── Update ──────────────────────────────────────────────────────
-router.post("/programs/:programId/edit", requireRole("admin"), async (req, res) => {
+router.post("/programs/:programId/edit", requireAdminOrManager(), async (req, res) => {
   const { name, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
@@ -80,7 +80,7 @@ router.post("/programs/:programId/edit", requireRole("admin"), async (req, res) 
 });
 
 // ── Delete ──────────────────────────────────────────────────────
-router.post("/programs/:programId/delete", requireRole("admin"), async (req, res) => {
+router.post("/programs/:programId/delete", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await deleteProgramService(req.params.programId, cap);

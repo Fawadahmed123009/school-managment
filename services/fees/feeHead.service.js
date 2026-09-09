@@ -1,6 +1,7 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const FeeHead = require("../../models/Fees/feeHead.model");
 const Fees = require("../../models/Fees/fees.model");
+const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
 
 // ---- Fee Head CRUD ----
@@ -147,7 +148,14 @@ exports.getDailyCollectionData = async (query) => {
 exports.getDefaulterListData = async (query) => {
   const { classLevel, academicTerm } = query;
 
+  // Exclude inactive students — their pending dues are tracked separately
+  const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
+  const inactiveIds = inactiveStudents.map((s) => s._id);
+
   const feeFilter = { status: { $in: ["pending", "partial"] } };
+  if (inactiveIds.length > 0) {
+    feeFilter.student = { $nin: inactiveIds };
+  }
   if (academicTerm) feeFilter.academicTerm = academicTerm;
 
   const fees = await Fees.find(feeFilter)
@@ -201,6 +209,98 @@ exports.getDefaulterListData = async (query) => {
       feeHeadName: f.feeHead?.name || f.feeType || "—",
       amount: f.amount,
       status: f.status,
+    });
+    bucket.total += f.amount;
+    grandOwed += f.amount;
+  });
+
+  // Flatten the students map into an array per section for easy EJS iteration
+  Object.values(byClass).forEach((sections) => {
+    Object.values(sections).forEach((bucket) => {
+      bucket.students = Object.values(bucket.students);
+    });
+  });
+
+  return { byClass, grandOwed, studentCount };
+};
+
+// ---- Inactive Student Dues ----
+
+/**
+ * Returns pending/partial fee records belonging to inactive students,
+ * grouped by class and section (same shape as getDefaulterListData).
+ * These records are excluded from the main collection report, dashboard
+ * stats, and defaulters list.
+ */
+exports.getInactiveStudentDuesData = async (query) => {
+  const { classLevel, academicTerm } = query;
+
+  const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
+  const inactiveIds = inactiveStudents.map((s) => s._id);
+
+  if (inactiveIds.length === 0) {
+    return { byClass: {}, grandOwed: 0, studentCount: 0 };
+  }
+
+  const feeFilter = {
+    status: { $in: ["pending", "partial"] },
+    student: { $in: inactiveIds },
+  };
+  if (academicTerm) feeFilter.academicTerm = academicTerm;
+
+  const fees = await Fees.find(feeFilter)
+    .populate({
+      path: "student",
+      select: "name classLevel rollNumber whatsappNumber fatherName status",
+      populate: { path: "classLevel", select: "name gradeLevel group section" },
+    })
+    .populate("feeHead", "name")
+    .sort({ createdAt: -1 });
+
+  const byClass = {};
+  let grandOwed = 0;
+  const seenStudents = new Set();
+  let studentCount = 0;
+
+  fees.forEach((f) => {
+    const student = f.student;
+    if (!student) return;
+
+    const cls = student.classLevel;
+    if (classLevel && (!cls || cls._id.toString() !== classLevel)) return;
+
+    const className = cls ? `${cls.gradeLevel} — ${cls.name}` : "Unassigned";
+    const section = cls?.section || "—";
+
+    if (!byClass[className]) byClass[className] = {};
+    if (!byClass[className][section]) {
+      byClass[className][section] = { students: {}, total: 0 };
+    }
+
+    const bucket = byClass[className][section];
+    const sid = student._id.toString();
+    if (!bucket.students[sid]) {
+      bucket.students[sid] = {
+        _id: student._id,
+        name: student.name,
+        rollNumber: student.rollNumber,
+        fatherName: student.fatherName,
+        whatsappNumber: student.whatsappNumber,
+        owed: 0,
+        items: [],
+      };
+      if (!seenStudents.has(sid)) {
+        seenStudents.add(sid);
+        studentCount++;
+      }
+    }
+
+    bucket.students[sid].owed += f.amount;
+    bucket.students[sid].items.push({
+      feeHeadName: f.feeHead?.name || f.feeType || "—",
+      amount: f.amount,
+      status: f.status,
+      createdAt: f.createdAt,
     });
     bucket.total += f.amount;
     grandOwed += f.amount;

@@ -116,7 +116,7 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
   // ---- Fees ----
-  const feeRecords = await Fees.find({ student: studentId });
+  const feeRecords = await Fees.find({ student: studentId }).populate("feeHead", "name");
   const feeTotals = { total: 0, paid: 0, pending: 0 };
   feeRecords.forEach((f) => {
     feeTotals.total += f.amount;

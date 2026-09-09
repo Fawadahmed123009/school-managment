@@ -23,7 +23,8 @@ const generateRouter = express.Router();
 
 // GET /reports/generate — PDF generation form
 generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (req, res) => {
-  const isTeacher = req.user.role === "teacher";
+  // Manager gets admin-scoped (unrestricted) access, not teacher-scoped
+  const isTeacher = req.user.role === "teacher" && !req.user.isManager;
 
   const sessionsRes = await apiFetch("/test-sessions", req.token);
   const sessions = sessionsRes.status === "success" ? sessionsRes.data : [];

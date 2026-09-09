@@ -58,7 +58,8 @@
       <div class="field-row">
         <div class="field">
           <label for="feeAgreed">Fee agreed (Rs)</label>
-          <input type="number" name="feeAgreed" id="feeAgreed" min="0" required />
+          <input type="number" name="feeAgreed" id="feeAgreed" min="0" />
+          <p class="hint">Optional. Leave blank to use the fee head's default. Enter 0 for scholarship students.</p>
         </div>
         <div class="field">
           <label for="classLevel">Class</label>
@@ -150,6 +151,7 @@
       <div class="display"><%= (filters.class || filters.name || filters.parent) ? 'No students match your filters' : 'No students yet' %></div>
     </div>
   <% } else { %>
+    <div class="table-wrap">
     <table class="ledger">
       <thead>
         <tr>
@@ -175,7 +177,8 @@
             <td><%= s.classLevel ? s.classLevel.name : '—' %></td>
             <td><%= new Date(s.dateAdmitted).toLocaleDateString() %></td>
             <td>
-              <% if (s.isSuspended) { %><span class="pill review">Suspended</span>
+              <% if (s.status === 'inactive') { %><span class="pill error">Inactive</span>
+              <% } else if (s.isSuspended) { %><span class="pill review">Suspended</span>
               <% } else if (s.isWithdrawn) { %><span class="pill error">Withdrawn</span>
               <% } else if (s.isGraduated) { %><span class="pill paid">Graduated</span>
               <% } else { %><span class="pill ocr">Active</span><% } %>
@@ -189,6 +192,7 @@
         <% }); %>
       </tbody>
     </table>
+    </div>
 
     <!-- Pagination controls -->
     <% if (pagination && pagination.pages > 1) { %>

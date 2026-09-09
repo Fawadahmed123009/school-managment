@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const {
   getAllClassesService,
   getClassLevelsService,
@@ -10,7 +10,7 @@ const {
 } = require("../../services/academic/class.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
-router.get("/classes", requireRole("admin"), async (req, res) => {
+router.get("/classes", requireAdminOrManager(), async (req, res) => {
   try {
     const classes = await getAllClassesService();
     res.render("classes/list", {
@@ -35,7 +35,7 @@ router.get("/classes", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.get("/classes/:classLevelId/edit", requireRole("admin"), async (req, res) => {
+router.get("/classes/:classLevelId/edit", requireAdminOrManager(), async (req, res) => {
   try {
     const cls = await getClassLevelsService(req.params.classLevelId);
     if (!cls) return res.redirect(`/classes?error=${encodeURIComponent("Class not found")}`);
@@ -51,7 +51,7 @@ router.get("/classes/:classLevelId/edit", requireRole("admin"), async (req, res)
   }
 });
 
-router.post("/classes/create", requireRole("admin"), async (req, res) => {
+router.post("/classes/create", requireAdminOrManager(), async (req, res) => {
   const { name, gradeLevel, group, section, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
@@ -63,7 +63,7 @@ router.post("/classes/create", requireRole("admin"), async (req, res) => {
   return res.redirect(`/classes?error=${encodeURIComponent(result.message || "Failed to create class")}`);
 });
 
-router.post("/classes/:classLevelId/edit", requireRole("admin"), async (req, res) => {
+router.post("/classes/:classLevelId/edit", requireAdminOrManager(), async (req, res) => {
   const { name, gradeLevel, group, section, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
@@ -75,7 +75,7 @@ router.post("/classes/:classLevelId/edit", requireRole("admin"), async (req, res
   return res.redirect(`/classes/${req.params.classLevelId}/edit?error=${encodeURIComponent(result.message || "Update failed")}`);
 });
 
-router.post("/classes/:classLevelId/delete", requireRole("admin"), async (req, res) => {
+router.post("/classes/:classLevelId/delete", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await deleteClassLevelService(req.params.classLevelId, cap);

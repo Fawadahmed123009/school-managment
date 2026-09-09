@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
-router.get("/tests/manage", requireRole("admin"), async (req, res) => {
+router.get("/tests/manage", requireAdminOrManager(), async (req, res) => {
   const [testsRes, sessionsRes, subjectsRes, classesRes] = await Promise.all([
     apiFetch("/tests", req.token),
     apiFetch("/test-sessions", req.token),
@@ -25,7 +25,7 @@ router.get("/tests/manage", requireRole("admin"), async (req, res) => {
   });
 });
 
-router.post("/tests/create", requireRole("admin"), async (req, res) => {
+router.post("/tests/create", requireAdminOrManager(), async (req, res) => {
   const { name, subject, classLevels, date, totalMarks, passMarks, session, phase } = req.body;
 
   const result = await apiFetch("/tests", req.token, {
@@ -48,7 +48,7 @@ router.post("/tests/create", requireRole("admin"), async (req, res) => {
   res.redirect("/tests/manage?ok=1");
 });
 
-router.get("/sessions/manage", requireRole("admin"), async (req, res) => {
+router.get("/sessions/manage", requireAdminOrManager(), async (req, res) => {
   const [sessionsRes, classesRes] = await Promise.all([
     apiFetch("/test-sessions", req.token),
     apiFetch("/class-levels", req.token),
@@ -66,7 +66,7 @@ router.get("/sessions/manage", requireRole("admin"), async (req, res) => {
   });
 });
 
-router.post("/sessions/create", requireRole("admin"), async (req, res) => {
+router.post("/sessions/create", requireAdminOrManager(), async (req, res) => {
   const { name, classLevels, phaseNames } = req.body;
 
   const phases = (Array.isArray(phaseNames) ? phaseNames : [phaseNames])
@@ -88,7 +88,7 @@ router.post("/sessions/create", requireRole("admin"), async (req, res) => {
   res.redirect("/sessions/manage?ok=1");
 });
 
-router.post("/tests/:testId/delete", requireRole("admin"), async (req, res) => {
+router.post("/tests/:testId/delete", requireAdminOrManager(), async (req, res) => {
   const result = await apiFetch(`/tests/${req.params.testId}`, req.token, {
     method: "DELETE",
   });

@@ -7,7 +7,9 @@
     <p class="eyebrow">Roster</p>
     <h1>Edit student</h1>
   </div>
-  <a href="/students" class="btn btn-ghost">&#8592; Back to students</a>
+  <div class="page-head-actions">
+    <a href="/students" class="btn btn-ghost">&#8592; Back to students</a>
+  </div>
 </div>
 
 <% if (editError) { %><div class="flash error"><%= editError %></div><% } %>
@@ -60,7 +62,8 @@
       <div class="field-row">
         <div class="field">
           <label for="feeAgreed">Fee agreed (Rs)</label>
-          <input type="number" name="feeAgreed" id="feeAgreed" min="0" value="<%= student.feeAgreed ?? 0 %>" required />
+          <input type="number" name="feeAgreed" id="feeAgreed" min="0" value="<%= student.feeAgreed != null ? student.feeAgreed : '' %>" />
+          <p class="hint">Leave blank to use the fee head's default amount. Enter 0 for scholarship/sponsored students.</p>
         </div>
         <div class="field">
           <label for="classLevel">Class</label>
@@ -86,6 +89,14 @@
       <details style="margin-top:12px;">
         <summary style="cursor:pointer; font-weight:600; color:var(--muted);">Status flags</summary>
         <div class="field-row" style="margin-top:12px;">
+          <div class="field">
+            <label for="status">Enrollment status</label>
+            <select name="status" id="status">
+              <option value="active" <%= (!student.status || student.status === 'active') ? 'selected' : '' %>>Active</option>
+              <option value="inactive" <%= student.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
+            </select>
+            <small style="color:var(--muted); font-size:0.78rem;">Inactive students are excluded from fee assignment.</small>
+          </div>
           <div class="field">
             <label style="display:flex; align-items:center; gap:8px;">
               <input type="checkbox" name="isSuspended" value="true" <%= student.isSuspended ? 'checked' : '' %> />
@@ -117,7 +128,7 @@
 
 <div class="panel" style="border:1px solid var(--error, #c00);">
   <div class="panel-head"><h2 style="color:var(--error, #c00);">Danger zone</h2></div>
-  <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between;">
+  <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
     <p>Permanently delete this student record. This cannot be undone.</p>
     <form method="POST" action="/students/<%= student._id %>/delete" data-confirm="Delete <%= student.name %> permanently? This cannot be undone.">
       <button type="submit" class="btn" style="background:var(--error, #c00); color:#fff;">Delete student</button>

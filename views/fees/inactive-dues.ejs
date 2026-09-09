@@ -5,16 +5,22 @@
 <div class="page-head">
   <div>
     <p class="eyebrow">Reports</p>
-    <h1>Fee Defaulters</h1>
+    <h1>Inactive Student Dues</h1>
   </div>
 </div>
 
 <% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
 
+<div class="panel" style="background:var(--bg-secondary, #f8f9fa); border-left:3px solid var(--accent, #3b82f6); padding:12px 16px; margin-bottom:16px; font-size:0.88rem; color:var(--muted, #666);">
+  These are pending/unpaid fee records belonging to students whose status is <strong>inactive</strong>.
+  They are excluded from the main Collection Report, Defaulters list, and dashboard outstanding totals.
+  If a student is reactivated, their dues will automatically reappear in the normal reports.
+</div>
+
 <div class="panel">
   <div class="panel-head"><h2>Filter</h2></div>
   <div class="panel-body">
-    <form method="GET" action="/fees/defaulters" style="display:flex; gap:16px; flex-wrap:wrap; align-items:end;">
+    <form method="GET" action="/fees/inactive-dues" style="display:flex; gap:16px; flex-wrap:wrap; align-items:end;">
       <div class="field">
         <label for="classLevel">Class</label>
         <select name="classLevel" id="classLevel">
@@ -31,33 +37,33 @@
   </div>
 </div>
 
-<% if (defaulters) { %>
-  <% if (defaulters.studentCount === 0) { %>
+<% if (dues) { %>
+  <% if (dues.studentCount === 0) { %>
     <div class="panel">
       <div class="empty">
-        <div class="display">No defaulters</div>
-        <p>No students currently have a pending or partial fee balance.</p>
+        <div class="display">No inactive dues</div>
+        <p>No inactive students currently have pending or partial fee balances.</p>
       </div>
     </div>
   <% } else { %>
     <div class="stats">
       <div class="stat">
-        <div class="n mono"><%= defaulters.studentCount %></div>
-        <div class="l">Students owing</div>
+        <div class="n mono"><%= dues.studentCount %></div>
+        <div class="l">Inactive students owing</div>
       </div>
       <div class="stat">
-        <div class="n mono">Rs <%= Number(defaulters.grandOwed).toLocaleString() %></div>
-        <div class="l">Total outstanding</div>
+        <div class="n mono">Rs <%= Number(dues.grandOwed).toLocaleString() %></div>
+        <div class="l">Total outstanding (inactive)</div>
       </div>
     </div>
 
-    <% Object.keys(defaulters.byClass).forEach(function(className) { %>
+    <% Object.keys(dues.byClass).forEach(function(className) { %>
       <div class="panel">
         <div class="panel-head">
           <h2><%= className %></h2>
         </div>
-        <% Object.keys(defaulters.byClass[className]).forEach(function(section) { %>
-          <% var block = defaulters.byClass[className][section]; %>
+        <% Object.keys(dues.byClass[className]).forEach(function(section) { %>
+          <% var block = dues.byClass[className][section]; %>
           <div style="padding:0 20px 16px;">
             <h3 style="font-size:0.85rem; color:var(--muted); margin-bottom:8px;">
               Section: <%= section %>
@@ -71,32 +77,26 @@
                   <th>Roll #</th>
                   <th>Father's name</th>
                   <th class="num">Owed</th>
-                  <th>Reminder</th>
+                  <th>Fee details</th>
                 </tr>
               </thead>
               <tbody>
                 <% block.students.forEach(function(s) { %>
                   <tr>
-                    <td><%= s.name %></td>
+                    <td><strong><%= s.name %></strong></td>
                     <td class="mono"><%= s.rollNumber || '—' %></td>
                     <td><%= s.fatherName || '—' %></td>
                     <td class="num mono">Rs <%= Number(s.owed).toLocaleString() %></td>
                     <td>
-                      <% if (s.whatsappNumber) { %>
-                        <%
-                          var phone = s.whatsappNumber.replace(/[^0-9]/g, '');
-                          var msg = encodeURIComponent(
-                            'Dear parent/guardian of ' + s.name + ', this is a reminder that Rs ' +
-                            Number(s.owed).toLocaleString() + ' is currently outstanding on the school fee account. ' +
-                            'Kindly clear the balance at your earliest convenience. Thank you — ' + schoolName
-                          );
-                        %>
-                        <a href="https://wa.me/<%= phone %>?text=<%= msg %>" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:4px 10px; font-size:0.8rem;">
-                          Send reminder
-                        </a>
-                      <% } else { %>
-                        <span class="l">No WhatsApp #</span>
-                      <% } %>
+                      <% s.items.forEach(function(item) { %>
+                        <div style="font-size:0.82rem; margin-bottom:2px;">
+                          <span><%= item.feeHeadName %></span>
+                          <span class="mono" style="color:var(--muted);">— Rs <%= Number(item.amount).toLocaleString() %></span>
+                          <% if (item.createdAt) { %>
+                            <span style="color:var(--muted); font-size:0.78rem;">(<%= new Date(item.createdAt).toLocaleDateString() %>)</span>
+                          <% } %>
+                        </div>
+                      <% }); %>
                     </td>
                   </tr>
                 <% }); %>

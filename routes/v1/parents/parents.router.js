@@ -2,7 +2,7 @@ const express = require("express");
 const parentsRouter = express.Router();
 
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isParent = require("../../../middlewares/isParent");
 
 const {
@@ -24,8 +24,8 @@ parentsRouter.route("/parents/children/:childId/analysis").get(isLoggedIn, isPar
 parentsRouter.route("/parents/children/:childId/fees").get(isLoggedIn, isParent, getChildrenFeesController);
 
 // ---- Admin: Parent Management ----
-parentsRouter.route("/admin/parents").get(isLoggedIn, isAdmin, getAllParentsController);
-parentsRouter.route("/admin/parents").post(isLoggedIn, isAdmin, createParentController);
-parentsRouter.route("/admin/parents/:parentId/children/:childId").post(isLoggedIn, isAdmin, addChildToParentController);
+parentsRouter.route("/admin/parents").get(isLoggedIn, isAdminOrManager, getAllParentsController);
+parentsRouter.route("/admin/parents").post(isLoggedIn, isAdminOrManager, createParentController);
+parentsRouter.route("/admin/parents/:parentId/children/:childId").post(isLoggedIn, isAdminOrManager, addChildToParentController);
 
 module.exports = parentsRouter;

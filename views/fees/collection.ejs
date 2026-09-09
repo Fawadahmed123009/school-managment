@@ -55,6 +55,7 @@
     <% if (Object.keys(report.byHead).length > 0) { %>
     <div class="panel">
       <div class="panel-head"><h2>By fee head</h2></div>
+      <div class="table-wrap">
       <table class="ledger">
         <thead>
           <tr>
@@ -73,6 +74,7 @@
           <% }); %>
         </tbody>
       </table>
+      </div>
     </div>
     <% } %>
 
@@ -88,6 +90,7 @@
               Section: <%= section %>
               <span class="pill ocr" style="margin-left:8px;">Rs <%= Number(block.total).toLocaleString() %></span>
             </h3>
+            <div class="table-wrap">
             <table class="ledger">
               <thead>
                 <tr>
@@ -108,6 +111,7 @@
                 <% }); %>
               </tbody>
             </table>
+            </div>
           </div>
         <% }); %>
       </div>

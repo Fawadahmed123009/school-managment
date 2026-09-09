@@ -11,7 +11,11 @@ const TestResult = require("../../models/Academic/testResult.model");
 const Fees = require("../../models/Fees/fees.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const crypto = require("crypto");
 const { paginate } = require("../../utils/paginate");
+
+// Generate a cryptographically random password (10 chars, URL-safe base64)
+const generateRandomPassword = () => crypto.randomBytes(8).toString("base64url").slice(0, 10);
 
 // Generate next family number: FAM-1001, FAM-1002, ...
 const generateFamilyNumber = async () => {
@@ -53,9 +57,6 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
   if (!fatherName) return responseStatus(res, 400, "failed", "Father's name is required");
   if (!address) return responseStatus(res, 400, "failed", "Address is required");
   if (!whatsappNumber) return responseStatus(res, 400, "failed", "WhatsApp contact number is required");
-  if (feeAgreed === undefined || feeAgreed === null || feeAgreed === "") {
-    return responseStatus(res, 400, "failed", "Fee agreed is required");
-  }
   if (!gender) return responseStatus(res, 400, "failed", "Gender is required");
 
   // ---- Family system: match or create parent ----
@@ -103,7 +104,8 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     } else if (familyAction === "new" || !existingParent) {
       // Admin chose "create new" OR no match found — create new parent
       familyNumber = await generateFamilyNumber();
-      const parentPassword = await hashPassword(contactPhone || "default123");
+      const plainParentPassword = generateRandomPassword();
+      const parentPassword = await hashPassword(plainParentPassword);
       // Ensure unique email — if phone-based email is taken, add timestamp
       let parentEmail = contactEmail || `${contactPhone}@family.local`;
       const emailTaken = await Parent.findOne({ email: parentEmail });
@@ -120,6 +122,14 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
         children: [],
       });
       parentId = newParent._id;
+      // Stash plain-text password so the view route can display it once
+      var _newParentCredentials = {
+        name: newParent.name,
+        email: newParent.email,
+        phone: newParent.phone,
+        password: plainParentPassword,
+        familyNumber: newParent.familyNumber,
+      };
     }
   }
 
@@ -133,7 +143,7 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     fatherName,
     address,
     whatsappNumber,
-    feeAgreed: Number(feeAgreed),
+    feeAgreed: (feeAgreed !== undefined && feeAgreed !== null && feeAgreed !== "" && !Number.isNaN(Number(feeAgreed))) ? Number(feeAgreed) : null,
     gender,
     familyNumber,
     parent: parentId,
@@ -145,7 +155,11 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
   }
 
   await Admin.findByIdAndUpdate(adminId, { $push: { students: studentRegistered._id } });
-  return responseStatus(res, 200, "success", { ...studentRegistered.toObject(), familyNumber, parent: parentId });
+  const responseData = { ...studentRegistered.toObject(), familyNumber, parent: parentId };
+  if (typeof _newParentCredentials !== "undefined") {
+    responseData.newParentCredentials = _newParentCredentials;
+  }
+  return responseStatus(res, 200, "success", responseData);
 };
 
 exports.studentLoginService = async (data, res) => {
@@ -223,7 +237,7 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
     "name", "email", "fatherName", "address", "whatsappNumber",
     "feeAgreed", "gender", "classLevel", "rollNumber", "religion",
     "prefectName", "academicYear", "program",
-    "isGraduated", "isWithdrawn", "isSuspended",
+    "isGraduated", "isWithdrawn", "isSuspended", "status",
   ];
   const $set = {};
   for (const key of allowedFields) {
@@ -231,7 +245,21 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
       // Coerce boolean-like fields
       if (key === "isGraduated" || key === "isWithdrawn" || key === "isSuspended") {
         $set[key] = data[key] === true || data[key] === "true" || data[key] === "on";
-      } else if (key === "feeAgreed" || key === "rollNumber") {
+      } else if (key === "status") {
+        // Only allow valid enum values
+        if (data[key] === "active" || data[key] === "inactive") {
+          $set[key] = data[key];
+        }
+      } else if (key === "feeAgreed") {
+        // Blank / empty string → null ("not set, use fee head default")
+        // Any valid number including 0 → store as-is (0 = scholarship)
+        if (data[key] === "" || data[key] === null || data[key] === undefined) {
+          $set[key] = null;
+        } else {
+          const num = Number(data[key]);
+          if (!isNaN(num)) $set[key] = num;
+        }
+      } else if (key === "rollNumber") {
         const num = Number(data[key]);
         if (!isNaN(num)) $set[key] = num;
       } else {

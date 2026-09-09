@@ -8,16 +8,10 @@
   </div>
   <nav>
     <a href="/dashboard" class="<%= page === 'dashboard' ? 'active' : '' %>">Dashboard</a>
-    <% if (user.role === 'admin') { %>
+    <% if (user.role === 'admin' || user.isManager) { %>
       <a href="/students" class="<%= page === 'students' ? 'active' : '' %>">Students</a>
       <a href="/students/import" class="<%= page === 'students-import' ? 'active' : '' %>">Bulk import students</a>
       <a href="/staff" class="<%= page === 'staff' ? 'active' : '' %>">Staff</a>
-      <a href="/fees" class="<%= page === 'fees' ? 'active' : '' %>">Fees</a>
-      <a href="/fees/bulk-assign" class="<%= page === 'fees-bulk-assign' ? 'active' : '' %>">Bulk assign fees</a>
-      <a href="/fee-heads" class="<%= page === 'fee-heads' ? 'active' : '' %>">Fee heads</a>
-      <a href="/fees/collection" class="<%= page === 'fees-collection' ? 'active' : '' %>">Collection report</a>
-      <a href="/fees/defaulters" class="<%= page === 'fees-defaulters' ? 'active' : '' %>">Defaulters</a>
-      <a href="/fees/ocr" class="<%= page === 'fees-ocr' ? 'active' : '' %>">Scan &amp; enter fees <span class="tag">New</span></a>
       <a href="/classes" class="<%= page === 'classes' ? 'active' : '' %>">Classes</a>
       <a href="/programs" class="<%= page === 'programs' ? 'active' : '' %>">Programs</a>
       <a href="/subjects" class="<%= page === 'subjects' ? 'active' : '' %>">Subjects</a>
@@ -28,11 +22,19 @@
       <a href="/reports/generate" class="<%= page === 'reports' ? 'active' : '' %>">PDF Reports</a>
       <a href="/attendance/rollup" class="<%= page === 'attendance-rollup' ? 'active' : '' %>">Attendance rollup</a>
     <% } %>
+    <% if (user.role === 'admin') { %>
+      <a href="/fees" class="<%= page === 'fees' ? 'active' : '' %>">Fees</a>
+      <a href="/fees/bulk-assign" class="<%= page === 'fees-bulk-assign' ? 'active' : '' %>">Bulk assign fees</a>
+      <a href="/fee-heads" class="<%= page === 'fee-heads' ? 'active' : '' %>">Fee heads</a>
+      <a href="/fees/collection" class="<%= page === 'fees-collection' ? 'active' : '' %>">Collection report</a>
+      <a href="/fees/defaulters" class="<%= page === 'fees-defaulters' ? 'active' : '' %>">Defaulters</a>
+      <a href="/fees/inactive-dues" class="<%= page === 'fees-inactive-dues' ? 'active' : '' %>">Inactive dues</a>
+      <a href="/fees/ocr" class="<%= page === 'fees-ocr' ? 'active' : '' %>">Scan &amp; enter fees <span class="tag">New</span></a>
+    <% } %>
     <% if (user.role === 'teacher') { %>
       <a href="/marks" class="<%= page === 'marks' ? 'active' : '' %>">Marks &amp; results</a>
       <a href="/marks/ocr" class="<%= page === 'marks-ocr' ? 'active' : '' %>">Scan &amp; enter marks <span class="tag">New</span></a>
       <a href="/tests/mark" class="<%= page === 'tests-mark' ? 'active' : '' %>">Mark a test</a>
-      <a href="/reports/generate" class="<%= page === 'reports' ? 'active' : '' %>">PDF Reports</a>
       <a href="/attendance" class="<%= page === 'attendance' ? 'active' : '' %>">Attendance</a>
     <% } %>
     <% if (user.role === 'student') { %>

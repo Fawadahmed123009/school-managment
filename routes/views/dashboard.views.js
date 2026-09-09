@@ -26,17 +26,25 @@ router.get("/dashboard", async (req, res) => {
   const charts = { attendanceTrend: [], feeCollection: [], feeBreakdown: [] };
 
   try {
-    if (req.user.role === "admin") {
-      const [studentCount, teacherCount, fees] = await Promise.all([
+    if (req.user.role === "admin" || req.user.isManager) {
+      const isAdmin = req.user.role === "admin";
+      const fetches = [
         Student.countDocuments(),
         Teacher.countDocuments(),
-        Fees.find().lean(),
-      ]);
-      stats.students = studentCount;
-      stats.staff = teacherCount;
-      for (const f of fees) {
-        if (f.status === "paid") stats.collected += f.amount;
-        else stats.outstanding += f.amount;
+      ];
+      // Only fetch fee data for full admin (not manager)
+      if (isAdmin) fetches.push(Fees.find().lean());
+      // Resolve inactive student IDs to exclude their unpaid fees from stats
+      const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
+      const inactiveSet = new Set(inactiveStudents.map((s) => s._id.toString()));
+      const results = await Promise.all(fetches);
+      stats.students = results[0];
+      stats.staff = results[1];
+      if (isAdmin && results[2]) {
+        for (const f of results[2]) {
+          if (f.status === "paid") stats.collected += f.amount;
+          else if (!inactiveSet.has(f.student.toString())) stats.outstanding += f.amount;
+        }
       }
 
       // ── Chart data: Attendance trend (last 30 days) ──
@@ -65,47 +73,60 @@ router.get("/dashboard", async (req, res) => {
         total: d.present + d.absent + d.late,
       }));
 
-      // ── Chart data: Fee collection (last 6 months) ──
-      const sixMonthsAgo = monthsAgo(6);
-      const feeAgg = await Fees.aggregate([
-        { $match: { createdAt: { $gte: sixMonthsAgo } } },
-        {
-          $group: {
-            _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
-            collected: {
-              $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] },
-            },
-            outstanding: {
-              $sum: { $cond: [{ $ne: ["$status", "paid"] }, "$amount", 0] },
+      // Fee charts only for full admin (not manager)
+      if (req.user.role === "admin") {
+        // ── Chart data: Fee collection (last 6 months) ──
+        const sixMonthsAgo = monthsAgo(6);
+        const feeAgg = await Fees.aggregate([
+          { $match: { createdAt: { $gte: sixMonthsAgo } } },
+          // Join student to check status — exclude unpaid fees for inactive students
+          { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
+          { $addFields: { _stuStatus: { $arrayElemAt: ["$_stu.status", 0] } } },
+          { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
+          { $project: { _stu: 0, _stuStatus: 0 } },
+          {
+            $group: {
+              _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
+              collected: {
+                $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] },
+              },
+              outstanding: {
+                $sum: { $cond: [{ $ne: ["$status", "paid"] }, "$amount", 0] },
+              },
             },
           },
-        },
-        { $sort: { _id: 1 } },
-      ]);
+          { $sort: { _id: 1 } },
+        ]);
 
-      charts.feeCollection = feeAgg.map((d) => ({
-        month: d._id,
-        collected: d.collected,
-        outstanding: d.outstanding,
-      }));
+        charts.feeCollection = feeAgg.map((d) => ({
+          month: d._id,
+          collected: d.collected,
+          outstanding: d.outstanding,
+        }));
 
-      // ── Chart data: Fee breakdown by type ──
-      const feeTypeAgg = await Fees.aggregate([
-        {
-          $group: {
-            _id: "$feeType",
-            total: { $sum: "$amount" },
-            paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
+        // ── Chart data: Fee breakdown by type ──
+        const feeTypeAgg = await Fees.aggregate([
+          // Exclude unpaid fees for inactive students
+          { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
+          { $addFields: { _stuStatus: { $arrayElemAt: ["$_stu.status", 0] } } },
+          { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
+          { $project: { _stu: 0, _stuStatus: 0 } },
+          {
+            $group: {
+              _id: "$feeType",
+              total: { $sum: "$amount" },
+              paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
+            },
           },
-        },
-        { $sort: { total: -1 } },
-      ]);
+          { $sort: { total: -1 } },
+        ]);
 
-      charts.feeBreakdown = feeTypeAgg.map((d) => ({
-        type: d._id || "Other",
-        total: d.total,
-        paid: d.paid,
-      }));
+        charts.feeBreakdown = feeTypeAgg.map((d) => ({
+          type: d._id || "Other",
+          total: d.total,
+          paid: d.paid,
+        }));
+      }
 
     } else if (req.user.role === "student") {
       const studentId = req.user._id;
@@ -174,12 +195,6 @@ router.get("/dashboard", async (req, res) => {
       });
       stats.fees = feeTotals;
       stats.student = student ? { name: student.name, classLevel: student.classLevel } : null;
-
-      // ── Chart data: Student fee breakdown ──
-      charts.feeBreakdown = [
-        { label: "Paid", value: feeTotals.paid },
-        { label: "Pending", value: feeTotals.pending },
-      ];
     } else if (req.user.role === "teacher") {
       const teacherId = req.user._id;
 

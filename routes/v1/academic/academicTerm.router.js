@@ -1,7 +1,7 @@
 const express = require("express");
 const academicTermRouter = express.Router();
 // middleware
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const {
   getAcademicTermsController,
@@ -13,10 +13,10 @@ const {
 academicTermRouter
   .route("/academic-term")
   .get(isLoggedIn, getAcademicTermsController)
-  .post(isLoggedIn, isAdmin, createAcademicTermController);
+  .post(isLoggedIn, isAdminOrManager, createAcademicTermController);
 academicTermRouter
   .route("/academic-term/:academicTermId")
   .get(isLoggedIn, getAcademicTermController)
-  .patch(isLoggedIn, isAdmin, updateAcademicTermController)
-  .delete(isLoggedIn, isAdmin, deleteAcademicTermController);
+  .patch(isLoggedIn, isAdminOrManager, updateAcademicTermController)
+  .delete(isLoggedIn, isAdminOrManager, deleteAcademicTermController);
 module.exports = academicTermRouter;

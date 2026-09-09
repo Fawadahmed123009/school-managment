@@ -25,12 +25,14 @@
       <h2>Review before import</h2>
       <span id="row-count" class="pill ocr"></span>
     </div>
+    <div class="table-wrap">
     <table class="ledger">
       <thead>
         <tr><th>Name</th><th>Admission #</th><th>Roll #</th><th>Class match</th></tr>
       </thead>
       <tbody id="rows-body"></tbody>
     </table>
+    </div>
     <div class="review-foot">
       <div class="total"><span class="l">Ready to import</span> <span id="ready-count">0</span></div>
       <div style="display:flex; gap:10px;">
@@ -47,10 +49,12 @@
     <div class="panel-body">
       <p id="results-summary"></p>
       <p style="color:var(--error); font-weight:600;">Temporary passwords below — save these now, they won't be shown again.</p>
+      <div class="table-wrap">
       <table class="ledger">
         <thead><tr><th>Name</th><th>Email</th><th>Temp password</th></tr></thead>
         <tbody id="created-body"></tbody>
       </table>
+      </div>
     </div>
   </div>
 </div>

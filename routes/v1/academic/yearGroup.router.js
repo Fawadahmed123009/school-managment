@@ -1,7 +1,7 @@
 const express = require("express");
 const yearGroupRouter = express.Router();
 // middlewares
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 // controller
 const {
@@ -14,13 +14,13 @@ const {
 
 yearGroupRouter
   .route("/year-group")
-  .get(isLoggedIn, isAdmin, getYearGroupsController)
-  .post(isLoggedIn, isAdmin, createYearGroupController);
+  .get(isLoggedIn, isAdminOrManager, getYearGroupsController)
+  .post(isLoggedIn, isAdminOrManager, createYearGroupController);
 
 yearGroupRouter
   .route("/year-group/:yearGroupId")
-  .get(isLoggedIn, isAdmin, getYearGroupController)
-  .patch(isLoggedIn, isAdmin, updateYearGroupController)
-  .delete(isLoggedIn, isAdmin, deleteYearGroupController);
+  .get(isLoggedIn, isAdminOrManager, getYearGroupController)
+  .patch(isLoggedIn, isAdminOrManager, updateYearGroupController)
+  .delete(isLoggedIn, isAdminOrManager, deleteYearGroupController);
 
 module.exports = yearGroupRouter;

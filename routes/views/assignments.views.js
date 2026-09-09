@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
-router.get("/assignments", requireRole("admin"), async (req, res) => {
+router.get("/assignments", requireAdminOrManager(), async (req, res) => {
   const [assignmentsRes, teachersRes, subjectsRes, classesRes] = await Promise.all([
     apiFetch("/assignments", req.token),
     apiFetch("/teachers", req.token),
@@ -72,7 +72,7 @@ router.get("/assignments", requireRole("admin"), async (req, res) => {
   });
 });
 
-router.post("/assignments/create", requireRole("admin"), async (req, res) => {
+router.post("/assignments/create", requireAdminOrManager(), async (req, res) => {
   const { teacher, subject, classLevels } = req.body;
 
   // classLevels comes as an array from checkboxes
@@ -96,7 +96,7 @@ router.post("/assignments/create", requireRole("admin"), async (req, res) => {
   res.redirect(`/assignments?ok=1&msg=${encodeURIComponent(msg)}`);
 });
 
-router.post("/assignments/:assignmentId/delete", requireRole("admin"), async (req, res) => {
+router.post("/assignments/:assignmentId/delete", requireAdminOrManager(), async (req, res) => {
   await apiFetch(`/assignments/${req.params.assignmentId}`, req.token, { method: "DELETE" });
   res.redirect("/assignments?ok=1");
 });

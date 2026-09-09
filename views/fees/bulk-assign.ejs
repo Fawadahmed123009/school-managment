@@ -19,7 +19,7 @@
   <div class="panel-head"><h2>Assign a fee to many students at once</h2></div>
   <div class="panel-body">
     <p style="color:var(--muted); margin-bottom:16px; font-size:0.9rem;">
-      Pick a fee head and a target group. One fee record will be created per student at the fee head's default amount (or a custom override). Students who already have a record for the same fee head will be skipped automatically.
+      Pick a fee head and a target group. One fee record will be created per student at the fee head's default amount (or a custom override). Students who already have a record for the same fee head will be skipped automatically. Inactive, graduated, and withdrawn students are excluded.
     </p>
     <form method="POST" action="/fees/bulk-assign" id="bulk-assign-form">
       <div class="field-row">
@@ -43,20 +43,40 @@
         <div class="field">
           <label for="targetType">Assign to *</label>
           <select name="targetType" id="targetType" required>
-            <option value="class">A specific class</option>
+            <option value="class">Specific class(es)</option>
             <option value="all">All students</option>
           </select>
         </div>
-        <div class="field" id="class-field">
-          <label for="classLevel">Class *</label>
-          <select name="classLevel" id="classLevel">
-            <option value="">— select class —</option>
-            <% classes.forEach(function(c) { %>
-              <option value="<%= c._id %>"><%= c.gradeLevel %> — <%= c.name %> (<%= c.section || '—' %>)</option>
-            <% }); %>
-          </select>
+      </div>
+
+      <div class="field" id="class-field" style="margin-top:4px;">
+        <label>Classes <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(select one or more)</span></label>
+        <div style="display:flex; gap:12px; margin-bottom:6px;">
+          <button type="button" id="select-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+          <button type="button" id="clear-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
+          <span id="class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
+        </div>
+        <div id="class-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <% classes.forEach(function(c) { %>
+            <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+              <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
+              <%= c.gradeLevel %> — <%= c.name %> (<%= c.section || '—' %>)
+            </label>
+          <% }); %>
         </div>
       </div>
+
+      <!-- Preview panel (populated via AJAX) -->
+      <div id="preview-panel" style="display:none; margin-top:20px; border:1px solid var(--border); border-radius:8px; overflow:hidden;">
+        <div style="padding:12px 16px; background:#fafbfd; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+          <strong style="font-size:14px;" id="preview-heading">Preview</strong>
+          <span id="preview-loading" style="font-size:12px; color:var(--ink-soft);">Loading…</span>
+        </div>
+        <div id="preview-body" style="padding:0;"></div>
+      </div>
+
+      <!-- Per-student amount overrides (populated by JS from preview data) -->
+      <input type="hidden" name="perStudentAmounts" id="perStudentAmounts" value="" />
 
       <div style="margin-top:20px; display:flex; align-items:center; gap:16px;">
         <button type="submit" class="btn btn-primary" id="submit-btn">Create fee records</button>

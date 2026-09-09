@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require("multer");
 const fs = require("fs");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 
 // Temp upload (view route) — the permanent save happens on the API side via
@@ -11,7 +11,7 @@ const { verifyCsrf } = require("../../middlewares/csrf");
 const upload = multer({ dest: "uploads/" });
 
 // Camera capture / photo page
-router.get("/students/:studentId/photo", requireRole("admin"), async (req, res) => {
+router.get("/students/:studentId/photo", requireAdminOrManager(), async (req, res) => {
   const studentRes = await apiFetch(`/${req.params.studentId}/admin`, req.token);
   if (studentRes.status !== "success") {
     return res.redirect(`/students?error=${encodeURIComponent(studentRes.message || "Student not found")}`);
@@ -29,7 +29,7 @@ router.get("/students/:studentId/photo", requireRole("admin"), async (req, res) 
 // Receive a captured/uploaded photo, proxy to the API with native FormData/Blob
 // (NOT the form-data npm package — that silently truncated bodies here).
 // Respond JSON for the in-page camera JS; redirect for the plain-form fallback.
-router.post("/students/:studentId/photo", requireRole("admin"), upload.single("photo"), verifyCsrf, async (req, res) => {
+router.post("/students/:studentId/photo", requireAdminOrManager(), upload.single("photo"), verifyCsrf, async (req, res) => {
   const isAjax = req.xhr || (req.headers.accept || "").includes("application/json");
 
   const finish = (result) => {

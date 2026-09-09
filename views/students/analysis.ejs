@@ -16,8 +16,10 @@
         <h1><%= analysis.student.name %></h1>
       </div>
     </div>
-    <a href="/students/<%= analysis.student._id %>/photo" class="btn btn-ghost">Photo</a>
-    <a href="/students" class="btn btn-ghost">← Back to students</a>
+    <div class="page-head-actions">
+      <a href="/students/<%= analysis.student._id %>/photo" class="btn btn-ghost">Photo</a>
+      <a href="/students" class="btn btn-ghost">← Back to students</a>
+    </div>
   </div>
 
   <div class="stats">
@@ -30,12 +32,8 @@
       <div class="l">Overall test average</div>
     </div>
     <div class="stat">
-      <div class="n mono">Rs <%= Number(analysis.fees.paid).toLocaleString() %></div>
-      <div class="l">Fees paid</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--review)">Rs <%= Number(analysis.fees.pending).toLocaleString() %></div>
-      <div class="l">Fees pending</div>
+      <div class="n mono"><span class="pill <%= analysis.fees.pending > 0 ? 'review' : 'paid' %>"><%= analysis.fees.pending > 0 ? 'Pending' : 'Up to date' %></span></div>
+      <div class="l">Fee status</div>
     </div>
   </div>
 
@@ -57,6 +55,7 @@
           <h2><%= sessionBlock.session %></h2>
           <% if (sessionBlock.average !== null) { %><span class="pill ocr">Average: <%= sessionBlock.average %>%</span><% } %>
         </div>
+        <div class="table-wrap">
         <table class="ledger">
           <thead><tr><th>Subject</th><th>Test</th><th>Date</th><th class="num">Score</th><th class="num">Total</th><th>%</th></tr></thead>
           <tbody>
@@ -72,6 +71,7 @@
             <% }); %>
           </tbody>
         </table>
+        </div>
       </div>
     <% }); %>
   <% } %>
@@ -81,19 +81,21 @@
     <% if (analysis.fees.records.length === 0) { %>
       <div class="empty"><div class="display">No fee records yet</div></div>
     <% } else { %>
+      <div class="table-wrap">
       <table class="ledger">
-        <thead><tr><th>Type</th><th class="num">Amount</th><th>Status</th><th>Source</th></tr></thead>
+        <thead><tr><th>Fee Head</th><th>Type</th><th>Status</th><th>Date Paid</th></tr></thead>
         <tbody>
           <% analysis.fees.records.forEach(function(f) { %>
             <tr>
+              <td><%= f.feeHead ? f.feeHead.name : '—' %></td>
               <td><%= f.feeType %></td>
-              <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
               <td><span class="pill <%= f.status %>"><%= f.status %></span></td>
-              <td><span class="pill <%= f.source %>"><%= f.source %></span></td>
+              <td><%= f.datePaid ? new Date(f.datePaid).toLocaleDateString() : '—' %></td>
             </tr>
           <% }); %>
         </tbody>
       </table>
+      </div>
     <% } %>
   </div>
 <% } %>

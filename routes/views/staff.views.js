@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const {
   getAllTeachersService,
   createTeacherService,
@@ -12,7 +12,7 @@ const {
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 // ── List all teachers ──
-router.get("/staff", requireRole("admin"), async (req, res) => {
+router.get("/staff", requireAdminOrManager(), async (req, res) => {
   try {
     const result = await getAllTeachersService(req.query);
     res.render("staff/list", {
@@ -39,7 +39,7 @@ router.get("/staff", requireRole("admin"), async (req, res) => {
 });
 
 // ── New teacher form ──
-router.get("/staff/new", requireRole("admin"), async (req, res) => {
+router.get("/staff/new", requireAdminOrManager(), async (req, res) => {
   res.render("staff/new", {
     page: "staff",
     user: req.user,
@@ -49,7 +49,7 @@ router.get("/staff/new", requireRole("admin"), async (req, res) => {
 });
 
 // ── Create teacher ──
-router.post("/staff/create", requireRole("admin"), async (req, res) => {
+router.post("/staff/create", requireAdminOrManager(), async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.render("staff/new", {
@@ -80,7 +80,7 @@ router.post("/staff/create", requireRole("admin"), async (req, res) => {
 });
 
 // ── Edit teacher form ──
-router.get("/staff/:teacherId/edit", requireRole("admin"), async (req, res) => {
+router.get("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) => {
   try {
     const teacher = await adminGetTeacherService(req.params.teacherId);
     if (!teacher) return res.redirect("/staff?error=Teacher+not+found");
@@ -97,7 +97,7 @@ router.get("/staff/:teacherId/edit", requireRole("admin"), async (req, res) => {
 });
 
 // ── Update teacher credentials ──
-router.post("/staff/:teacherId/edit", requireRole("admin"), async (req, res) => {
+router.post("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) => {
   const { name, email, password } = req.body;
   const body = {};
   if (name) body.name = name;
@@ -124,7 +124,7 @@ router.post("/staff/:teacherId/edit", requireRole("admin"), async (req, res) => 
 });
 
 // ── Delete teacher ──
-router.post("/staff/:teacherId/delete", requireRole("admin"), async (req, res) => {
+router.post("/staff/:teacherId/delete", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await deleteTeacherService(req.params.teacherId, cap);
@@ -136,7 +136,7 @@ router.post("/staff/:teacherId/delete", requireRole("admin"), async (req, res) =
 });
 
 // ── Toggle attendance manager ──
-router.post("/staff/:teacherId/toggle-attendance-manager", requireRole("admin"), async (req, res) => {
+router.post("/staff/:teacherId/toggle-attendance-manager", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await toggleAttendanceManagerService(req.params.teacherId, cap);

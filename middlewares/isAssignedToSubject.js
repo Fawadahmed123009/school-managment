@@ -165,6 +165,11 @@ const isAssignedToTestView = async (req, res, next) => {
       return res.redirect("/login");
     }
 
+    // Manager bypass: managers can mark ANY test without subject-assignment check
+    const Teacher = require("../models/Staff/teachers.model");
+    const teacher = await Teacher.findById(teacherId).select("isAttendanceManager").lean();
+    if (teacher && teacher.isAttendanceManager) return next();
+
     const { testId } = req.params;
     if (!testId) {
       return next(); // no test context → let the route handle it

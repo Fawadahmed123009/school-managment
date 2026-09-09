@@ -2,7 +2,7 @@ const express = require("express");
 const testRouter = express.Router();
 
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isTeacher = require("../../../middlewares/isTeacher");
 const isAssignedToSubject = require("../../../middlewares/isAssignedToSubject");
 const Teacher = require("../../../models/Staff/teachers.model");
@@ -45,28 +45,46 @@ const isAdminOrTeacher = async (req, res, next) => {
   }
 };
 
-// ── Test sessions (admin only) ──────────────────────────────────────────────
-testRouter.route("/test-sessions").post(isLoggedIn, isAdmin, createTestSessionController);
-testRouter.route("/test-sessions").get(isLoggedIn, isAdmin, getAllTestSessionsController);
-testRouter.route("/test-sessions/:sessionId").get(isLoggedIn, isAdmin, getTestSessionByIdController);
-testRouter.route("/test-sessions/:sessionId/report/:studentId").get(isLoggedIn, isAdmin, getSessionReportCardController);
+// ── Combined middleware: teacher with assignment check OR manager ────────────
+// Manager can mark ANY test without subject-assignment check.
+// Regular teachers still need the assignment verification.
+const isTeacherAssignedOrManager = async (req, res, next) => {
+  try {
+    const userId = req.userAuth.id;
+    const teacher = await Teacher.findById(userId);
+    // Manager bypass: skip assignment check
+    if (teacher && teacher.isAttendanceManager) return next();
+    // Regular teacher: require subject assignment
+    if (teacher && teacher.role === "teacher") {
+      return isAssignedToSubject(req, res, next);
+    }
+    return responseStatus(res, 403, "failed", "Access Denied. Teacher or manager only route.");
+  } catch (err) {
+    return responseStatus(res, 500, "failed", "Server error verifying access");
+  }
+};
+
+// ── Test sessions (admin/manager) ───────────────────────────────────────────
+testRouter.route("/test-sessions").post(isLoggedIn, isAdminOrManager, createTestSessionController);
+testRouter.route("/test-sessions").get(isLoggedIn, isAdminOrManager, getAllTestSessionsController);
+testRouter.route("/test-sessions/:sessionId").get(isLoggedIn, isAdminOrManager, getTestSessionByIdController);
+testRouter.route("/test-sessions/:sessionId/report/:studentId").get(isLoggedIn, isAdminOrManager, getSessionReportCardController);
 
 // ── Tests ───────────────────────────────────────────────────────────────────
-// POST /tests — admin only (creating tests is an admin action)
-testRouter.route("/tests").post(isLoggedIn, isAdmin, createTestController);
+// POST /tests — admin/manager (creating tests is an admin/manager action)
+testRouter.route("/tests").post(isLoggedIn, isAdminOrManager, createTestController);
 // GET /tests — admin sees all; teacher sees only their assigned subjects/classes
 testRouter.route("/tests").get(isLoggedIn, isAdminOrTeacher, getTestsByRoleController);
-testRouter.route("/tests/analytics").get(isLoggedIn, isAdmin, getTestAnalyticsController);
-testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdmin, getEnhancedTestAnalyticsController);
-testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdmin, getTestTrendController);
+testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);
+testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdminOrManager, getEnhancedTestAnalyticsController);
+testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdminOrManager, getTestTrendController);
 
-// Teacher-facing test routes — assignment check via middleware (primary gate)
-// Service-level checks in test.service.js are kept as defense-in-depth.
-testRouter.route("/tests/:testId/roster").get(isLoggedIn, isTeacher, isAssignedToSubject, getTestRosterController);
-testRouter.route("/tests/:testId/results").post(isLoggedIn, isTeacher, isAssignedToSubject, submitTestResultsController);
-testRouter.route("/tests/:testId/result-sheet").get(isLoggedIn, isAdmin, getTestResultSheetController);
+// Test marking routes — manager can mark ANY test; teachers need assignment check
+testRouter.route("/tests/:testId/roster").get(isLoggedIn, isTeacherAssignedOrManager, getTestRosterController);
+testRouter.route("/tests/:testId/results").post(isLoggedIn, isTeacherAssignedOrManager, submitTestResultsController);
+testRouter.route("/tests/:testId/result-sheet").get(isLoggedIn, isAdminOrManager, getTestResultSheetController);
 
-// DELETE /tests/:testId — admin only; cascades to TestResult documents
-testRouter.route("/tests/:testId").delete(isLoggedIn, isAdmin, deleteTestController);
+// DELETE /tests/:testId — admin/manager only; cascades to TestResult documents
+testRouter.route("/tests/:testId").delete(isLoggedIn, isAdminOrManager, deleteTestController);
 
 module.exports = testRouter;

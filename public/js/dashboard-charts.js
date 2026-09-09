@@ -235,35 +235,5 @@ document.addEventListener('DOMContentLoaded', function() {
       sAttCanvas.style.display = 'none';
       sAttEmpty.style.display = 'flex';
     }
-
-    // Student fee doughnut
-    var sFeeCanvas = document.getElementById('studentFeeChart');
-    if (chartData.feeBreakdown && chartData.feeBreakdown.length > 0) {
-      new Chart(sFeeCanvas, {
-        type: 'doughnut',
-        data: {
-          labels: chartData.feeBreakdown.map(function(d) { return d.label; }),
-          datasets: [{
-            data: chartData.feeBreakdown.map(function(d) { return d.value; }),
-            backgroundColor: ['#10b981', '#ef4444'],
-            borderWidth: 0,
-            hoverOffset: 6,
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '65%',
-          plugins: {
-            legend: { position: 'bottom' },
-            tooltip: {
-              callbacks: {
-                label: function(ctx) { return ctx.label + ': Rs ' + ctx.parsed.toLocaleString(); }
-              }
-            }
-          }
-        }
-      });
-    }
   }
 });

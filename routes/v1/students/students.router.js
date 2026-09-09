@@ -4,7 +4,7 @@ const fs = require("fs");
 const studentsRouter = express.Router();
 // Middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isStudent = require("../../../middlewares/isStudent");
 // Controllers
 const {
@@ -56,7 +56,7 @@ const photoUpload = multer({
 // Create Student by Admin
 studentsRouter
   .route("/students/admin/register")
-  .post(isLoggedIn, isAdmin, adminRegisterStudentController);
+  .post(isLoggedIn, isAdminOrManager, adminRegisterStudentController);
 // Student Login
 studentsRouter.route("/students/login").post(studentLoginController);
 // Get Student Profile
@@ -73,11 +73,11 @@ studentsRouter
 // Get All Students by Admin
 studentsRouter
   .route("/admin/students")
-  .get(isLoggedIn, isAdmin, getAllStudentsByAdminController);
+  .get(isLoggedIn, isAdminOrManager, getAllStudentsByAdminController);
 // Get Single Student by Admin
 studentsRouter
   .route("/:studentId/admin")
-  .get(isLoggedIn, isAdmin, getStudentByAdminController);
+  .get(isLoggedIn, isAdminOrManager, getStudentByAdminController);
 // Update Student Profile by Student
 studentsRouter
   .route("/update")
@@ -85,24 +85,24 @@ studentsRouter
 // Admin Update Student Profile
 studentsRouter
   .route("/:studentId/update/admin")
-  .patch(isLoggedIn, isAdmin, adminUpdateStudentController);
+  .patch(isLoggedIn, isAdminOrManager, adminUpdateStudentController);
 // Admin Delete Student
 studentsRouter
   .route("/:studentId/delete/admin")
-  .delete(isLoggedIn, isAdmin, adminDeleteStudentController);
+  .delete(isLoggedIn, isAdminOrManager, adminDeleteStudentController);
 // NOTE: Old exam-write route removed — superseded by Test system (/tests/manage).
 // Bulk import — parse Excel, stage rows for review
 studentsRouter
   .route("/students/import/parse")
-  .post(isLoggedIn, isAdmin, upload.single("file"), parseStudentExcelController);
+  .post(isLoggedIn, isAdminOrManager, upload.single("file"), parseStudentExcelController);
 // Bulk import — confirm reviewed rows, actually create students
 studentsRouter
   .route("/students/import/confirm")
-  .post(isLoggedIn, isAdmin, bulkCreateStudentsFromImportController);
+  .post(isLoggedIn, isAdminOrManager, bulkCreateStudentsFromImportController);
 // Export all students to Excel
 studentsRouter
   .route("/students/export")
-  .get(isLoggedIn, isAdmin, exportStudentsController);
+  .get(isLoggedIn, isAdminOrManager, exportStudentsController);
 // Get combined analysis (attendance + marks + fees) for one student
 // Admin can view any student; student can view only their own.
 studentsRouter
@@ -111,12 +111,12 @@ studentsRouter
     if (req.userAuth.id === req.params.studentId) {
       return getStudentAnalysisController(req, res);
     }
-    // For non-self access, require admin
-    return isAdmin(req, res, () => getStudentAnalysisController(req, res));
+    // For non-self access, require admin or manager
+    return isAdminOrManager(req, res, () => getStudentAnalysisController(req, res));
   });
 // Upload / replace a student's photo (native camera capture or file upload)
 studentsRouter
   .route("/students/:studentId/photo")
-  .post(isLoggedIn, isAdmin, photoUpload.single("photo"), setStudentPhotoController);
+  .post(isLoggedIn, isAdminOrManager, photoUpload.single("photo"), setStudentPhotoController);
 
 module.exports = studentsRouter;

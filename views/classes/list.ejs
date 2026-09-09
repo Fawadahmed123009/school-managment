@@ -60,6 +60,7 @@
   <% if (classes.length === 0) { %>
     <div class="empty"><div class="display">No classes yet</div></div>
   <% } else { %>
+    <div class="table-wrap">
     <table class="ledger">
       <thead><tr><th>Name</th><th>Grade</th><th>Group</th><th>Section</th><th class="num">Students</th><th></th></tr></thead>
       <tbody>
@@ -84,6 +85,7 @@
         <% }); %>
       </tbody>
     </table>
+    </div>
   <% } %>
 </div>
 

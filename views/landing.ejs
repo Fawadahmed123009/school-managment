@@ -46,7 +46,7 @@
       background: rgba(255,255,255,0.92);
       backdrop-filter: blur(12px);
       border-bottom: 1px solid rgba(0,0,0,0.06);
-      transition: box-shadow 0.3s;
+      transition: background 0.4s ease, box-shadow 0.3s, border-color 0.4s ease;
     }
     .lp-nav.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.08); }
     .lp-nav .brand {
@@ -66,6 +66,7 @@
       font-size: 16px;
       color: var(--ink);
       line-height: 1.2;
+      transition: color 0.4s ease;
     }
     .lp-nav .brand-sub {
       font-size: 9px;
@@ -73,6 +74,7 @@
       letter-spacing: 0.12em;
       color: var(--accent);
       font-weight: 700;
+      transition: color 0.4s ease;
     }
     .lp-nav .nav-links {
       display: flex;
@@ -83,7 +85,7 @@
       font-size: 14px;
       font-weight: 500;
       color: var(--ink-soft);
-      transition: color 0.2s;
+      transition: color 0.2s, text-shadow 0.4s ease;
     }
     .lp-nav .nav-links a:hover { color: var(--ink); }
     .lp-nav .nav-login {
@@ -95,9 +97,35 @@
       border-radius: 8px;
       font-size: 13px;
       font-weight: 600;
-      transition: all 0.2s;
+      transition: all 0.3s ease;
     }
     .lp-nav .nav-login:hover { background: #2d3a56; transform: translateY(-1px); }
+
+    /* ── Navbar over hero: transparent + light text ── */
+    .lp-nav.hero-over {
+      background: rgba(0,0,0,0.15);
+      backdrop-filter: blur(6px);
+      border-bottom-color: rgba(255,255,255,0.1);
+    }
+    .lp-nav.hero-over .brand-name,
+    .lp-nav.hero-over .brand-sub,
+    .lp-nav.hero-over .nav-links a {
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .lp-nav.hero-over .nav-links a:hover {
+      color: rgba(255,255,255,0.8);
+    }
+    .lp-nav.hero-over .nav-login {
+      background: rgba(255,255,255,0.2);
+      border: 1px solid rgba(255,255,255,0.3);
+    }
+    .lp-nav.hero-over .nav-login:hover {
+      background: rgba(255,255,255,0.35);
+    }
+    .lp-nav.hero-over .lp-hamburger span {
+      background: #fff;
+    }
 
     .lp-hamburger {
       display: none;
@@ -105,7 +133,7 @@
       border: none; background: none; cursor: pointer;
       flex-direction: column; justify-content: center; align-items: center; gap: 5px;
     }
-    .lp-hamburger span { display: block; width: 20px; height: 2px; background: var(--ink); border-radius: 2px; transition: all 0.25s; }
+    .lp-hamburger span { display: block; width: 20px; height: 2px; background: var(--ink); border-radius: 2px; transition: all 0.25s, background 0.4s ease; }
 
     /* ── Hero / Slideshow ───────────────── */
     .hero {
@@ -117,26 +145,47 @@
     .hero-slides {
       position: relative;
       width: 100%;
+      overflow: hidden;
+      aspect-ratio: 16 / 9;
     }
     .hero-slide {
       position: absolute;
       inset: 0;
       opacity: 0;
-      transition: opacity 1.5s ease-in-out;
+      visibility: hidden;
+      /* visibility delay matches opacity duration so element stays
+         renderable during the fade-out; z-index keeps outgoing slide
+         on top of incoming slide to prevent ghosting */
+      transition: opacity 0.6s ease-in-out, visibility 0s linear 0.6s, z-index 0s linear 0.6s;
     }
-    .hero-slide.active { opacity: 1; }
-    /* First slide stays in-flow so its image sets the container height */
+    .hero-slide.active {
+      opacity: 1;
+      visibility: visible;
+      z-index: 1;
+      transition: opacity 0.6s ease-in-out, visibility 0s linear 0s, z-index 0s linear 0s;
+    }
     .hero-slide:first-child {
-      position: relative;
+      /* all slides are absolute; container height set by aspect-ratio */
     }
     .hero-slide img {
       width: 100%;
-      height: auto;
+      height: 100%;
+      object-fit: cover;
       display: block;
+    }
+    /* Dark gradient overlay at top of hero for nav readability */
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 150px;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.4), transparent);
+      z-index: 2;
+      pointer-events: none;
     }
     .hero-cta {
       position: absolute;
-      bottom: 48px;
+      bottom: 60px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 2;
@@ -156,7 +205,7 @@
 
     .hero-indicators {
       position: absolute;
-      bottom: 20px;
+      bottom: 28px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 3;
@@ -497,6 +546,7 @@
 
     /* ── Responsive ─────────────────────── */
     @media (max-width: 1024px) {
+      .hero-slides { max-height: 70vh; }
       .section { padding: 80px 32px; }
       .about-grid { gap: 40px; }
       .staff-grid { gap: 24px; }
@@ -511,11 +561,20 @@
         flex-direction: column;
         position: absolute;
         top: 72px; left: 0; right: 0;
-        background: var(--white);
+        background: rgba(20,30,50,0.95);
+        backdrop-filter: blur(12px);
         padding: 20px 24px;
         gap: 16px;
-        border-bottom: 1px solid var(--border);
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+        border-bottom: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      }
+      .lp-nav.hero-over .nav-links.open a {
+        color: #fff;
+        text-shadow: none;
+      }
+      .lp-nav.hero-over .nav-links.open .nav-login {
+        background: rgba(255,255,255,0.2);
+        text-align: center;
       }
       .section { padding: 64px 20px; }
       .about-grid { grid-template-columns: 1fr; }
@@ -523,18 +582,26 @@
       .stats-grid { grid-template-columns: 1fr 1fr; gap: 24px; }
       .staff-grid { grid-template-columns: 1fr; max-width: 400px; }
       .contact-grid { grid-template-columns: 1fr; }
+      .contact-form .form-row { flex-direction: column; gap: 0; }
       .footer-grid { grid-template-columns: 1fr; gap: 28px; }
-      .hero-cta { bottom: 44px; }
+      .hero-slides { max-height: 60vh; }
+      .hero-cta { bottom: 50px; }
       .hero-cta .btn-hero { padding: 12px 28px; font-size: 13px; }
-      .hero-indicators { bottom: 18px; }
+      .hero-indicators { bottom: 22px; }
       .stats-bar { padding: 48px 20px; }
       .stat-item .stat-num { font-size: 32px; }
     }
     @media (max-width: 375px) {
-      .hero-cta { bottom: 40px; }
+      .hero-slides { max-height: 55vh; }
+      .hero-cta { bottom: 44px; }
       .hero-cta .btn-hero { padding: 10px 22px; font-size: 12px; }
-      .hero-indicators { bottom: 16px; gap: 8px; }
+      .hero-indicators { bottom: 18px; gap: 8px; }
       .hero-dot { width: 8px; height: 8px; }
+      .stats-grid { grid-template-columns: 1fr; gap: 16px; }
+      .stat-item .stat-num { font-size: 28px; }
+      .about-features { grid-template-columns: 1fr; }
+      .section { padding: 48px 16px; }
+      .contact-form { padding: 24px 16px; }
     }
   </style>
 </head>
@@ -563,7 +630,7 @@
   <!-- ── Hero / Slideshow ────────────────── -->
   <section class="hero" id="hero">
     <div class="hero-slides">
-      <div class="hero-slide active"><img src="/images/slideshow/1.jpg" alt="Slide 1" /></div>
+      <div class="hero-slide active"><img src="/images/slideshow/1.png" alt="Slide 1" /></div>
       <div class="hero-slide"><img src="/images/slideshow/2.png" alt="Slide 2" /></div>
       <div class="hero-slide"><img src="/images/slideshow/3.png" alt="Slide 3" /></div>
       <div class="hero-slide"><img src="/images/slideshow/4.jpg" alt="Slide 4" /></div>

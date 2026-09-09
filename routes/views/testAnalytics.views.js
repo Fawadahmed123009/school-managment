@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
-router.get("/tests/analytics", requireRole("admin"), async (req, res) => {
+router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
   const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, viewMode, mode, studentId } = req.query;
 
   // ── Trend mode ──────────────────────────────────────────────────────────

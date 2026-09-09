@@ -82,6 +82,7 @@
   <% if (subjects.length === 0) { %>
     <div class="empty"><div class="display">No subjects yet</div></div>
   <% } else { %>
+    <div class="table-wrap">
     <table class="ledger">
       <thead><tr><th>Name</th><th>Program</th><th>Applies to</th><th></th></tr></thead>
       <tbody>
@@ -115,6 +116,7 @@
         <% }); %>
       </tbody>
     </table>
+    </div>
   <% } %>
 </div>
 

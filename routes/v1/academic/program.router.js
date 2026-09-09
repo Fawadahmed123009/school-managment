@@ -1,7 +1,7 @@
 const express = require("express");
 const programRouter = express.Router();
 // middleware
-const isAdmin = require("../../../middlewares/isAdmin");
+const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const {
   getProgramsController,
@@ -13,12 +13,12 @@ const {
 // controllers
 programRouter
   .route("/programs")
-  .get(isLoggedIn, isAdmin, getProgramsController)
-  .post(isLoggedIn, isAdmin, createProgramController);
+  .get(isLoggedIn, isAdminOrManager, getProgramsController)
+  .post(isLoggedIn, isAdminOrManager, createProgramController);
 programRouter
   .route("/programs/:programId")
-  .get(isLoggedIn, isAdmin, getProgramController)
-  .patch(isLoggedIn, isAdmin, updateProgramController)
-  .delete(isLoggedIn, isAdmin, deleteProgramController);
+  .get(isLoggedIn, isAdminOrManager, getProgramController)
+  .patch(isLoggedIn, isAdminOrManager, updateProgramController)
+  .delete(isLoggedIn, isAdminOrManager, deleteProgramController);
 
 module.exports = programRouter;

@@ -1,9 +1,16 @@
 document.addEventListener('DOMContentLoaded', function() {
-  // ── Navbar scroll shadow ──
+  // ── Navbar scroll shadow + hero transparency ──
   var nav = document.getElementById('lpNav');
-  window.addEventListener('scroll', function() {
+  var hero = document.getElementById('hero');
+  function updateNav() {
+    var heroBottom = hero.offsetTop + hero.offsetHeight - nav.offsetHeight;
+    var overHero = window.scrollY < heroBottom;
+    nav.classList.toggle('hero-over', overHero);
     nav.classList.toggle('scrolled', window.scrollY > 20);
-  });
+  }
+  updateNav();
+  window.addEventListener('scroll', updateNav);
+  window.addEventListener('resize', updateNav);
 
   // ── Mobile hamburger ──
   var hamburger = document.getElementById('lpHamburger');
@@ -19,12 +26,31 @@ document.addEventListener('DOMContentLoaded', function() {
   var slides = document.querySelectorAll('.hero-slide');
   var dots = document.querySelectorAll('.hero-dot');
   var current = 0;
+  var transitioning = false;
+
   function goTo(idx) {
-    slides[current].classList.remove('active');
-    dots[current].classList.remove('active');
+    if (idx === current || transitioning) return;
+    transitioning = true;
+    var oldIdx = current;
     current = idx;
-    slides[current].classList.add('active');
+    dots[oldIdx].classList.remove('active');
     dots[current].classList.add('active');
+
+    // Phase 1: fade out old slide — z-index:1 keeps it ON TOP of new slide
+    // so the outgoing image fully covers the incoming one during fade-out
+    slides[oldIdx].style.zIndex = '1';
+    slides[oldIdx].classList.remove('active');
+
+    // Phase 2: after old has fully faded, start new slide fade-in
+    setTimeout(function() {
+      slides[oldIdx].style.zIndex = '';   // release manual z-index
+      slides[current].classList.add('active');
+    }, 650);
+
+    // Unlock after full transition settles
+    setTimeout(function() {
+      transitioning = false;
+    }, 1350);
   }
   dots.forEach(function(dot) {
     dot.addEventListener('click', function() {

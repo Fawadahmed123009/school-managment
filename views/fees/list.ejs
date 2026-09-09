@@ -7,7 +7,7 @@
     <p class="eyebrow">Ledger</p>
     <h1>Fees</h1>
   </div>
-  <div style="display:flex; gap:8px;">
+  <div class="page-head-actions">
     <form method="POST" action="/fees/generate-monthly" style="display:inline;">
       <button type="submit" class="btn btn-primary">Generate this month's fees</button>
     </form>
@@ -27,6 +27,21 @@
   <div class="panel-head"><h2>Add a fee record</h2></div>
   <div class="panel-body">
     <form method="POST" action="/fees/create">
+      <div class="field-row" style="margin-bottom:8px;">
+        <div class="field" style="min-width:160px;">
+          <label for="filter-class">Class</label>
+          <select id="filter-class">
+            <option value="">All classes</option>
+            <% classes.forEach(function(c) { %>
+              <option value="<%= c._id %>"><%= c.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" style="min-width:160px;">
+          <label for="filter-roll">Roll number</label>
+          <input type="text" id="filter-roll" autocomplete="off" placeholder="Search by roll#..." />
+        </div>
+      </div>
       <div class="field-row">
         <div class="field" style="position:relative;">
           <label for="student-search">Student</label>
@@ -78,6 +93,15 @@
         </select>
       </div>
       <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Fee head</label>
+        <select name="feeHead" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="">All fee heads</option>
+          <% feeHeads.forEach(function(h) { %>
+            <option value="<%= h._id %>" <%= filters.feeHead == h._id ? 'selected' : '' %>><%= h.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
         <input type="text" name="student" value="<%= filters.student %>" placeholder="Search by student name..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
       </div>
@@ -87,7 +111,7 @@
       </div>
       <div style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
-        <% if (filters.class || filters.roll || filters.parent || filters.student) { %>
+        <% if (filters.class || filters.roll || filters.parent || filters.student || filters.feeHead) { %>
           <a href="/fees" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
         <% } %>
       </div>
@@ -96,12 +120,13 @@
 
   <% if (fees.length === 0) { %>
     <div class="empty">
-      <div class="display"><%= (filters.class || filters.roll || filters.parent || filters.student) ? 'No fee records match your filters' : 'No fee records yet' %></div>
-      <% if (!filters.class && !filters.roll && !filters.parent && !filters.student) { %>
+      <div class="display"><%= (filters.class || filters.roll || filters.parent || filters.student || filters.feeHead) ? 'No fee records match your filters' : 'No fee records yet' %></div>
+      <% if (!filters.class && !filters.roll && !filters.parent && !filters.student && !filters.feeHead) { %>
         <p>Add one manually above, or scan a fee list.</p>
       <% } %>
     </div>
   <% } else { %>
+    <div class="table-wrap">
     <table class="ledger">
       <thead>
         <tr>
@@ -132,6 +157,7 @@
         <% }); %>
       </tbody>
     </table>
+    </div>
 
     <!-- Pagination controls -->
     <% if (pagination && pagination.pages > 1) { %>
@@ -200,6 +226,7 @@
     rollNumber: s.rollNumber || '',
     className: s.classLevel ? (s.classLevel.gradeLevel + ' — ' + s.classLevel.name) : 'Unassigned',
     section: s.classLevel && s.classLevel.section ? s.classLevel.section : '—',
+    classId: s.classLevel ? s.classLevel._id : '',
   };
 })).replace(/</g, '\\u003c') %></script>
 <script src="/js/fees-list.js"></script>

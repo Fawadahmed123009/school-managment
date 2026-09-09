@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
-router.get("/sessions/:sessionId/report", requireRole("admin"), async (req, res) => {
+router.get("/sessions/:sessionId/report", requireAdminOrManager(), async (req, res) => {
   const studentsRes = await apiFetch("/admin/students", req.token);
 
   res.render("tests/session-report-pick", {
@@ -16,7 +16,7 @@ router.get("/sessions/:sessionId/report", requireRole("admin"), async (req, res)
   });
 });
 
-router.get("/sessions/:sessionId/report/:studentId", requireRole("admin"), async (req, res) => {
+router.get("/sessions/:sessionId/report/:studentId", requireAdminOrManager(), async (req, res) => {
   const result = await apiFetch(`/test-sessions/${req.params.sessionId}/report/${req.params.studentId}`, req.token);
   const studentsRes = await apiFetch("/admin/students", req.token);
   const studentsList = studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [];

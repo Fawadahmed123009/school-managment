@@ -77,6 +77,11 @@ const studentSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    status: {
+      type: String,
+      enum: ["active", "inactive"],
+      default: "active",
+    },
     fatherName: {
       type: String,
       default: "",
@@ -91,7 +96,7 @@ const studentSchema = new mongoose.Schema(
     },
     feeAgreed: {
       type: Number,
-      default: 0,
+      default: null,
     },
     gender: {
       type: String,

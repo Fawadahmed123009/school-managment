@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const {
   getAllSubjectsService,
   getSubjectsService,
@@ -49,7 +49,7 @@ function parseAppliesTo(body) {
 }
 
 // ── List ────────────────────────────────────────────────────────
-router.get("/subjects", requireRole("admin"), async (req, res) => {
+router.get("/subjects", requireAdminOrManager(), async (req, res) => {
   try {
     const [subjects, programs, classLevels, subjectProgramMap] = await Promise.all([
       getAllSubjectsService(),
@@ -86,7 +86,7 @@ router.get("/subjects", requireRole("admin"), async (req, res) => {
 });
 
 // ── Edit form ───────────────────────────────────────────────────
-router.get("/subjects/:subjectId/edit", requireRole("admin"), async (req, res) => {
+router.get("/subjects/:subjectId/edit", requireAdminOrManager(), async (req, res) => {
   try {
     const [subject, programs, classLevels, subjectProgramMap] = await Promise.all([
       getSubjectsService(req.params.subjectId),
@@ -112,7 +112,7 @@ router.get("/subjects/:subjectId/edit", requireRole("admin"), async (req, res) =
 });
 
 // ── Create ──────────────────────────────────────────────────────
-router.post("/subjects/create", requireRole("admin"), async (req, res) => {
+router.post("/subjects/create", requireAdminOrManager(), async (req, res) => {
   const { name, description, programId } = req.body;
   const appliesTo = parseAppliesTo(req.body);
   const { res: cap, result } = captureServiceResponse();
@@ -126,7 +126,7 @@ router.post("/subjects/create", requireRole("admin"), async (req, res) => {
 });
 
 // ── Update ──────────────────────────────────────────────────────
-router.post("/subjects/:subjectId/edit", requireRole("admin"), async (req, res) => {
+router.post("/subjects/:subjectId/edit", requireAdminOrManager(), async (req, res) => {
   const { name, description } = req.body;
   const appliesTo = parseAppliesTo(req.body);
   const { res: cap, result } = captureServiceResponse();
@@ -140,7 +140,7 @@ router.post("/subjects/:subjectId/edit", requireRole("admin"), async (req, res) 
 });
 
 // ── Delete ──────────────────────────────────────────────────────
-router.post("/subjects/:subjectId/delete", requireRole("admin"), async (req, res) => {
+router.post("/subjects/:subjectId/delete", requireAdminOrManager(), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
     await deleteSubjectService(req.params.subjectId, cap);
