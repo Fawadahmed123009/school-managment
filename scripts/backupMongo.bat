@@ -6,7 +6,7 @@ REM
 REM Setup:
 REM   1. Install Git for Windows (provides bash)
 REM   2. Install MongoDB Database Tools (provides mongodump)
-REM   3. Install rclone (optional, for Google Drive sync)
+REM   3. R2 credentials set in .env (same as photo uploads, for cloud backup)
 REM   4. In Task Scheduler, create a task that runs this .bat
 REM      - Start in: C:\inetpub\wwwroot\httpdocs  (or your path)
 REM      - Program:  C:\path\to\this\backupMongo.bat

@@ -3,8 +3,8 @@
 // MongoDB backup script — pure Node.js, no mongodump required.
 //
 // Connects via the native `mongodb` driver, exports every collection
-// to JSON files, compresses them with tar+gzip, optionally uploads
-// to Google Drive via rclone, and cleans up old local backups.
+// to JSON files, compresses them with tar+gzip, uploads the tarball
+// to Cloudflare R2 (backups/ prefix), and cleans up old backups.
 //
 // Usage:
 //   node scripts/backupMongo.js [--dry-run]
@@ -15,15 +15,24 @@
 //
 // Environment (read from .env or exported beforehand):
 //   DB            — MongoDB connection string (required)
-//   RCLONE_REMOTE — rclone destination, e.g. "gdrive:AvensLMS-Backups"
-//                   (leave empty / unset to skip cloud sync)
-//   RETAIN_DAYS   — local retention in days (default: 14)
+//   R2_*          — Cloudflare R2 credentials (same as photo uploads)
+//                   Upload is skipped if R2 is not configured.
+//   RETAIN_DAYS   — local + remote retention in days (default: 14)
 // ──────────────────────────────────────────────────────────────────
 
 const path = require("path");
 const fs = require("fs");
 const { execSync } = require("child_process");
 const { MongoClient } = require("mongodb");
+const { uploadToR2, isR2Configured } = require("../utils/r2Client");
+
+// ── S3 SDK — needed for listing & deleting old remote backups ────
+let ListObjectsV2Command, DeleteObjectsCommand;
+try {
+  ({ ListObjectsV2Command, DeleteObjectsCommand } = require("@aws-sdk/client-s3"));
+} catch (_) {
+  // @aws-sdk/client-s3 not installed — remote cleanup disabled
+}
 
 // ── Load .env relative to this script so it works from any cwd ────
 require("dotenv").config({
@@ -32,8 +41,8 @@ require("dotenv").config({
 
 // ── Configuration ─────────────────────────────────────────────────
 const MONGO_URI = process.env.DB;
-const RCLONE_REMOTE = process.env.RCLONE_REMOTE || "";
 const RETAIN_DAYS = parseInt(process.env.RETAIN_DAYS || "14", 10);
+const R2_BACKUP_PREFIX = "backups/";
 const PROJECT_DIR = path.resolve(__dirname, "..");
 const BACKUPS_DIR = path.join(PROJECT_DIR, "backups");
 const DRY_RUN = process.argv.includes("--dry-run");
@@ -59,15 +68,10 @@ async function main() {
   if (DRY_RUN) log("  ** DRY-RUN MODE — no files will be written **");
   log("═══════════════════════════════════════════════════════════");
 
-  // ── Check rclone availability ─────────────────────────────
-  let cloudEnabled = !!RCLONE_REMOTE;
-  if (RCLONE_REMOTE) {
-    try {
-      execSync("which rclone", { stdio: "pipe" });
-    } catch (_) {
-      log("WARNING: rclone not found — skipping cloud upload, local backup only");
-      cloudEnabled = false;
-    }
+  // ── Check R2 availability ─────────────────────────────────
+  const cloudEnabled = isR2Configured();
+  if (!cloudEnabled) {
+    log("NOTE: R2 not configured — skipping cloud upload, local backup only.");
   }
 
   // ── Validate connection string ───────────────────────────────
@@ -158,37 +162,31 @@ async function main() {
     }
   }
 
-  // ── Upload to Google Drive via rclone ────────────────────────
+  // ── Upload tarball to Cloudflare R2 ──────────────────────────
   if (DRY_RUN) {
     if (cloudEnabled) {
-      log(`→ [dry-run] Would upload to rclone remote: ${RCLONE_REMOTE} — skipped.`);
+      log(`→ [dry-run] Would upload to R2: ${R2_BACKUP_PREFIX}${path.basename(tarball)} — skipped.`);
     }
   } else if (cloudEnabled && fs.existsSync(tarball)) {
-    log(`→ Uploading to rclone remote: ${RCLONE_REMOTE}`);
+    const r2Key = `${R2_BACKUP_PREFIX}${path.basename(tarball)}`;
+    log(`→ Uploading to R2: ${r2Key}`);
     try {
-      execSync(
-        `rclone copy "${tarball}" "${RCLONE_REMOTE}" --verbose=1`,
-        { stdio: "pipe", timeout: 300_000 }
-      );
+      const fileBuffer = fs.readFileSync(tarball);
+      await uploadToR2(r2Key, fileBuffer, "application/gzip");
       log("✓ Upload complete.");
 
-      // Clean old remote backups
-      log(`→ Cleaning remote backups older than ${RETAIN_DAYS} days...`);
+      // Clean old remote backups from R2
+      log(`→ Cleaning R2 backups older than ${RETAIN_DAYS} days...`);
       try {
-        execSync(
-          `rclone delete "${RCLONE_REMOTE}" --min-age "${RETAIN_DAYS}d" --verbose=1`,
-          { stdio: "pipe", timeout: 120_000 }
-        );
+        await cleanRemoteBackups();
         log("✓ Remote cleanup done.");
       } catch (err) {
         log(`WARNING: Remote cleanup failed: ${err.message}`);
       }
     } catch (err) {
-      log(`WARNING: rclone upload failed: ${err.message}`);
+      log(`WARNING: R2 upload failed: ${err.message}`);
       log("  Local backup is still available.");
     }
-  } else if (!cloudEnabled && !RCLONE_REMOTE) {
-    log("  NOTE: RCLONE_REMOTE not set. Skipping cloud sync.");
   }
 
   // ── Clean up old local backups ───────────────────────────────
@@ -265,3 +263,45 @@ main().catch((err) => {
   log(`FATAL: ${err.message || err}`);
   process.exit(1);
 });
+
+// ── Clean old backups from R2 ────────────────────────────────────
+async function cleanRemoteBackups() {
+  // Dynamically require the S3Client from r2Client's dependency
+  const { S3Client } = require("@aws-sdk/client-s3");
+  const client = new S3Client({
+    region: "auto",
+    endpoint: process.env.R2_ENDPOINT || `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+  });
+
+  const cutoff = Date.now() - RETAIN_DAYS * 24 * 60 * 60 * 1000;
+  const bucket = process.env.R2_BUCKET_NAME;
+
+  // List all objects under the backups/ prefix
+  const listed = await client.send(
+    new ListObjectsV2Command({ Bucket: bucket, Prefix: R2_BACKUP_PREFIX })
+  );
+
+  const objects = (listed.Contents || []).filter(
+    (o) => o.Key.endsWith(".tar.gz") && o.LastModified && o.LastModified.getTime() < cutoff
+  );
+
+  if (objects.length === 0) {
+    log("  No old remote backups to clean.");
+    return;
+  }
+
+  // Delete in batches of 1000 (S3 API limit)
+  for (let i = 0; i < objects.length; i += 1000) {
+    const batch = objects.slice(i, i + 1000).map((o) => ({ Key: o.Key }));
+    await client.send(
+      new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: batch } })
+    );
+    for (const o of batch) {
+      log(`  Removed remote: ${o.Key}`);
+    }
+  }
+}
