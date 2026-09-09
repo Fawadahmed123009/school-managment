@@ -11,7 +11,7 @@
     "db:maintain": "node scripts/dbMaintenance.js",
     "db:migrate-photos": "node scripts/migratePhotosToR2.js",
     "db:migrate-photos:delete": "node scripts/migratePhotosToR2.js --delete",
-    "backup": "bash scripts/backupMongo.sh"
+    "backup": "node scripts/backupMongo.js"
   },
   "repository": {
     "type": "git",
