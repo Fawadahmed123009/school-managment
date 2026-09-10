@@ -26,7 +26,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
       Mark attendance
     </a>
-    <a href="/marks" class="ql-chip">
+    <a href="/marks/ocr" class="ql-chip">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
       Enter marks
     </a>
@@ -103,6 +103,35 @@
         <div class="stat-label">Fee status</div>
       </div>
     </div>
+
+    <% /* ── Student personal alerts ── */ %>
+    <% var sAlerts = []; %>
+    <% if (stats.attendance.percent !== null && stats.attendance.percent < alertThresholds.ATTENDANCE) { %>
+      <% sAlerts.push({ type: 'attendance', message: 'Your attendance is at ' + stats.attendance.percent + '%' }); %>
+    <% } %>
+    <% if (stats.marks.bySubject) { %>
+      <% stats.marks.bySubject.forEach(function(s) { %>
+        <% if (s.average < alertThresholds.SCORE) { %>
+          <% sAlerts.push({ type: 'score', message: 'Your average in ' + s.subject + ' is ' + s.average + '%' }); %>
+        <% } %>
+      <% }); %>
+    <% } %>
+    <% if (sAlerts.length > 0) { %>
+    <div class="panel" style="border-left:4px solid var(--error);margin-bottom:20px;">
+      <div class="panel-head"><h2 style="color:var(--error);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Heads up
+      </h2></div>
+      <div class="panel-body" style="padding:12px 20px 16px;">
+        <% sAlerts.forEach(function(a) { %>
+          <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">
+            <span style="color:var(--error);font-weight:600;font-size:13px;"><%= a.message %></span>
+          </div>
+        <% }); %>
+        <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Talk to your teacher or counsellor if you need help.</p>
+      </div>
+    </div>
+    <% } %>
 
     <!-- Student charts -->
     <div class="panel chart-panel">
@@ -199,12 +228,49 @@
       </div>
     </div>
 
+    <% /* ── Teacher: At-Risk Students panel ── */ %>
+    <% if (atRisk && atRisk.students && atRisk.students.length > 0) { %>
+    <div class="panel" style="margin-bottom:20px;">
+      <div class="panel-head">
+        <h2>At-Risk Students
+          <span class="chart-subtitle"><%= atRisk.total %> flagged in your classes</span>
+        </h2>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div class="table-wrap">
+          <table class="ledger">
+            <thead>
+              <tr><th>Student</th><th>Class</th><th>Reason</th><th></th></tr>
+            </thead>
+            <tbody>
+              <% atRisk.students.forEach(function(r) { %>
+              <tr>
+                <td>
+                  <strong><%= r.student.name %></strong>
+                  <div style="font-size:11px;color:var(--ink-soft);">Roll #<%= r.student.rollNumber %></div>
+                </td>
+                <td><span class="pill" style="font-size:11px;"><%= r.student.className %></span></td>
+                <td>
+                  <% r.reasons.forEach(function(reason, idx) { %>
+                    <span class="pill" style="font-size:11px;background:<%= reason.type === 'attendance' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)' %>;color:<%= reason.type === 'attendance' ? 'var(--error)' : 'var(--review)' %>;"><%= reason.message %></span>
+                  <% }); %>
+                </td>
+                <td><a href="/students/<%= r.student._id %>/analysis" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">View</a></td>
+              </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <% } %>
+
     <!-- Quick actions -->
     <div class="panel">
       <div class="panel-head"><h2>Quick actions</h2></div>
       <div class="panel-body">
         <div class="action-grid">
-          <a href="/marks" class="action-card">
+          <a href="/marks/ocr" class="action-card">
             <div class="action-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
             </div>
@@ -317,6 +383,62 @@
     </div>
   </div>
   <% } %>
+
+  <% /* ── Admin/Manager: At-Risk Students panel ── */ %>
+  <div class="panel" style="margin-bottom:20px;">
+    <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>At-Risk Students
+        <% if (atRisk) { %>
+          <span class="chart-subtitle"><%= atRisk.total %> student<%= atRisk.total !== 1 ? 's' : '' %> flagged</span>
+        <% } %>
+      </h2>
+      <form method="GET" action="/dashboard" style="display:flex;gap:8px;align-items:center;margin:0;">
+        <select name="classLevel" onchange="this.form.submit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--ink);">
+          <option value="">All classes</option>
+          <% if (atRisk && atRisk.classes) { %>
+            <% atRisk.classes.forEach(function(c) { %>
+              <option value="<%= c._id %>" <%= (atRisk.classFilter === c._id.toString()) ? 'selected' : '' %>><%= c.name %></option>
+            <% }); %>
+          <% } %>
+        </select>
+      </form>
+    </div>
+    <% if (atRisk && atRisk.students && atRisk.students.length > 0) { %>
+    <div class="panel-body" style="padding:0;">
+      <div class="table-wrap">
+        <table class="ledger">
+          <thead>
+            <tr><th>Student</th><th>Class</th><th>Reason</th><th></th></tr>
+          </thead>
+          <tbody>
+            <% atRisk.students.forEach(function(r) { %>
+            <tr>
+              <td>
+                <strong><%= r.student.name %></strong>
+                <div style="font-size:11px;color:var(--ink-soft);">Roll #<%= r.student.rollNumber %></div>
+              </td>
+              <td><span class="pill" style="font-size:11px;"><%= r.student.className %></span></td>
+              <td>
+                <% r.reasons.forEach(function(reason) { %>
+                  <span class="pill" style="font-size:11px;background:<%= reason.type === 'attendance' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)' %>;color:<%= reason.type === 'attendance' ? 'var(--error)' : 'var(--review)' %>;"><%= reason.message %></span>
+                <% }); %>
+              </td>
+              <td><a href="/students/<%= r.student._id %>/analysis" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">View</a></td>
+            </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <% } else { %>
+    <div class="panel-body">
+      <div class="empty" style="padding:24px;">
+        <div class="display">No at-risk students found</div>
+        <p>All students are above the alert thresholds<%= (atRisk && atRisk.classFilter) ? ' in the selected class' : '' %>.</p>
+      </div>
+    </div>
+    <% } %>
+  </div>
 
   <!-- Quick actions -->
   <div class="panel">

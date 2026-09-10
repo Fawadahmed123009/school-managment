@@ -1,0 +1,181 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Attendance</p>
+    <h1>My classes</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load data: <%= loadError %></div><% } %>
+
+<% if (classes.length === 0) { %>
+  <div class="empty">
+    <div class="display">No classes assigned</div>
+    <p>You are not currently assigned to teach any classes. Contact your administrator.</p>
+  </div>
+<% } else { %>
+
+<!-- ── Tab bar ─────────────────────────────────────────────── -->
+<div class="tab-bar">
+  <a href="/attendance/my-classes?tab=class&year=<%= year %>&month=<%= month %><%= classLevel ? '&classLevel=' + classLevel : '' %>" class="<%= tab === 'class' ? 'active' : '' %>">By class</a>
+  <a href="/attendance/my-classes?tab=student&year=<%= year %>&month=<%= month %><%= classLevel ? '&classLevel=' + classLevel : '' %>" class="<%= tab === 'student' ? 'active' : '' %>">Student breakdown</a>
+</div>
+
+<!-- ── Filters ─────────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/attendance/my-classes" class="field-row" style="align-items:flex-end; margin-bottom:0;">
+      <input type="hidden" name="tab" value="<%= tab %>" />
+      <div class="field" style="max-width:140px;">
+        <label for="year">Year</label>
+        <input type="number" name="year" id="year" value="<%= year %>" />
+      </div>
+      <div class="field" style="max-width:140px;">
+        <label for="month">Month</label>
+        <input type="number" name="month" id="month" min="1" max="12" value="<%= month %>" />
+      </div>
+      <div class="field" style="min-width:180px;">
+        <label for="classLevel">Class filter</label>
+        <select name="classLevel" id="classLevel">
+          <option value="">All my classes</option>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= classLevel === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">View</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 1 — BY CLASS SUMMARY                                  -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<% if (tab === 'class') { %>
+
+<% if (perClass.length === 0) { %>
+  <div class="empty"><div class="display">No attendance recorded for this month</div><p>Try a different month or check back later.</p></div>
+<% } else { %>
+  <%
+    var totalP = 0, totalA = 0, totalL = 0;
+    perClass.forEach(function(c) { totalP += c.present; totalA += c.absent; totalL += c.late; });
+    var totalAll = totalP + totalA + totalL;
+  %>
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= perClass.length %></div>
+      <div class="l">Classes</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--paid);"><%= totalP %></div>
+      <div class="l">Total present</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--error);"><%= totalA %></div>
+      <div class="l">Total absent</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--review);"><%= totalL %></div>
+      <div class="l">Total late</div>
+    </div>
+    <% if (totalAll > 0) { %>
+    <div class="stat">
+      <div class="n mono"><%= Math.round(((totalP + totalL) / totalAll) * 100) %>%</div>
+      <div class="l">Attendance rate</div>
+    </div>
+    <% } %>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h2><%= year %> - <%= String(month).padStart(2, '0') %></h2></div>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
+      </thead>
+      <tbody>
+        <% perClass.forEach(function(c) { %>
+          <tr>
+            <td><strong><%= c.className %></strong></td>
+            <td class="num mono"><%= c.present %></td>
+            <td class="num mono"><%= c.absent %></td>
+            <td class="num mono"><%= c.late %></td>
+            <td class="num mono"><%= c.total %></td>
+            <td class="num mono"><%= c.total > 0 ? Math.round(((c.present + c.late) / c.total) * 100) : 0 %>%</td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  </div>
+<% } %>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB 2 — STUDENT BREAKDOWN                                 -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<% } else if (tab === 'student') { %>
+
+<% if (perStudent.length === 0) { %>
+  <div class="empty"><div class="display">No students found</div><p>No students are enrolled in the selected class(es) for this period.</p></div>
+<% } else { %>
+  <%
+    var sTotalP = 0, sTotalA = 0, sTotalL = 0;
+    perStudent.forEach(function(s) { sTotalP += s.present; sTotalA += s.absent; sTotalL += s.late; });
+  %>
+  <div class="stats">
+    <div class="stat">
+      <div class="n mono"><%= perStudent.length %></div>
+      <div class="l">Students</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--paid);"><%= sTotalP %></div>
+      <div class="l">Total present</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--error);"><%= sTotalA %></div>
+      <div class="l">Total absent</div>
+    </div>
+    <div class="stat">
+      <div class="n mono" style="color:var(--review);"><%= sTotalL %></div>
+      <div class="l">Total late</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Student breakdown</h2>
+      <span style="font-size:13px; color:var(--ink-soft);"><%= year %> - <%= String(month).padStart(2, '0') %></span>
+    </div>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th>Student</th><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
+      </thead>
+      <tbody>
+        <% perStudent.forEach(function(s) { %>
+          <tr>
+            <td><strong><%= s.name %></strong><br><span style="font-size:11px; color:var(--ink-soft);">Roll #<%= s.rollNumber %></span></td>
+            <td><%= s.className %></td>
+            <td class="num mono"><%= s.present %></td>
+            <td class="num mono"><%= s.absent %></td>
+            <td class="num mono"><%= s.late %></td>
+            <td class="num mono"><%= s.total %></td>
+            <td class="num mono"><%= s.rate !== null ? s.rate + '%' : '—' %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  </div>
+<% } %>
+
+<% } %>
+
+<% } %>
+
+<%- include('../partials/foot') %>

@@ -15,11 +15,35 @@
 <% if (loadError) { %><div class="flash error">Couldn't load staff: <%= loadError %></div><% } %>
 
 <div class="panel">
-  <div class="panel-head"><h2>All teachers</h2></div>
+  <div class="panel-head">
+    <h2>All teachers</h2>
+    <% if (pagination) { %>
+      <span class="muted" style="font-size:13px;"><%= pagination.total %> total</span>
+    <% } %>
+  </div>
+
+  <!-- Filter bar -->
+  <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
+    <form method="GET" action="/staff" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:200px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Teacher name</label>
+        <input type="text" name="search" value="<%= filters.search %>" placeholder="Search by name…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+      </div>
+      <div style="display:flex; gap:6px; align-items:flex-end;">
+        <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
+        <% if (filters.search) { %>
+          <a href="/staff" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
+        <% } %>
+      </div>
+    </form>
+  </div>
+
   <% if (teachers.length === 0) { %>
     <div class="empty">
-      <div class="display">No teachers yet</div>
-      <a href="/staff/new" class="btn btn-primary" style="margin-top:12px;">+ Add Teacher</a>
+      <div class="display"><%= filters.search ? 'No teachers match your search' : 'No teachers yet' %></div>
+      <% if (!filters.search) { %>
+        <a href="/staff/new" class="btn btn-primary" style="margin-top:12px;">+ Add Teacher</a>
+      <% } %>
     </div>
   <% } else { %>
     <div class="table-wrap">
@@ -67,6 +91,56 @@
       </tbody>
     </table>
     </div>
+
+    <!-- Pagination controls -->
+    <% if (pagination && pagination.pages > 1) { %>
+      <%
+        var qs = '';
+        if (filters.search) qs += '&search=' + encodeURIComponent(filters.search);
+      %>
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= pagination.pages %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/staff?page=<%= pagination.page - 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+
+          <%
+            var cur = pagination.page;
+            var total = pagination.pages;
+            var pages = [];
+            pages.push(1);
+            for (var i = Math.max(2, cur - 2); i <= Math.min(total - 1, cur + 2); i++) {
+              pages.push(i);
+            }
+            if (total > 1) pages.push(total);
+            pages = pages.filter(function(v, idx, arr) { return arr.indexOf(v) === idx; }).sort(function(a, b) { return a - b; });
+          %>
+          <% var prev = 0; %>
+          <% pages.forEach(function(p) { %>
+            <% if (p - prev > 1) { %>
+              <span class="page-ellipsis">&hellip;</span>
+            <% } %>
+            <% if (p === cur) { %>
+              <span class="page-link active"><%= p %></span>
+            <% } else { %>
+              <a href="/staff?page=<%= p %>&limit=<%= pagination.limit %><%= qs %>" class="page-link"><%= p %></a>
+            <% } %>
+            <% prev = p; %>
+          <% }); %>
+
+          <% if (pagination.hasNext) { %>
+            <a href="/staff?page=<%= pagination.page + 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
+        </div>
+      </div>
+    <% } %>
   <% } %>
 </div>
 

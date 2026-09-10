@@ -1,0 +1,160 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Analytics</p>
+    <h1>My performance</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load data: <%= loadError %></div><% } %>
+
+<% if (classes.length === 0 && subjects.length === 0) { %>
+  <div class="empty">
+    <div class="display">No assignments yet</div>
+    <p>You are not currently assigned to teach any subjects. Contact your administrator.</p>
+  </div>
+<% } else { %>
+
+<!-- ── Filters ─────────────────────────────────────────────── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/teacher/analytics" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap;">
+      <div class="field" style="min-width:160px;">
+        <label for="classLevel">Class</label>
+        <select name="classLevel" id="classLevel">
+          <option value="">All my classes</option>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= filters.classLevel === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:160px;">
+        <label for="subject">Subject</label>
+        <select name="subject" id="subject">
+          <option value="">All my subjects</option>
+          <% subjects.forEach(function(s) { %>
+            <option value="<%= s._id %>" <%= filters.subject === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:160px;">
+        <label for="sessionId">Test session</label>
+        <select name="sessionId" id="sessionId">
+          <option value="">All sessions</option>
+          <% sessions.forEach(function(s) { %>
+            <option value="<%= s._id %>" <%= filters.sessionId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:140px;">
+        <label for="fromDate">From</label>
+        <input type="date" name="fromDate" id="fromDate" value="<%= filters.fromDate %>" />
+      </div>
+      <div class="field" style="min-width:140px;">
+        <label for="toDate">To</label>
+        <input type="date" name="toDate" id="toDate" value="<%= filters.toDate %>" />
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">Apply</button>
+        <a href="/teacher/analytics" class="btn btn-ghost" style="text-decoration:none;">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Overall stats ───────────────────────────────────────── -->
+<% if (overallStats) { %>
+<div class="stats">
+  <div class="stat">
+    <div class="n mono"><%= overallStats.avg %>%</div>
+    <div class="l">Average score</div>
+  </div>
+  <div class="stat">
+    <div class="n mono" style="color:var(--paid);"><%= overallStats.max %>%</div>
+    <div class="l">Highest score</div>
+  </div>
+  <div class="stat">
+    <div class="n mono" style="color:var(--error);"><%= overallStats.min %>%</div>
+    <div class="l">Lowest score</div>
+  </div>
+  <div class="stat">
+    <div class="n mono"><%= overallStats.count %></div>
+    <div class="l">Total results</div>
+  </div>
+</div>
+<% } %>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SECTION 1 — PER-CLASS AVERAGES                            -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="panel" style="margin-top:24px;">
+  <div class="panel-head"><h2>Per-class averages</h2></div>
+  <% if (perClass.length === 0) { %>
+    <div class="panel-body">
+      <div class="empty" style="padding:24px 0;">
+        <div class="display">No data available</div>
+        <p>No test results found for the selected filters.</p>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th>Class</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th><th class="num">Results</th></tr>
+      </thead>
+      <tbody>
+        <% perClass.forEach(function(c) { %>
+          <tr>
+            <td><strong><%= c.className %></strong></td>
+            <td class="num mono"><%= c.avg !== null ? c.avg + '%' : '—' %></td>
+            <td class="num mono"><%= c.min !== null ? c.min + '%' : '—' %></td>
+            <td class="num mono"><%= c.max !== null ? c.max + '%' : '—' %></td>
+            <td class="num mono"><%= c.count %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- SECTION 2 — PER-SESSION AVERAGES                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div class="panel" style="margin-top:24px;">
+  <div class="panel-head"><h2>Per-session averages</h2></div>
+  <% if (perSession.length === 0) { %>
+    <div class="panel-body">
+      <div class="empty" style="padding:24px 0;">
+        <div class="display">No session data</div>
+        <p>No tests with sessions found for the selected filters, or no sessions exist yet.</p>
+      </div>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th>Session</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th><th class="num">Results</th></tr>
+      </thead>
+      <tbody>
+        <% perSession.forEach(function(s) { %>
+          <tr>
+            <td><strong><%= s.sessionName %></strong></td>
+            <td class="num mono"><%= s.avg !== null ? s.avg + '%' : '—' %></td>
+            <td class="num mono"><%= s.min !== null ? s.min + '%' : '—' %></td>
+            <td class="num mono"><%= s.max !== null ? s.max + '%' : '—' %></td>
+            <td class="num mono"><%= s.count %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<% } %>
+
+<%- include('../partials/foot') %>

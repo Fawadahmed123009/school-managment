@@ -55,49 +55,153 @@
 </div>
 
 <div class="panel">
-  <div class="panel-head"><h2>Current assignments</h2></div>
-  <% if (assignments.length === 0) { %>
-    <div class="empty"><div class="display">No assignments yet</div></div>
-  <% } else { %>
-    <%
-      // Group assignments by teacher, then by subject
-      var byTeacher = {};
-      assignments.forEach(function(a) {
-        var tId = a.teacher ? a.teacher._id : 'unknown';
-        var tName = a.teacher ? a.teacher.name : 'Unknown';
-        if (!byTeacher[tId]) byTeacher[tId] = { name: tName, subjects: {} };
-        var sId = a.subject ? a.subject._id : 'unknown';
-        var sName = a.subject ? a.subject.name : 'Unknown';
-        if (!byTeacher[tId].subjects[sId]) byTeacher[tId].subjects[sId] = { name: sName, items: [] };
-        byTeacher[tId].subjects[sId].items.push(a);
-      });
-    %>
-    <% Object.keys(byTeacher).forEach(function(tId) { %>
-      <% var teacher = byTeacher[tId]; %>
-      <div style="padding:16px 24px 8px;border-bottom:1px solid var(--border);background:#fafbfd;">
-        <strong style="font-size:14px;"><%= teacher.name %></strong>
-        <span style="font-size:12px;color:var(--ink-soft);margin-left:8px;">
-          <% var totalItems = 0; Object.keys(teacher.subjects).forEach(function(sId) { totalItems += teacher.subjects[sId].items.length; }); %>
-          (<%= totalItems %> section<%= totalItems !== 1 ? 's' : '' %>)
-        </span>
+  <div class="panel-head">
+    <h2>Current assignments</h2>
+    <% if (pagination) { %>
+      <span class="muted" style="font-size:13px;"><%= pagination.total %> total</span>
+    <% } %>
+  </div>
+
+  <!-- Filter bar -->
+  <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
+    <form method="GET" action="/assignments" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:180px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Search</label>
+        <input type="text" name="search" value="<%= filters.search %>" placeholder="Teacher, subject or class…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
       </div>
-      <% Object.keys(teacher.subjects).forEach(function(sId) { %>
-        <% var subj = teacher.subjects[sId]; %>
-        <div style="padding:12px 24px 12px 40px;border-bottom:1px solid var(--border);">
-          <div style="font-weight:600;font-size:13px;margin-bottom:6px;color:var(--ink);"><%= subj.name %></div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px;">
-            <% subj.items.forEach(function(a) { %>
-              <span class="pill" style="background:rgba(37,99,235,0.08);color:var(--partial);display:inline-flex;align-items:center;gap:4px;">
-                <%= a.classLevel ? a.classLevel.name : 'Unknown' %>
-                <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;margin:0;">
-                  <button type="submit" class="btn btn-ghost" style="padding:0 4px;font-size:11px;color:var(--error);background:none;border:none;cursor:pointer;line-height:1;" title="Remove">&times;</button>
-                </form>
-              </span>
-            <% }); %>
-          </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Teacher</label>
+        <select name="teacher" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="">All teachers</option>
+          <% teachers.forEach(function(t) { %>
+            <option value="<%= t._id %>" <%= filters.teacher === t._id ? 'selected' : '' %>><%= t.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Subject</label>
+        <select name="subject" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="">All subjects</option>
+          <% subjects.forEach(function(s) { %>
+            <option value="<%= s._id %>" <%= filters.subject === s._id ? 'selected' : '' %>><%= s.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:flex; gap:6px; align-items:flex-end;">
+        <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
+        <% if (filters.search || filters.teacher || filters.subject || filters.classLevel) { %>
+          <a href="/assignments" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
+        <% } %>
+      </div>
+    </form>
+  </div>
+
+  <% if (assignments.length === 0) { %>
+    <div class="empty">
+      <div class="display"><%= (filters.search || filters.teacher || filters.subject) ? 'No assignments match your filters' : 'No assignments yet' %></div>
+      <% if (!filters.search && !filters.teacher && !filters.subject) { %>
+        <p class="support" style="margin-top:6px;">Use the form above to assign a teacher to a class section.</p>
+      <% } %>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Teacher</th>
+          <th>Subject</th>
+          <th>Class</th>
+          <th>Grade</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% assignments.forEach(function(a) { %>
+          <tr>
+            <td>
+              <strong><%= a.teacher ? a.teacher.name : 'Unknown' %></strong>
+              <% if (a.teacher && a.teacher.teacherId) { %>
+                <span class="mono" style="display:block;font-size:11px;color:var(--ink-soft);"><%= a.teacher.teacherId %></span>
+              <% } %>
+            </td>
+            <td><%= a.subject ? a.subject.name : 'Unknown' %></td>
+            <td>
+              <%= a.classLevel ? a.classLevel.name : 'Unknown' %>
+              <% if (a.classLevel && a.classLevel.section) { %>
+                <span style="color:var(--ink-soft);font-size:12px;"> — <%= a.classLevel.section %></span>
+              <% } %>
+            </td>
+            <td>
+              <% if (a.classLevel) { %>
+                Grade <%= a.classLevel.gradeLevel %>
+                <% if (a.classLevel.group) { %> · <%= a.classLevel.group %><% } %>
+              <% } else { %>
+                —
+              <% } %>
+            </td>
+            <td style="text-align:right;">
+              <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;" data-confirm="Remove this assignment?">
+                <button type="submit" class="btn" style="padding:4px 12px; font-size:13px; background:var(--error); color:#fff; border:none;">Remove</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+
+    <!-- Pagination controls -->
+    <% if (pagination && pagination.pages > 1) { %>
+      <%
+        var qs = '';
+        if (filters.search) qs += '&search=' + encodeURIComponent(filters.search);
+        if (filters.teacher) qs += '&teacher=' + encodeURIComponent(filters.teacher);
+        if (filters.subject) qs += '&subject=' + encodeURIComponent(filters.subject);
+        if (filters.classLevel) qs += '&classLevel=' + encodeURIComponent(filters.classLevel);
+      %>
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= pagination.pages %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/assignments?page=<%= pagination.page - 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+
+          <%
+            var cur = pagination.page;
+            var total = pagination.pages;
+            var pages = [];
+            pages.push(1);
+            for (var i = Math.max(2, cur - 2); i <= Math.min(total - 1, cur + 2); i++) {
+              pages.push(i);
+            }
+            if (total > 1) pages.push(total);
+            pages = pages.filter(function(v, idx, arr) { return arr.indexOf(v) === idx; }).sort(function(a, b) { return a - b; });
+          %>
+          <% var prev = 0; %>
+          <% pages.forEach(function(p) { %>
+            <% if (p - prev > 1) { %>
+              <span class="page-ellipsis">&hellip;</span>
+            <% } %>
+            <% if (p === cur) { %>
+              <span class="page-link active"><%= p %></span>
+            <% } else { %>
+              <a href="/assignments?page=<%= p %>&limit=<%= pagination.limit %><%= qs %>" class="page-link"><%= p %></a>
+            <% } %>
+            <% prev = p; %>
+          <% }); %>
+
+          <% if (pagination.hasNext) { %>
+            <a href="/assignments?page=<%= pagination.page + 1 %>&limit=<%= pagination.limit %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
         </div>
-      <% }); %>
-    <% }); %>
+      </div>
+    <% } %>
   <% } %>
 </div>
 

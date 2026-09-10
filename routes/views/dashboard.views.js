@@ -6,6 +6,8 @@ const Fees = require("../../models/Fees/fees.model");
 const Attendance = require("../../models/Academic/attendance.model");
 const TestResult = require("../../models/Academic/testResult.model");
 const Assignment = require("../../models/Academic/assignment.model");
+const ClassLevel = require("../../models/Academic/class.model");
+const { getAtRiskStudentsAdmin, getAtRiskStudentsTeacher, THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
 const logger = require("../../config/logger");
 
 // ── Helper: start-of-month date for MongoDB queries ──
@@ -24,6 +26,8 @@ router.get("/dashboard", async (req, res) => {
 
   const stats = { students: 0, staff: 0, collected: 0, outstanding: 0 };
   const charts = { attendanceTrend: [], feeCollection: [], feeBreakdown: [] };
+  let atRisk = null;
+  let alertThresholds = THRESHOLDS;
 
   try {
     if (req.user.role === "admin" || req.user.isManager) {
@@ -128,6 +132,18 @@ router.get("/dashboard", async (req, res) => {
         }));
       }
 
+      // ── At-Risk Students panel ──
+      const classFilter = req.query.classLevel || "";
+      const [atRiskResult, classes] = await Promise.all([
+        getAtRiskStudentsAdmin(classFilter || undefined),
+        ClassLevel.find().sort({ gradeLevel: 1, name: 1 }).lean(),
+      ]);
+      atRisk = {
+        ...atRiskResult,
+        classFilter,
+        classes,
+      };
+
     } else if (req.user.role === "student") {
       const studentId = req.user._id;
       const [attendanceRecords, testResults, feeRecords, student] = await Promise.all([
@@ -195,6 +211,25 @@ router.get("/dashboard", async (req, res) => {
       });
       stats.fees = feeTotals;
       stats.student = student ? { name: student.name, classLevel: student.classLevel } : null;
+
+      // ── Per-subject averages for student alert badges ──
+      const subjectAgg = {};
+      testResults.forEach((r) => {
+        const test = r.test;
+        if (!test || !test.totalMarks) return;
+        const subjectName = test.subject ? test.subject.name : "Unknown";
+        const percent = Math.round((r.score / test.totalMarks) * 10000) / 100;
+        if (!subjectAgg[subjectName]) subjectAgg[subjectName] = { total: 0, count: 0 };
+        subjectAgg[subjectName].total += percent;
+        subjectAgg[subjectName].count += 1;
+      });
+      stats.marks.bySubject = Object.keys(subjectAgg)
+        .map((subject) => ({
+          subject,
+          average: Math.round((subjectAgg[subject].total / subjectAgg[subject].count) * 100) / 100,
+        }))
+        .sort((a, b) => a.average - b.average);
+
     } else if (req.user.role === "teacher") {
       const teacherId = req.user._id;
 
@@ -255,6 +290,9 @@ router.get("/dashboard", async (req, res) => {
           total: d.present + d.absent + d.late,
         }));
       }
+
+      // ── At-Risk Students panel (teacher-scoped) ──
+      atRisk = await getAtRiskStudentsTeacher(teacherId);
     }
   } catch (err) {
     logger.warn("Dashboard stats error", { error: err.message, userId: req.user?._id });
@@ -266,6 +304,8 @@ router.get("/dashboard", async (req, res) => {
     user: req.user,
     stats,
     charts,
+    atRisk,
+    alertThresholds,
     schoolName: res.locals.schoolName,
   });
 });

@@ -32,10 +32,11 @@
       <a href="/fees/ocr" class="<%= page === 'fees-ocr' ? 'active' : '' %>">Scan &amp; enter fees <span class="tag">New</span></a>
     <% } %>
     <% if (user.role === 'teacher') { %>
-      <a href="/marks" class="<%= page === 'marks' ? 'active' : '' %>">Marks &amp; results</a>
       <a href="/marks/ocr" class="<%= page === 'marks-ocr' ? 'active' : '' %>">Scan &amp; enter marks <span class="tag">New</span></a>
       <a href="/tests/mark" class="<%= page === 'tests-mark' ? 'active' : '' %>">Mark a test</a>
       <a href="/attendance" class="<%= page === 'attendance' ? 'active' : '' %>">Attendance</a>
+      <a href="/attendance/my-classes" class="<%= page === 'attendance-view' ? 'active' : '' %>">View attendance</a>
+      <a href="/teacher/analytics" class="<%= page === 'teacher-analytics' ? 'active' : '' %>">My analytics</a>
     <% } %>
     <% if (user.role === 'student') { %>
       <a href="/my/analysis" class="<%= page === 'my-analysis' ? 'active' : '' %>">My progress</a>

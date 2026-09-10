@@ -9,28 +9,55 @@
   </div>
 </div>
 
-<% if (loadError) { %><div class="flash error">Couldn't load tests: <%= loadError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load classes: <%= loadError %></div><% } %>
 
 <div class="panel">
-  <div class="panel-head"><h2>Available tests</h2></div>
-  <% if (tests.length === 0) { %>
-    <div class="empty"><div class="display">No tests yet</div></div>
-  <% } else { %>
-    <table class="ledger">
-      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Date</th><th></th></tr></thead>
-      <tbody>
-        <% tests.forEach(function(t) { %>
-          <tr>
-            <td><strong><%= t.name %></strong></td>
-            <td><%= t.subject ? t.subject.name : '—' %></td>
-            <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
-            <td><%= new Date(t.date).toLocaleDateString() %></td>
-            <td><a href="/tests/mark/<%= t._id %>" class="btn btn-primary" style="padding:6px 12px;">Mark</a></td>
-          </tr>
-        <% }); %>
-      </tbody>
-    </table>
-  <% } %>
+  <div class="panel-head"><h2>Select a test to mark</h2></div>
+  <div class="panel-body">
+    <% if (!classes || classes.length === 0) { %>
+      <div class="empty"><div class="display">No classes assigned</div><p>You are not assigned to teach any classes. Contact your administrator.</p></div>
+    <% } else { %>
+      <div class="field" style="margin-bottom:12px;">
+        <label>1. Select class(es) <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(one or more)</span></label>
+        <div style="display:flex; gap:12px; margin-bottom:6px;">
+          <button type="button" id="select-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+          <button type="button" id="clear-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
+          <span id="class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
+        </div>
+        <div id="class-checkbox-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <% classes.forEach(function(c) { %>
+            <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+              <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
+              <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+            </label>
+          <% }); %>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top:12px;">
+        <div class="field">
+          <label for="subject-select">2. Select subject</label>
+          <select id="subject-select" disabled required>
+            <option value="">Select class(es) first...</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="test-select">3. Select test</label>
+          <select id="test-select" disabled required>
+            <option value="">Select a subject first...</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="mark-action" style="margin-top:16px; display:none;">
+        <a id="mark-btn" href="#" class="btn btn-primary">Mark this test</a>
+        <span id="test-info" style="margin-left:12px; color:var(--muted);"></span>
+      </div>
+    <% } %>
+  </div>
 </div>
+
+<script src="/js/test-cascade-pick.js"></script>
 
 <%- include('../partials/foot') %>

@@ -30,6 +30,7 @@ const authView = async (req, res, next) => {
   }
 
   res.locals.user = req.user;
+  res.locals.authToken = req.token;
   next();
 };
 

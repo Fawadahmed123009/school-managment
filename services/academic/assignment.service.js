@@ -2,6 +2,8 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const Assignment = require("../../models/Academic/assignment.model");
 const Subject = require("../../models/Academic/subject.model");
 const ClassLevel = require("../../models/Academic/class.model");
+const Teacher = require("../../models/Staff/teachers.model");
+const { paginate } = require("../../utils/paginate");
 
 exports.createAssignmentService = async (data, adminId, res) => {
   const { teacher, subject, classLevel } = data;
@@ -104,12 +106,47 @@ exports.createBatchAssignmentService = async (data, adminId, res) => {
   });
 };
 
-exports.getAllAssignmentsService = async (res) => {
-  const assignments = await Assignment.find({})
-    .populate("teacher", "name teacherId")
-    .populate("subject", "name")
-    .populate("classLevel", "name gradeLevel group section");
-  return responseStatus(res, 200, "success", assignments);
+exports.getAllAssignmentsService = async (query = {}) => {
+  const filter = {};
+  const search = (query.search || "").trim();
+
+  // Text search across teacher name, subject name, and class name
+  if (search) {
+    const [teacherIds, subjectIds, classIds] = await Promise.all([
+      Teacher.find({ name: { $regex: search, $options: "i" } }).select("_id"),
+      Subject.find({ name: { $regex: search, $options: "i" } }).select("_id"),
+      ClassLevel.find({ name: { $regex: search, $options: "i" } }).select("_id"),
+    ]);
+
+    const orConditions = [];
+    if (teacherIds.length > 0) orConditions.push({ teacher: { $in: teacherIds.map((t) => t._id) } });
+    if (subjectIds.length > 0) orConditions.push({ subject: { $in: subjectIds.map((s) => s._id) } });
+    if (classIds.length > 0) orConditions.push({ classLevel: { $in: classIds.map((c) => c._id) } });
+
+    if (orConditions.length === 0) {
+      return {
+        data: [],
+        pagination: { total: 0, page: 1, limit: 20, pages: 0, hasPrev: false, hasNext: false },
+      };
+    }
+    filter.$or = orConditions;
+  }
+
+  // Dropdown / select filters
+  if (query.teacher) filter.teacher = query.teacher;
+  if (query.subject) filter.subject = query.subject;
+  if (query.classLevel) filter.classLevel = query.classLevel;
+
+  return await paginate(Assignment, filter, {
+    page: query.page,
+    limit: query.limit,
+    sort: "-createdAt",
+    populate: [
+      { path: "teacher", select: "name teacherId" },
+      { path: "subject", select: "name" },
+      { path: "classLevel", select: "name gradeLevel group section" },
+    ],
+  });
 };
 
 exports.getMyAssignmentsService = async (teacherId, res) => {

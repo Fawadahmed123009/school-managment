@@ -14,6 +14,7 @@ const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 // ── List all teachers ──
 router.get("/staff", requireAdminOrManager(), async (req, res) => {
   try {
+    const search = (req.query.search || "").trim();
     const result = await getAllTeachersService(req.query);
     res.render("staff/list", {
       page: "staff",
@@ -22,6 +23,7 @@ router.get("/staff", requireAdminOrManager(), async (req, res) => {
       error: req.query.error || null,
       teachers: result.data || [],
       pagination: result.pagination || null,
+      filters: { search },
       loadError: null,
       schoolName: res.locals.schoolName,
     });
@@ -32,6 +34,8 @@ router.get("/staff", requireAdminOrManager(), async (req, res) => {
       ok: false,
       error: null,
       teachers: [],
+      pagination: null,
+      filters: { search: "" },
       loadError: err.message,
       schoolName: res.locals.schoolName,
     });

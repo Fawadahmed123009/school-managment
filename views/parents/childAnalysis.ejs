@@ -33,6 +33,33 @@
     </div>
   </div>
 
+  <% /* ── Parent: child alert notices ── */ %>
+  <% var cAlerts = []; %>
+  <% if (analysis.attendance.percent !== null && analysis.attendance.percent < alertThresholds.ATTENDANCE) { %>
+    <% cAlerts.push({ type: 'attendance', message: analysis.student.name + "'s attendance is at " + analysis.attendance.percent + '%' }); %>
+  <% } %>
+  <% if (analysis.marks.bySubject) { %>
+    <% analysis.marks.bySubject.forEach(function(s) { %>
+      <% if (s.average < alertThresholds.SCORE) { %>
+        <% cAlerts.push({ type: 'score', message: s.average + '% avg in ' + s.subject }); %>
+      <% } %>
+    <% }); %>
+  <% } %>
+  <% if (cAlerts.length > 0) { %>
+  <div class="panel" style="border-left:4px solid var(--error);margin-bottom:16px;">
+    <div class="panel-head"><h2 style="color:var(--error);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Needs attention
+    </h2></div>
+    <div class="panel-body" style="padding:12px 20px 16px;">
+      <% cAlerts.forEach(function(a) { %>
+        <div style="font-size:13px;color:var(--error);font-weight:600;padding:4px 0;border-bottom:1px solid var(--border);"><%= a.message %></div>
+      <% }); %>
+      <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;">Consider speaking with the class teacher for support.</p>
+    </div>
+  </div>
+  <% } %>
+
   <div class="panel">
     <div class="panel-head"><h2>Attendance breakdown</h2></div>
     <div class="panel-body" style="display:flex; gap:24px;">

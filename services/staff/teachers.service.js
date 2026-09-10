@@ -58,7 +58,11 @@ exports.teacherLoginService = async (data, res) => {
 };
 
 exports.getAllTeachersService = async (query) => {
-  return await paginate(Teacher, {}, {
+  const filter = {};
+  const search = (query.search || "").trim();
+  if (search) filter.name = { $regex: search, $options: "i" };
+
+  return await paginate(Teacher, filter, {
     page: query.page,
     limit: query.limit,
     select: "-password",

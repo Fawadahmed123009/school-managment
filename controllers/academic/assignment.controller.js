@@ -26,7 +26,8 @@ exports.createAssignmentController = async (req, res) => {
 
 exports.getAllAssignmentsController = async (req, res) => {
   try {
-    await getAllAssignmentsService(res);
+    const result = await getAllAssignmentsService(req.query);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

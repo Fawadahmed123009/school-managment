@@ -4,12 +4,29 @@ const { apiFetch } = require("../../utils/apiClient");
 const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
 router.get("/assignments", requireAdminOrManager(), async (req, res) => {
+  const search = (req.query.search || "").trim();
+  const filterTeacher = req.query.teacher || "";
+  const filterSubject = req.query.subject || "";
+  const filterClass = req.query.classLevel || "";
+
   const [assignmentsRes, teachersRes, subjectsRes, classesRes] = await Promise.all([
-    apiFetch("/assignments", req.token),
-    apiFetch("/teachers", req.token),
+    apiFetch("/assignments?" + new URLSearchParams({
+      ...(req.query.search && { search: req.query.search }),
+      ...(req.query.teacher && { teacher: req.query.teacher }),
+      ...(req.query.subject && { subject: req.query.subject }),
+      ...(req.query.classLevel && { classLevel: req.query.classLevel }),
+      ...(req.query.page && { page: req.query.page }),
+      ...(req.query.limit && { limit: req.query.limit }),
+    }).toString(), req.token),
+    apiFetch("/teachers?limit=100", req.token),
     apiFetch("/subject", req.token),
     apiFetch("/class-levels", req.token),
   ]);
+
+  // assignmentsRes.data is now { data: [...], pagination: {...} }
+  const assignmentsPayload = assignmentsRes.status === "success" ? assignmentsRes.data : {};
+  const assignments = Array.isArray(assignmentsPayload) ? assignmentsPayload : (assignmentsPayload.data || []);
+  const pagination = assignmentsPayload.pagination || null;
 
   const subjects = subjectsRes.status === "success" ? subjectsRes.data : [];
   const classes = classesRes.status === "success" ? classesRes.data : [];
@@ -59,7 +76,8 @@ router.get("/assignments", requireAdminOrManager(), async (req, res) => {
     ok: req.query.ok === "1",
     okMsg: req.query.msg || null,
     createError: req.query.error || null,
-    assignments: assignmentsRes.status === "success" ? assignmentsRes.data : [],
+    assignments,
+    pagination,
     teachers: teachersRes.status === "success" ? (Array.isArray(teachersRes.data) ? teachersRes.data : teachersRes.data?.data || []) : [],
     subjects,
     classes,
@@ -67,6 +85,7 @@ router.get("/assignments", requireAdminOrManager(), async (req, res) => {
     sortedGrades,
     subjectClassMap: JSON.stringify(subjectClassMap),
     subjectHasAppliesTo: JSON.stringify(subjectHasAppliesTo),
+    filters: { search, teacher: filterTeacher, subject: filterSubject, classLevel: filterClass },
     loadError: assignmentsRes.status === "success" ? null : assignmentsRes.message,
     schoolName: res.locals.schoolName,
   });

@@ -27,13 +27,23 @@
     <div class="panel-body">
       <div class="card-grid">
         <% profile.children.forEach(function(child) { %>
-          <div class="card">
+          <% var cAlerts = childAlerts && childAlerts[child._id.toString()] || []; %>
+          <div class="card" <%= cAlerts.length > 0 ? 'style="border-left:3px solid var(--error);"' : '' %>>
             <div class="card-body">
               <h3><%= child.name %></h3>
               <p class="muted">Roll # <%= child.rollNumber %></p>
               <% if (child.classLevel) { %>
                 <p class="muted">Class: <%= child.classLevel.gradeLevel %> — <%= child.classLevel.name %></p>
               <% } %>
+
+              <% if (cAlerts.length > 0) { %>
+              <div style="margin-top:10px;padding:8px 10px;background:rgba(239,68,68,0.04);border-radius:6px;">
+                <% cAlerts.forEach(function(a) { %>
+                  <div style="font-size:12px;color:var(--error);font-weight:600;padding:2px 0;"><%= a.message %></div>
+                <% }); %>
+              </div>
+              <% } %>
+
               <div style="display:flex; gap:8px; margin-top:12px;">
                 <a href="/child/<%= child._id %>/analysis" class="btn btn-ghost">View Progress</a>
                 <a href="/child/<%= child._id %>/fees" class="btn btn-ghost">Fees</a>

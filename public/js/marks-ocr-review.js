@@ -4,7 +4,6 @@
     if (el) { try { return JSON.parse(el.textContent); } catch (e) {} }
     return window.__STUDENTS__ || [];
   })();
-  const testSelect = document.getElementById('test-select');
   const pickBtn = document.getElementById('pick-photo-btn');
   const fileInput = document.getElementById('photo-input');
   const uploadStep = document.getElementById('upload-step');
@@ -20,11 +19,12 @@
   let testId = '';
 
   pickBtn.addEventListener('click', () => {
-    if (!testSelect.value) {
+    // Use window.selectedTestId set by the cascade script in ocr.ejs
+    if (!window.selectedTestId) {
       alert('Select a test first.');
       return;
     }
-    testId = testSelect.value;
+    testId = window.selectedTestId;
     fileInput.click();
   });
 

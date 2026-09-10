@@ -11,20 +11,48 @@
 
 <div id="upload-step">
   <div class="panel">
+    <div class="panel-head"><h2>Select a test</h2></div>
     <div class="panel-body">
-      <div class="field">
-        <label for="test-select">Which test is this for?</label>
-        <select id="test-select" required>
-          <option value="">Select a test</option>
-          <% tests.forEach(function(t) { %>
-            <option value="<%= t._id %>"><%= t.name %></option>
-          <% }); %>
-        </select>
-      </div>
+      <% if (!classes || classes.length === 0) { %>
+        <div class="empty"><div class="display">No classes assigned</div><p>You are not assigned to teach any classes. Contact your administrator.</p></div>
+      <% } else { %>
+        <div class="field" style="margin-bottom:12px;">
+          <label>1. Select class(es) <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(one or more)</span></label>
+          <div style="display:flex; gap:12px; margin-bottom:6px;">
+            <button type="button" id="select-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+            <button type="button" id="clear-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
+            <span id="class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
+          </div>
+          <div id="class-checkbox-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+            <% classes.forEach(function(c) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+                <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
+                <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+              </label>
+            <% }); %>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top:12px;">
+          <div class="field">
+            <label for="subject-select">2. Select subject</label>
+            <select id="subject-select" disabled required>
+              <option value="">Select class(es) first...</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="test-select">3. Select test</label>
+            <select id="test-select" disabled required>
+              <option value="">Select a subject first...</option>
+            </select>
+          </div>
+        </div>
+      <% } %>
     </div>
   </div>
 
-  <div class="upload-drop">
+  <div class="upload-drop" id="upload-drop" style="display:none">
     <div class="display">Drop a photo of the marks sheet</div>
     <p>Typed names, handwritten scores — both are read automatically. You'll confirm everything before it's saved.</p>
     <input type="file" id="photo-input" accept="image/*" style="display:none" />
@@ -73,5 +101,7 @@
 
 <script type="application/json" id="marks-ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
 <script src="/js/marks-ocr-review.js"></script>
+
+<script src="/js/test-cascade-ocr.js"></script>
 
 <%- include('../partials/foot') %>

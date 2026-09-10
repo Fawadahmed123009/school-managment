@@ -6,6 +6,7 @@ const {
   getMonthlyRollupService,
   getDailyRollupService,
   getStudentAttendanceHistoryService,
+  getTeacherAttendanceService,
 } = require("../../services/academic/attendance.service");
 
 exports.markClassAttendanceController = async (req, res) => {
@@ -57,6 +58,21 @@ exports.getStudentAttendanceHistoryController = async (req, res) => {
       name: req.query.name || "",
     };
     await getStudentAttendanceHistoryService(filters, req.query.studentId || null, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Teacher-scoped attendance viewing (read-only, assignment-gated)
+exports.getTeacherAttendanceController = async (req, res) => {
+  try {
+    const filters = {
+      classLevel: req.query.classLevel || "",
+      year: req.query.year || "",
+      month: req.query.month || "",
+      tab: req.query.tab || "class",
+    };
+    await getTeacherAttendanceService(req.userAuth.id, filters, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

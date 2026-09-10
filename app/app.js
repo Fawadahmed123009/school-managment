@@ -174,6 +174,8 @@ app.use(require("../routes/views/sessionReport.views"));
 app.use(pdfGenerateRouter);
 app.use(require("../routes/views/attendance.views"));
 app.use(require("../routes/views/attendanceRollup.views"));
+app.use(require("../routes/views/teacherAttendance.views"));
+app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/parentPortal.views"));
 
 // ── TEMP DEBUG ROUTE — remove after diagnosing production timeout ──

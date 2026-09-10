@@ -14,15 +14,18 @@ const fetchAllStudents = () =>
   Student.find({}).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
 
 router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
-  const [students, testsRes] = await Promise.all([
+  // Fetch only the classes this teacher is assigned to (cascade level 1)
+  const [students, classesRes] = await Promise.all([
     fetchAllStudents(),
-    apiFetch("/tests", req.token),
+    apiFetch("/tests/cascade/classes", req.token),
   ]);
+  const classes = classesRes.status === "success" ? classesRes.data : [];
+
   res.render("marks/ocr", {
     page: "marks-ocr",
     user: req.user,
     students,
-    tests: testsRes.status === "success" ? testsRes.data : [],
+    classes,
     schoolName: res.locals.schoolName,
   });
 });

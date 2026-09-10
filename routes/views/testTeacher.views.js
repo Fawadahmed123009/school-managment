@@ -4,15 +4,17 @@ const { apiFetch } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { isAssignedToTestView } = require("../../middlewares/isAssignedToSubject");
 
-// Teacher test list — GET /tests now returns teacher-scoped results
-// (only tests for subjects/classes the teacher is assigned to).
+// Teacher test list — uses three-level cascade: Class → Subject → Test
 router.get("/tests/mark", requireRole("teacher"), async (req, res) => {
-  const testsRes = await apiFetch("/tests", req.token);
+  // Fetch only the classes this teacher is assigned to (cascade level 1)
+  const classesRes = await apiFetch("/tests/cascade/classes", req.token);
+  const classes = classesRes.status === "success" ? classesRes.data : [];
+
   res.render("tests/pick", {
     page: "tests-mark",
     user: req.user,
-    tests: testsRes.status === "success" ? testsRes.data : [],
-    loadError: testsRes.status === "success" ? null : testsRes.message,
+    classes,
+    loadError: classesRes.status === "success" ? null : classesRes.message,
     schoolName: res.locals.schoolName,
   });
 });

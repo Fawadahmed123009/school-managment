@@ -2,6 +2,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const Attendance = require("../../models/Academic/attendance.model");
 const Student = require("../../models/Students/students.model");
 const ClassLevel = require("../../models/Academic/class.model");
+const Assignment = require("../../models/Academic/assignment.model");
 const mongoose = require("mongoose");
 
 // Bulk mark a whole class's attendance for one day in a single call
@@ -107,6 +108,131 @@ exports.getDailyRollupService = async (year, month, classLevel, res) => {
   }));
 
   return responseStatus(res, 200, "success", days);
+};
+
+// Teacher-scoped attendance viewing: only shows data for the teacher's assigned classes.
+// Read-only — does NOT open up attendance marking to regular teachers.
+exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
+  const { classLevel, year, month, tab } = filters;
+
+  // 1. Load the teacher's assigned classLevel IDs
+  const assignedClassLevels = await Assignment.distinct("classLevel", { teacher: teacherId });
+  if (assignedClassLevels.length === 0) {
+    return responseStatus(res, 200, "success", { classes: [], perClass: [], perStudent: [] });
+  }
+
+  // 2. If a specific classLevel filter is provided, validate it's in the assignment set
+  let effectiveClassLevels = assignedClassLevels;
+  if (classLevel && mongoose.Types.ObjectId.isValid(classLevel)) {
+    const requested = new mongoose.Types.ObjectId(classLevel);
+    const isAssigned = assignedClassLevels.some((id) => id.toString() === classLevel);
+    if (!isAssigned) {
+      return responseStatus(res, 403, "failed", "You are not assigned to this class");
+    }
+    effectiveClassLevels = [requested];
+  }
+
+  // 3. Load class documents for the dropdown
+  const classes = await ClassLevel.find({ _id: { $in: effectiveClassLevels } })
+    .select("_id name gradeLevel group section")
+    .sort("name");
+
+  // 4. Build date range
+  const now = new Date();
+  const y = year ? Number(year) : now.getFullYear();
+  const m = month ? Number(month) : now.getMonth() + 1;
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 1);
+
+  // 5. Per-class summary aggregation (same $group pattern as getMonthlyRollupService)
+  const perClassAgg = await Attendance.aggregate([
+    {
+      $match: {
+        classLevel: { $in: effectiveClassLevels },
+        date: { $gte: start, $lt: end },
+      },
+    },
+    {
+      $group: {
+        _id: "$classLevel",
+        present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+        absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+        late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+      },
+    },
+  ]);
+
+  // Annotate with class name
+  const classMap = {};
+  classes.forEach((c) => { classMap[c._id.toString()] = c.name; });
+  const perClass = perClassAgg.map((r) => ({
+    classLevel: r._id,
+    className: classMap[r._id.toString()] || "Unknown",
+    present: r.present,
+    absent: r.absent,
+    late: r.late,
+    total: r.present + r.absent + r.late,
+  }));
+
+  // 6. Per-student breakdown (for the "student" tab, scoped to selected class or all assigned)
+  let perStudent = [];
+  const studentClassFilter = classLevel && mongoose.Types.ObjectId.isValid(classLevel)
+    ? { classLevel: new mongoose.Types.ObjectId(classLevel) }
+    : { classLevel: { $in: effectiveClassLevels } };
+
+  const students = await Student.find(studentClassFilter)
+    .select("name studentId rollNumber classLevel")
+    .populate("classLevel", "name")
+    .sort("name")
+    .lean();
+
+  if (students.length > 0) {
+    const studentIds = students.map((s) => s._id);
+    const studentAgg = await Attendance.aggregate([
+      {
+        $match: {
+          student: { $in: studentIds },
+          date: { $gte: start, $lt: end },
+        },
+      },
+      {
+        $group: {
+          _id: "$student",
+          present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+          late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+        },
+      },
+    ]);
+
+    const attMap = {};
+    studentAgg.forEach((r) => { attMap[r._id.toString()] = r; });
+
+    perStudent = students.map((s) => {
+      const a = attMap[s._id.toString()] || { present: 0, absent: 0, late: 0 };
+      const total = a.present + a.absent + a.late;
+      return {
+        student: s._id,
+        name: s.name,
+        studentId: s.studentId,
+        rollNumber: s.rollNumber,
+        className: s.classLevel ? s.classLevel.name : "—",
+        present: a.present,
+        absent: a.absent,
+        late: a.late,
+        total,
+        rate: total > 0 ? Math.round(((a.present + a.late) / total) * 10000) / 100 : null,
+      };
+    });
+  }
+
+  return responseStatus(res, 200, "success", {
+    classes,
+    perClass,
+    perStudent,
+    year: y,
+    month: m,
+  });
 };
 
 // Search students for attendance history + optionally load one student's full history

@@ -18,12 +18,16 @@ const {
   createTestController,
   getAllTestsController,
   getTestsByRoleController,
+  getTeacherAssignedClassesController,
+  getTeacherAssignedSubjectsController,
+  getTeacherScopedTestsByClassSubjectController,
   getTestRosterController,
   submitTestResultsController,
   getTestResultSheetController,
   getTestAnalyticsController,
   getEnhancedTestAnalyticsController,
   getTestTrendController,
+  getTeacherAnalyticsController,
   getSessionReportCardController,
   deleteTestController,
 } = require("../../../controllers/academic/test.controller");
@@ -75,9 +79,19 @@ testRouter.route("/test-sessions/:sessionId/report/:studentId").get(isLoggedIn, 
 testRouter.route("/tests").post(isLoggedIn, isAdminOrManager, createTestController);
 // GET /tests — admin sees all; teacher sees only their assigned subjects/classes
 testRouter.route("/tests").get(isLoggedIn, isAdminOrTeacher, getTestsByRoleController);
+
+// ── Cascade API routes for Class → Subject → Test dropdown ─────────────────
+// These must come BEFORE /:testId routes to avoid route conflicts.
+// Only teachers need these; managers/admins use the full test list.
+testRouter.get("/tests/cascade/classes", isLoggedIn, isTeacher, getTeacherAssignedClassesController);
+testRouter.get("/tests/cascade/subjects", isLoggedIn, isTeacher, getTeacherAssignedSubjectsController);
+testRouter.get("/tests/cascade/tests", isLoggedIn, isTeacher, getTeacherScopedTestsByClassSubjectController);
+
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);
 testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdminOrManager, getEnhancedTestAnalyticsController);
 testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdminOrManager, getTestTrendController);
+// Teacher-scoped analytics (assignment-gated, read-only)
+testRouter.route("/tests/teacher-analytics").get(isLoggedIn, isTeacher, getTeacherAnalyticsController);
 
 // Test marking routes — manager can mark ANY test; teachers need assignment check
 testRouter.route("/tests/:testId/roster").get(isLoggedIn, isTeacherAssignedOrManager, getTestRosterController);

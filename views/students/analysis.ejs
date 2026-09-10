@@ -37,6 +37,35 @@
     </div>
   </div>
 
+  <% /* ── Alert notices (student self-view or admin viewing) ── */ %>
+  <% if (typeof alertThresholds !== 'undefined') { %>
+    <% var aAlerts = []; %>
+    <% if (analysis.attendance.percent !== null && analysis.attendance.percent < alertThresholds.ATTENDANCE) { %>
+      <% aAlerts.push({ type: 'attendance', message: analysis.student.name + "'s attendance is at " + analysis.attendance.percent + '%' }); %>
+    <% } %>
+    <% if (analysis.marks.bySubject) { %>
+      <% analysis.marks.bySubject.forEach(function(s) { %>
+        <% if (s.average < alertThresholds.SCORE) { %>
+          <% aAlerts.push({ type: 'score', message: s.average + '% avg in ' + s.subject }); %>
+        <% } %>
+      <% }); %>
+    <% } %>
+    <% if (aAlerts.length > 0) { %>
+    <div class="panel" style="border-left:4px solid var(--error);margin-bottom:16px;">
+      <div class="panel-head"><h2 style="color:var(--error);">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:6px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <%= user.role === 'student' ? 'Heads up' : 'Needs attention' %>
+      </h2></div>
+      <div class="panel-body" style="padding:12px 20px 16px;">
+        <% aAlerts.forEach(function(a) { %>
+          <div style="font-size:13px;color:var(--error);font-weight:600;padding:4px 0;border-bottom:1px solid var(--border);"><%= a.message %></div>
+        <% }); %>
+        <p style="font-size:12px;color:var(--ink-soft);margin-top:8px;"><%= user.role === 'student' ? 'Talk to your teacher or counsellor if you need help.' : 'Consider discussing with the student and their parents.' %></p>
+      </div>
+    </div>
+    <% } %>
+  <% } %>
+
   <div class="panel">
     <div class="panel-head"><h2>Attendance breakdown</h2></div>
     <div class="panel-body" style="display:flex; gap:24px;">

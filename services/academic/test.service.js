@@ -117,6 +117,150 @@ exports.getTeacherScopedTestsService = async (teacherId, res) => {
   return responseStatus(res, 200, "success", filtered);
 };
 
+// ── Cascade API services ─────────────────────────────────────────────────────
+// These support the three-level Class → Subject → Test dropdown cascade
+// for teacher test-marking views.
+
+/**
+ * Level 1: Get distinct classes the teacher is assigned to.
+ * Returns classLevel documents with _id and name.
+ */
+exports.getTeacherAssignedClassesService = async (teacherId, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+
+  const assignments = await Assignment.find({ teacher: teacherId })
+    .distinct("classLevel");
+
+  if (assignments.length === 0) {
+    return responseStatus(res, 200, "success", []);
+  }
+
+  const classes = await ClassLevel.find({ _id: { $in: assignments } })
+    .select("_id name gradeLevel group")
+    .sort("name");
+
+  return responseStatus(res, 200, "success", classes);
+};
+
+/**
+ * Level 2: Get distinct subjects the teacher is assigned to teach
+ * across one or more classes (union). Accepts a comma-separated string
+ * of classLevel IDs or a single ID. Returns each subject annotated with
+ * the class IDs it applies to.
+ *
+ * Security: validates that the teacher is actually assigned to EVERY
+ * requested classLevel before returning results.
+ */
+exports.getTeacherAssignedSubjectsService = async (teacherId, classLevelParam, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+
+  if (!classLevelParam) {
+    return responseStatus(res, 400, "failed", "classLevel is required");
+  }
+
+  // Normalise to array of trimmed, non-empty IDs
+  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  if (classLevelIds.length === 0) {
+    return responseStatus(res, 400, "failed", "classLevel is required");
+  }
+
+  // Security: verify teacher is actually assigned to ALL requested classLevels
+  // Use distinct() to count unique classes, not assignment documents.
+  // countDocuments would be wrong: a teacher with 2 subjects for 4 classes
+  // yields 8 docs but only covers 4 classes — must reject, not pass.
+  const assignedClassLevels = await Assignment.distinct("classLevel", {
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+  });
+
+  if (assignedClassLevels.length < classLevelIds.length) {
+    return responseStatus(res, 403, "failed", "You are not assigned to one or more of the selected classes");
+  }
+
+  // Get all assignments across the selected classes
+  const assignments = await Assignment.find({
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+  }).select("subject classLevel").lean();
+
+  if (assignments.length === 0) {
+    return responseStatus(res, 200, "success", []);
+  }
+
+  // Group subject → set of classLevel IDs
+  const subjectClassMap = {};
+  assignments.forEach((a) => {
+    const subId = a.subject.toString();
+    if (!subjectClassMap[subId]) subjectClassMap[subId] = new Set();
+    subjectClassMap[subId].add(a.classLevel.toString());
+  });
+
+  const subjectIds = Object.keys(subjectClassMap);
+  const subjects = await Subject.find({ _id: { $in: subjectIds } })
+    .select("_id name")
+    .sort("name");
+
+  // Build response with class-level annotations
+  const result = subjects.map((s) => ({
+    _id: s._id,
+    name: s.name,
+    classLevels: Array.from(subjectClassMap[s._id.toString()]),
+  }));
+
+  return responseStatus(res, 200, "success", result);
+};
+
+/**
+ * Level 3: Get tests matching the selected subject AND covering at least
+ * one of the selected classes. Accepts a comma-separated string of
+ * classLevel IDs or a single ID.
+ *
+ * Security: validates that the teacher is actually assigned to this
+ * subject for at least one of the selected classes.
+ */
+exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLevelParam, subjectId, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+
+  if (!classLevelParam || !subjectId) {
+    return responseStatus(res, 400, "failed", "Both classLevel and subject are required");
+  }
+
+  // Normalise to array of trimmed, non-empty IDs
+  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  if (classLevelIds.length === 0) {
+    return responseStatus(res, 400, "failed", "Both classLevel and subject are required");
+  }
+
+  // Security: verify teacher is assigned to this subject for at least one selected class
+  const teacherAssigned = await Assignment.findOne({
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+    subject: subjectId,
+  });
+
+  if (!teacherAssigned) {
+    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
+  }
+
+  // Find tests matching the subject AND covering at least one selected class
+  const tests = await Test.find({
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+  })
+    .populate("subject", "name")
+    .populate("classLevels", "name")
+    .populate("session", "name")
+    .sort({ date: -1 });
+
+  return responseStatus(res, 200, "success", tests);
+};
+
 // Roster is scoped to only the sections this teacher is assigned to teach for
 // the test's subject. On a multi-section test, a teacher assigned to one
 // section must not see students from sections they don't teach.
@@ -596,6 +740,191 @@ exports.getTestTrendService = async (filters, res) => {
   // No mode selected yet — just return dropdown data
   return responseStatus(res, 200, "success", {
     mode: null, classes, subjects, students, trend: [], tableRows: [],
+  });
+};
+
+// ── Teacher analytics: per-class and per-session score stats ──────────────────
+// Scoped to only the teacher's assigned subjects/classes (same assignment-gating
+// pattern as getTeacherScopedTestsService). Reuses computeStats helper.
+exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+  const { classLevel, subject, testId, sessionId, fromDate, toDate } = filters;
+
+  // 1. Load teacher's assignments
+  const assignments = await Assignment.find({ teacher: teacherId })
+    .select("subject classLevel")
+    .lean();
+
+  if (assignments.length === 0) {
+    const [classes, subjects, sessions] = await Promise.all([
+      ClassLevel.find().sort({ gradeLevel: 1, group: 1 }).lean(),
+      Subject.find().sort("name").lean(),
+      TestSession.find().sort("name").lean(),
+    ]);
+    return responseStatus(res, 200, "success", {
+      classes, subjects, sessions,
+      perClass: [], perSession: [], overallStats: null,
+    });
+  }
+
+  // Build subjectId -> Set<classLevelId> map (same pattern as getTeacherScopedTestsService)
+  const subjectClassMap = {};
+  assignments.forEach((a) => {
+    const subId = a.subject.toString();
+    if (!subjectClassMap[subId]) subjectClassMap[subId] = new Set();
+    subjectClassMap[subId].add(a.classLevel.toString());
+  });
+
+  const teacherSubjectIds = Object.keys(subjectClassMap);
+  const teacherClassLevelIds = [...new Set(assignments.map((a) => a.classLevel.toString()))];
+
+  // 2. Validate filters against assignment scope
+  if (classLevel && !teacherClassLevelIds.includes(classLevel)) {
+    return responseStatus(res, 403, "failed", "You are not assigned to this class");
+  }
+  if (subject && !teacherSubjectIds.includes(subject)) {
+    return responseStatus(res, 403, "failed", "You are not assigned to this subject");
+  }
+
+  // 3. Build test query scoped to teacher's subjects and classes
+  const testQuery = { subject: { $in: teacherSubjectIds } };
+  if (classLevel) testQuery.classLevels = classLevel;
+  if (subject) testQuery.subject = subject;
+  if (sessionId) testQuery.session = sessionId;
+  if (testId) testQuery._id = testId;
+  if (fromDate || toDate) {
+    testQuery.date = {};
+    if (fromDate) testQuery.date.$gte = new Date(fromDate);
+    if (toDate) testQuery.date.$lte = new Date(toDate);
+  }
+
+  // 4. Load dropdown data (scoped to teacher's assignments)
+  const [classes, subjects, sessions] = await Promise.all([
+    ClassLevel.find({ _id: { $in: teacherClassLevelIds } }).sort({ gradeLevel: 1, group: 1 }).lean(),
+    Subject.find({ _id: { $in: teacherSubjectIds } }).sort("name").lean(),
+    TestSession.find().sort("name").lean(),
+  ]);
+
+  // 5. Find matching tests (filtered to teacher's class scope)
+  const tests = await Test.find(testQuery)
+    .populate("subject", "name")
+    .populate("classLevels", "name")
+    .populate("session", "name")
+    .sort({ date: -1 })
+    .lean();
+
+  // Keep only tests where the teacher covers at least one of the test's classes
+  const scopedTests = tests.filter((t) => {
+    const subId = t.subject && t.subject._id ? t.subject._id.toString() : t.subject.toString();
+    const classSet = subjectClassMap[subId];
+    if (!classSet) return false;
+    return (t.classLevels || []).some((cl) => {
+      const clId = cl._id ? cl._id.toString() : cl.toString();
+      return classSet.has(clId);
+    });
+  });
+
+  if (scopedTests.length === 0) {
+    return responseStatus(res, 200, "success", {
+      classes, subjects, sessions,
+      perClass: [], perSession: [], overallStats: null,
+    });
+  }
+
+  // 6. Fetch all results for these tests
+  const scopedTestIds = scopedTests.map((t) => t._id);
+  const results = await TestResult.find({ test: { $in: scopedTestIds } })
+    .populate("student", "name studentId classLevel")
+    .lean();
+
+  // 7. Per-class averages
+  const perClassMap = {};
+  results.forEach((r) => {
+    const studentClassId = r.student && r.student.classLevel ? r.student.classLevel.toString() : null;
+    if (!studentClassId) return;
+    // Only include if this class is in the teacher's scope
+    if (!teacherClassLevelIds.includes(studentClassId)) return;
+    if (!perClassMap[studentClassId]) perClassMap[studentClassId] = [];
+    perClassMap[studentClassId].push(r.score);
+  });
+
+  const classIdToName = {};
+  classes.forEach((c) => { classIdToName[c._id.toString()] = c.name; });
+
+  const perClass = Object.keys(perClassMap).map((clId) => {
+    const scores = perClassMap[clId];
+    const stats = computeStats(scores, { totalMarks: 100 });
+    // Compute percentage-based stats using actual test totalMarks
+    const testMap = {};
+    scopedTests.forEach((t) => { testMap[t._id.toString()] = t; });
+    const percents = results
+      .filter((r) => r.student && r.student.classLevel && r.student.classLevel.toString() === clId)
+      .map((r) => {
+        const t = testMap[r.test.toString()];
+        return t && t.totalMarks ? Math.round((r.score / t.totalMarks) * 10000) / 100 : null;
+      })
+      .filter((p) => p !== null);
+
+    return {
+      classLevel: clId,
+      className: classIdToName[clId] || "Unknown",
+      avg: percents.length > 0 ? Math.round((percents.reduce((s, p) => s + p, 0) / percents.length) * 100) / 100 : null,
+      min: percents.length > 0 ? Math.round(Math.min(...percents) * 100) / 100 : null,
+      max: percents.length > 0 ? Math.round(Math.max(...percents) * 100) / 100 : null,
+      count: percents.length,
+    };
+  }).sort((a, b) => (a.className || "").localeCompare(b.className || ""));
+
+  // 8. Per-session averages
+  const sessionMap = {};
+  const testSessionMap = {};
+  scopedTests.forEach((t) => {
+    if (t.session) {
+      const sId = t.session._id ? t.session._id.toString() : t.session.toString();
+      if (!sessionMap[sId]) sessionMap[sId] = [];
+      testSessionMap[sId] = t.session.name || "Session";
+    }
+  });
+
+  results.forEach((r) => {
+    const test = scopedTests.find((t) => t._id.toString() === r.test.toString());
+    if (test && test.session) {
+      const sId = test.session._id ? test.session._id.toString() : test.session.toString();
+      const pct = test.totalMarks ? Math.round((r.score / test.totalMarks) * 10000) / 100 : null;
+      if (pct !== null) sessionMap[sId].push(pct);
+    }
+  });
+
+  const perSession = Object.keys(sessionMap).map((sId) => {
+    const percents = sessionMap[sId];
+    return {
+      session: sId,
+      sessionName: testSessionMap[sId] || "Unknown",
+      avg: percents.length > 0 ? Math.round((percents.reduce((s, p) => s + p, 0) / percents.length) * 100) / 100 : null,
+      min: percents.length > 0 ? Math.round(Math.min(...percents) * 100) / 100 : null,
+      max: percents.length > 0 ? Math.round(Math.max(...percents) * 100) / 100 : null,
+      count: percents.length,
+    };
+  }).sort((a, b) => (a.sessionName || "").localeCompare(b.sessionName || ""));
+
+  // 9. Overall stats
+  const allPercents = results
+    .map((r) => {
+      const t = scopedTests.find((t2) => t2._id.toString() === r.test.toString());
+      return t && t.totalMarks ? Math.round((r.score / t.totalMarks) * 10000) / 100 : null;
+    })
+    .filter((p) => p !== null);
+
+  const overallStats = allPercents.length > 0 ? {
+    avg: Math.round((allPercents.reduce((s, p) => s + p, 0) / allPercents.length) * 100) / 100,
+    min: Math.round(Math.min(...allPercents) * 100) / 100,
+    max: Math.round(Math.max(...allPercents) * 100) / 100,
+    count: allPercents.length,
+  } : null;
+
+  return responseStatus(res, 200, "success", {
+    classes, subjects, sessions,
+    perClass, perSession, overallStats,
   });
 };
 
