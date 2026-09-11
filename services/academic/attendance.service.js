@@ -245,9 +245,7 @@ exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, 
     studentFilter.classLevel = new mongoose.Types.ObjectId(classLevel);
   }
   if (rollNumber) {
-    const asNum = Number(rollNumber);
-    if (!isNaN(asNum)) studentFilter.rollNumber = asNum;
-    else studentFilter.rollNumber = { $regex: rollNumber, $options: "i" };
+    studentFilter.rollNumber = { $regex: String(rollNumber).trim(), $options: "i" };
   }
   if (name) studentFilter.name = { $regex: name, $options: "i" };
 

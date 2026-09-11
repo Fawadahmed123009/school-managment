@@ -35,7 +35,7 @@ exports.parseStudentExcelService = async (filePath, res) => {
     return {
       name,
       admissionNumber,
-      rollNumber: rollNumberRaw !== "" ? Number(rollNumberRaw) : null,
+      rollNumber: rollNumberRaw !== "" ? String(rollNumberRaw).trim() : null,
       rawClassText: candidateClassName,
       matchedClassId,
       fatherName: String(row["Father Name"] || "").trim() || undefined,
@@ -81,9 +81,9 @@ exports.bulkCreateStudentsFromImportService = async (rows, res) => {
       continue;
     }
 
-    const rollNum = Number(rollNumber);
-    if (Number.isNaN(rollNum)) {
-      const reason = "Roll number must be a number";
+    const rollNum = String(rollNumber).trim();
+    if (!rollNum) {
+      const reason = "Missing roll number";
       console.log(`[IMPORT SKIP] name="${name}" roll="${rollNumber}" → ${reason}`);
       skipped.push({ row, reason });
       continue;

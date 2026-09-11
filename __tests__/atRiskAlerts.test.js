@@ -60,7 +60,7 @@ function makeStudent(id, name, classId, className) {
     _id: id,
     name,
     studentId: `STU-${id}`,
-    rollNumber: Math.floor(Math.random() * 100),
+    rollNumber: String(Math.floor(Math.random() * 100)),
     classLevel: { _id: classId, name: className, toString: () => classId },
     toString: () => id,
   };

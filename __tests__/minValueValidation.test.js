@@ -6,7 +6,7 @@
  *   2. FeeHead.defaultAmount rejects negative values
  *   3. Test.totalMarks rejects values < 1
  *   4. Test.passMarks rejects negative values and values > totalMarks
- *   5. Student.rollNumber rejects values < 1
+ *   5. Student.rollNumber accepts alphanumeric strings
  *   6. bulkCreateFeesService rejects rows with invalid amounts
  */
 
@@ -243,47 +243,53 @@ describe("Test schema – passMarks validation", () => {
 // TEST 5: Student.rollNumber validation
 // ═════════════════════════════════════════════════════════════════════════════
 describe("Student schema – rollNumber validation", () => {
-  test("rejects rollNumber less than 1", async () => {
+  test("accepts numeric string rollNumber", async () => {
     const student = new Student({
       name: "John Doe",
       email: "john@example.com",
       password: "hashedpassword",
-      rollNumber: 0,
-      classLevel: new mongoose.Types.ObjectId(),
-    });
-
-    await expect(student.validate()).rejects.toThrow(mongoose.Error.ValidationError);
-
-    try {
-      await student.validate();
-    } catch (err) {
-      expect(err.errors.rollNumber).toBeDefined();
-      expect(err.errors.rollNumber.message).toMatch(/must be at least 1/i);
-    }
-  });
-
-  test("accepts rollNumber of 1", async () => {
-    const student = new Student({
-      name: "John Doe",
-      email: "john@example.com",
-      password: "hashedpassword",
-      rollNumber: 1,
+      rollNumber: "1",
       classLevel: new mongoose.Types.ObjectId(),
     });
 
     await expect(student.validate()).resolves.toBeUndefined();
   });
 
-  test("accepts rollNumber greater than 1", async () => {
+  test("accepts alphanumeric rollNumber", async () => {
     const student = new Student({
       name: "John Doe",
       email: "john@example.com",
       password: "hashedpassword",
-      rollNumber: 42,
+      rollNumber: "9A-01",
       classLevel: new mongoose.Types.ObjectId(),
     });
 
     await expect(student.validate()).resolves.toBeUndefined();
+  });
+
+  test("accepts alphanumeric rollNumber with letters", async () => {
+    const student = new Student({
+      name: "John Doe",
+      email: "john@example.com",
+      password: "hashedpassword",
+      rollNumber: "R23",
+      classLevel: new mongoose.Types.ObjectId(),
+    });
+
+    await expect(student.validate()).resolves.toBeUndefined();
+  });
+
+  test("trims whitespace from rollNumber", async () => {
+    const student = new Student({
+      name: "John Doe",
+      email: "john@example.com",
+      password: "hashedpassword",
+      rollNumber: "  9A-01  ",
+      classLevel: new mongoose.Types.ObjectId(),
+    });
+
+    await expect(student.validate()).resolves.toBeUndefined();
+    expect(student.rollNumber).toBe("9A-01");
   });
 });
 

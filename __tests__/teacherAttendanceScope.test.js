@@ -37,8 +37,8 @@ const TEACHER_ASSIGNED = "teacher-assigned";
 const TEACHER_UNASSIGNED = "teacher-none";
 
 const STUDENTS_A = [
-  { _id: "s1", name: "Student One", studentId: "STU-1", rollNumber: 1, classLevel: { _id: CLASS_A, name: "Class A" } },
-  { _id: "s2", name: "Student Two", studentId: "STU-2", rollNumber: 2, classLevel: { _id: CLASS_A, name: "Class A" } },
+  { _id: "s1", name: "Student One", studentId: "STU-1", rollNumber: "1", classLevel: { _id: CLASS_A, name: "Class A" } },
+  { _id: "s2", name: "Student Two", studentId: "STU-2", rollNumber: "2", classLevel: { _id: CLASS_A, name: "Class A" } },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

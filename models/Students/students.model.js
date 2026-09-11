@@ -5,24 +5,28 @@ const studentSchema = new mongoose.Schema(
   {
     name: {
       type: String,
+      trim: true,
       required: true,
     },
     email: {
       type: String,
+      trim: true,
       required: true,
       index: true,
     },
     password: {
       type: String,
+      trim: true,
       required: true,
     },
     rollNumber: {
-      type: Number,
+      type: String,
+      trim: true,
       required: true,
-      min: [1, "Roll number must be at least 1"],
     },
     studentId: {
       type: String,
+      trim: true,
       required: true,
       default: function () {
         return (
@@ -39,6 +43,7 @@ const studentSchema = new mongoose.Schema(
     },
     role: {
       type: String,
+      trim: true,
       default: "student",
     },
     classLevel: {
@@ -79,44 +84,54 @@ const studentSchema = new mongoose.Schema(
     },
     status: {
       type: String,
+      trim: true,
       enum: ["active", "inactive"],
       default: "active",
     },
     fatherName: {
       type: String,
+      trim: true,
       default: "",
     },
     address: {
       type: String,
+      trim: true,
       default: "",
     },
     whatsappNumber: {
       type: String,
+      trim: true,
       default: "",
     },
     feeAgreed: {
-      type: Number,
+      type: String,
+      trim: true,
       default: null,
     },
     gender: {
       type: String,
+      trim: true,
       enum: ["Male", "Female"],
       default: "Male",
     },
     prefectName: {
       type: String,
+      trim: true,
     },
     religion: {
       type: String,
+      trim: true,
       enum: ["Muslim", "Non-Muslim"],
       default: "Muslim",
     },
     photoUrl: {
       type: String,
+      trim: true,
       default: null,
     },
     familyNumber: {
       type: String,
+      trim: true,
       default: null,
       index: true,
     },
@@ -141,6 +156,7 @@ const studentSchema = new mongoose.Schema(
     //year group
     yearGraduated: {
       type: String,
+      trim: true,
     },
   },
   {

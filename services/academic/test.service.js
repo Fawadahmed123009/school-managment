@@ -444,9 +444,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   if (classLevelId) studentMatch.classLevel = classLevelId;
   if (nameSearch) studentMatch.name = { $regex: nameSearch, $options: "i" };
   if (rollNumberSearch) {
-    const rn = Number(rollNumberSearch);
-    if (!isNaN(rn)) studentMatch.rollNumber = rn;
-    else studentMatch.rollNumber = { $regex: String(rollNumberSearch) };
+    studentMatch.rollNumber = { $regex: String(rollNumberSearch).trim(), $options: "i" };
   }
 
   // If subject filter is set, further restrict to students in classes that

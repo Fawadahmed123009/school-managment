@@ -55,7 +55,7 @@
         <tr data-row="${i}">
           <td>${row.name}</td>
           <td class="mono">${row.admissionNumber || '—'}</td>
-          <td><input type="number" class="roll-input" data-row="${i}" min="1" value="${row.rollNumber ?? ''}" style="width:80px;" /></td>
+          <td><input type="text" class="roll-input" data-row="${i}" value="${row.rollNumber ?? ''}" style="width:100px;" /></td>
           <td>
             ${matchLabel}
             <select class="class-select" data-row="${i}">
@@ -138,7 +138,7 @@
           name: currentRows[i].name,
           admissionNumber: currentRows[i].admissionNumber,
           classLevel,
-          rollNumber: Number(rollNumber),
+          rollNumber: rollNumber,
         };
         if (currentRows[i].fatherName) student.fatherName = currentRows[i].fatherName;
         if (currentRows[i].address) student.address = currentRows[i].address;

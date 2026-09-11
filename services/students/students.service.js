@@ -49,7 +49,7 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     return responseStatus(res, 400, "failed", "Roll number is required");
   }
 
-  const rollTaken = await Student.findOne({ classLevel, rollNumber: Number(rollNumber) });
+  const rollTaken = await Student.findOne({ classLevel, rollNumber: String(rollNumber).trim() });
   if (rollTaken) {
     return responseStatus(res, 400, "failed", `Roll number ${rollNumber} is already used in this class`);
   }
@@ -139,7 +139,7 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     email,
     password: hashedPassword,
     classLevel,
-    rollNumber: Number(rollNumber),
+    rollNumber: String(rollNumber).trim(),
     fatherName,
     address,
     whatsappNumber,
@@ -260,10 +260,7 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
           if (!isNaN(num)) $set[key] = num;
         }
       } else if (key === "rollNumber") {
-        const num = Number(data[key]);
-        if (!isNaN(num)) $set[key] = num;
-      } else {
-        $set[key] = data[key];
+        $set[key] = String(data[key]).trim();
       }
     }
   }
