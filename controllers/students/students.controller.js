@@ -8,6 +8,8 @@ const {
   studentUpdateProfileService,
   adminUpdateStudentService,
   adminDeleteStudentService,
+  updateLinkedParentService,
+  addParentToStudentService,
 } = require("../../services/students/students.service");
 
 /**
@@ -105,6 +107,32 @@ exports.adminUpdateStudentController = async (req, res) => {
 exports.adminDeleteStudentController = async (req, res) => {
   try {
     await adminDeleteStudentService(req.params.studentId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Update linked parent's basic info (name, email, phone, relationship)
+ * @route POST /api/v1/students/:studentId/update-parent
+ * @access Private Admin/Manager only
+ **/
+exports.updateLinkedParentController = async (req, res) => {
+  try {
+    await updateLinkedParentService(req.params.studentId, req.body, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Add parent details to a student with no linked parent
+ * @route POST /api/v1/students/:studentId/add-parent
+ * @access Private Admin/Manager only
+ **/
+exports.addParentToStudentController = async (req, res) => {
+  try {
+    await addParentToStudentService(req.params.studentId, req.body, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

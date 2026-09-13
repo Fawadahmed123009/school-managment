@@ -10,6 +10,8 @@
 </div>
 
 <% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+<% if (passwordSuccess) { %><div class="flash" style="background: var(--paid-bg, #f0fdf4); color: var(--paid, #16a34a); border: 1px solid var(--paid, #16a34a);">Password changed successfully.</div><% } %>
+<% if (passwordError) { %><div class="flash error"><%= passwordError %></div><% } %>
 
 <% if (profile && profile.children && profile.children.length > 0) { %>
   <div class="stats">
@@ -62,5 +64,34 @@
     </div>
   </div>
 <% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Change password</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/parent-portal/change-password">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="currentPassword">Current password</label>
+          <input type="password" name="currentPassword" id="currentPassword" required />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="newPassword">New password</label>
+          <input type="password" name="newPassword" id="newPassword" required minlength="6" />
+          <p class="hint">At least 6 characters, with letters and a number.</p>
+        </div>
+        <div class="field">
+          <label for="confirmPassword">Confirm new password</label>
+          <input type="password" name="confirmPassword" id="confirmPassword" required minlength="6" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit" class="btn btn-primary">Change password</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <%- include('../partials/foot') %>

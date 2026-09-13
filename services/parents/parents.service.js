@@ -1,7 +1,7 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Parent = require("../../models/Parents/parents.model");
 const Student = require("../../models/Students/students.model");
-const { isPassMatched } = require("../../handlers/passHash.handler");
+const { isPassMatched, validatePassword } = require("../../handlers/passHash.handler");
 const generateToken = require("../../utils/tokenGenerator");
 const { hashPassword } = require("../../handlers/passHash.handler");
 const crypto = require("crypto");
@@ -157,4 +157,75 @@ exports.addChildToParentService = async (parentId, childId, res) => {
   await Student.findByIdAndUpdate(childId, { $set: { familyNumber: parent.familyNumber, parent: parentId } });
   const updated = await Parent.findById(parentId).select("-password").populate("children", "name rollNumber");
   return responseStatus(res, 200, "success", updated);
+};
+
+// ---- Parent Self-Service: Change Password ----
+
+exports.changeParentPasswordService = async (parentId, data, res) => {
+  const { currentPassword, newPassword, confirmPassword } = data;
+
+  if (!currentPassword || !newPassword) {
+    return responseStatus(res, 400, "failed", "Current password and new password are required");
+  }
+
+  if (newPassword !== confirmPassword) {
+    return responseStatus(res, 400, "failed", "New passwords do not match");
+  }
+
+  const passwordError = validatePassword(newPassword);
+  if (passwordError) {
+    return responseStatus(res, 400, "failed", passwordError);
+  }
+
+  const parent = await Parent.findById(parentId);
+  if (!parent) {
+    return responseStatus(res, 404, "failed", "Parent not found");
+  }
+
+  const isMatch = await isPassMatched(currentPassword, parent.password);
+  if (!isMatch) {
+    return responseStatus(res, 401, "failed", "Current password is incorrect");
+  }
+
+  const hashedPassword = await hashPassword(newPassword);
+  parent.password = hashedPassword;
+  await parent.save();
+
+  return responseStatus(res, 200, "success", "Password changed successfully");
+};
+
+// ---- Admin: Reset Parent Password ----
+
+exports.adminResetParentPasswordService = async (studentId, data, res) => {
+  const student = await Student.findById(studentId);
+  if (!student) {
+    return responseStatus(res, 404, "failed", "Student not found");
+  }
+
+  if (!student.parent) {
+    return responseStatus(res, 400, "failed", "This student has no linked parent account");
+  }
+
+  const parent = await Parent.findById(student.parent);
+  if (!parent) {
+    return responseStatus(res, 404, "failed", "Linked parent account not found");
+  }
+
+  // Use provided password or generate a random one
+  const plainPassword = data.password || generateRandomPassword();
+
+  const passwordError = validatePassword(plainPassword);
+  if (passwordError) {
+    return responseStatus(res, 400, "failed", passwordError);
+  }
+
+  const hashedPassword = await hashPassword(plainPassword);
+  parent.password = hashedPassword;
+  await parent.save();
+
+  return responseStatus(res, 200, "success", {
+    parentName: parent.name,
+    parentEmail: parent.email,
+    password: plainPassword,
+  });
 };

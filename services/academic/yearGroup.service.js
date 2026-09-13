@@ -1,6 +1,7 @@
 // Import necessary models
 const YearGroup = require("../../models/Academic/yearGroup.model");
 const Admin = require("../../models/Staff/admin.model");
+const Teacher = require("../../models/Staff/teachers.model");
 // Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -13,7 +14,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @param {string} userId - The ID of the user creating the YearGroup.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.createYearGroupService = async (data, userId) => {
+exports.createYearGroupService = async (data, userId, res) => {
   const { name, academicYear } = data;
 
   // Check if the YearGroup already exists
@@ -29,10 +30,21 @@ exports.createYearGroupService = async (data, userId) => {
     createdBy: userId,
   });
 
-  // Push the object ID to admin
-  const admin = await Admin.findById(userId);
-  if (!admin) return responseStatus(res, 401, "failed", "Admin does not exist");
-  await Admin.findByIdAndUpdate(userId, { $push: { yearGroups: YearGroupCreated._id } });
+  // Accept both admins and managers (teachers with isAttendanceManager).
+  const [admin, callerTeacher] = await Promise.all([
+    Admin.findById(userId),
+    Teacher.findById(userId).select("isAttendanceManager").lean(),
+  ]);
+  const isManager = callerTeacher && callerTeacher.isAttendanceManager;
+  if (!admin && !isManager) {
+    return responseStatus(res, 401, "failed", "Admin does not exist");
+  }
+
+  // Track the new year group on the admin's record (managers don't have a
+  // yearGroups array, so this only applies when the caller is an admin).
+  if (admin) {
+    await Admin.findByIdAndUpdate(userId, { $push: { yearGroups: YearGroupCreated._id } });
+  }
 
   // Send the response
   return responseStatus(res, 200, "success", YearGroupCreated);
@@ -67,7 +79,7 @@ exports.getYearGroupsService = async (id) => {
  * @param {string} userId - The ID of the user updating the YearGroup.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.updateYearGroupService = async (data, id, userId) => {
+exports.updateYearGroupService = async (data, id, userId, res) => {
   const { name, academicYear } = data;
 
   // Check if the updated name already exists

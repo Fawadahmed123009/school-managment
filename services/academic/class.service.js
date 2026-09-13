@@ -1,6 +1,7 @@
 const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
 const Admin = require("../../models/Staff/admin.model");
+const Teacher = require("../../models/Staff/teachers.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const Subject = require("../../models/Academic/subject.model");
 const Test = require("../../models/Academic/test.model");
@@ -27,7 +28,12 @@ exports.createClassLevelService = async (data, userId, res) => {
     createdBy: userId,
   });
 
-  await Admin.findByIdAndUpdate(userId, { $push: { classLevels: classCreated._id } });
+  // Track the new class on the admin's record (managers don't have a
+  // classLevels array, so this only applies when the caller is an admin).
+  const admin = await Admin.findById(userId);
+  if (admin) {
+    await Admin.findByIdAndUpdate(userId, { $push: { classLevels: classCreated._id } });
+  }
 
   return responseStatus(res, 200, "success", classCreated);
 };

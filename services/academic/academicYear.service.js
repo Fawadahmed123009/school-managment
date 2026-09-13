@@ -30,9 +30,13 @@ exports.createAcademicYearService = async (data, userId, res) => {
     createdBy: userId,
   });
 
-  // Push the academic year into the admin's academicYears array
+  // Track the new academic year on the admin's record (managers don't have an
+  // academicYears array, so this only applies when the caller is an admin).
   const Admin = require("../../models/Staff/admin.model");
-  await Admin.findByIdAndUpdate(userId, { $push: { academicYears: academicYearCreated._id } });
+  const admin = await Admin.findById(userId);
+  if (admin) {
+    await Admin.findByIdAndUpdate(userId, { $push: { academicYears: academicYearCreated._id } });
+  }
 
   // Send the response
   return responseStatus(res, 201, "success", academicYearCreated);

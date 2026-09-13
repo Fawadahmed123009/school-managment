@@ -20,17 +20,28 @@ exports.createTeacherService = async (data, adminId, res) => {
 
   const hashedPassword = await hashPassword(password);
 
-  const admin = await Admin.findById(adminId);
-  if (!admin) return responseStatus(res, 401, "fail", "Unauthorized access");
+  // Accept both admins and managers (teachers with isAttendanceManager).
+  const [admin, callerTeacher] = await Promise.all([
+    Admin.findById(adminId),
+    Teacher.findById(adminId).select("isAttendanceManager").lean(),
+  ]);
+  const isManager = callerTeacher && callerTeacher.isAttendanceManager;
+  if (!admin && !isManager) {
+    return responseStatus(res, 401, "fail", "Unauthorized access");
+  }
 
   const createTeacher = await Teacher.create({
     name,
     email,
     password: hashedPassword,
-    createdBy: admin._id,
+    createdBy: admin ? admin._id : adminId,
   });
 
-  await Admin.findByIdAndUpdate(adminId, { $push: { teachers: createTeacher._id } });
+  // Track the new teacher on the admin's record (managers don't have a
+  // teachers array, so this only applies when the caller is an admin).
+  if (admin) {
+    await Admin.findByIdAndUpdate(adminId, { $push: { teachers: createTeacher._id } });
+  }
 
   return responseStatus(res, 200, "success", createTeacher);
 };

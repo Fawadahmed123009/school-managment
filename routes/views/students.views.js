@@ -6,10 +6,14 @@ const {
   getStudentByAdminService,
   adminUpdateStudentService,
   adminDeleteStudentService,
+  updateLinkedParentService,
+  addParentToStudentService,
 } = require("../../services/students/students.service");
 const { getAllClassesService } = require("../../services/academic/class.service");
+const { adminResetParentPasswordService } = require("../../services/parents/parents.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const Parent = require("../../models/Parents/parents.model");
+const Student = require("../../models/Students/students.model");
 
 router.get("/students", requireAdminOrManager(), async (req, res) => {
   try {
@@ -157,6 +161,7 @@ router.get("/students/:studentId/edit", requireAdminOrManager(), async (req, res
       student,
       classes: classes || [],
       editError: req.query.error || null,
+      successMsg: req.query.parentUpdated === "1" ? "Parent details updated successfully." : req.query.parentAdded === "1" ? "Parent details added and linked successfully." : null,
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -186,6 +191,104 @@ router.post("/students/:studentId/delete", requireAdminOrManager(), async (req, 
   }
   if (result.ok) return res.redirect("/students?ok=1");
   return res.redirect(`/students?error=${encodeURIComponent(result.message || "Delete failed")}`);
+});
+
+// POST /students/:studentId/reset-parent-password — admin/manager reset parent password
+router.post("/students/:studentId/reset-parent-password", requireAdminOrManager(), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await adminResetParentPasswordService(req.params.studentId, req.body, cap);
+  } catch (err) {
+    return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(err.message || "Password reset failed")}`);
+  }
+
+  if (result.ok) {
+    const data = result.body.data;
+    return res.redirect(`/students/${req.params.studentId}/parent-password-reset?password=${encodeURIComponent(data.password)}&parentName=${encodeURIComponent(data.parentName)}&parentEmail=${encodeURIComponent(data.parentEmail)}`);
+  }
+  return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(result.message || "Password reset failed")}`);
+});
+
+// GET /students/:studentId/parent-password-reset — show reset confirmation
+router.get("/students/:studentId/parent-password-reset", requireAdminOrManager(), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await getStudentByAdminService(req.params.studentId, cap);
+  } catch (err) {
+    return res.redirect("/students?error=" + encodeURIComponent(err.message));
+  }
+
+  const student = result.ok ? result.body.data : null;
+  if (!student) {
+    return res.redirect("/students?error=Student not found");
+  }
+
+  res.render("students/parent-reset-confirm", {
+    page: "students",
+    user: req.user,
+    student,
+    credentials: {
+      name: req.query.parentName,
+      email: req.query.parentEmail,
+      password: req.query.password,
+    },
+    schoolName: res.locals.schoolName,
+  });
+});
+
+// POST /students/:studentId/update-parent — update linked parent's basic info (Feature 1)
+router.post("/students/:studentId/update-parent", requireAdminOrManager(), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await updateLinkedParentService(req.params.studentId, req.body, cap);
+  } catch (err) {
+    return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(err.message || "Update failed")}`);
+  }
+  if (result.ok) return res.redirect(`/students/${req.params.studentId}/edit?parentUpdated=1`);
+  return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(result.message || "Update failed")}`);
+});
+
+// POST /students/:studentId/add-parent — add parent to unlinked student (Feature 2)
+router.post("/students/:studentId/add-parent", requireAdminOrManager(), async (req, res) => {
+  const fields = ["parentName", "parentEmail", "parentPhone", "relationship", "familyAction"];
+  const data = {};
+  fields.forEach((f) => { if (req.body[f] !== undefined) data[f] = req.body[f]; });
+
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await addParentToStudentService(req.params.studentId, data, cap);
+  } catch (err) {
+    return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(err.message || "Failed to add parent")}`);
+  }
+
+  // Family-match confirmation needed
+  if (result.body && result.body.status === "confirm") {
+    return res.render("students/family-confirm-addparent", {
+      page: "students",
+      user: req.user,
+      matchedParent: result.body.data.matchedParent,
+      formData: data,
+      studentId: req.params.studentId,
+      schoolName: res.locals.schoolName,
+    });
+  }
+
+  // Success: check if a new parent account was auto-created
+  if (result.ok) {
+    const creds = result.body.data && result.body.data.newParentCredentials;
+    if (creds) {
+      return res.render("students/parent-created", {
+        page: "students",
+        user: req.user,
+        credentials: creds,
+        studentName: (await Student.findById(req.params.studentId)).name,
+        schoolName: res.locals.schoolName,
+      });
+    }
+    return res.redirect(`/students/${req.params.studentId}/edit?parentAdded=1`);
+  }
+
+  return res.redirect(`/students/${req.params.studentId}/edit?error=${encodeURIComponent(result.message || "Failed to add parent")}`);
 });
 
 module.exports = router;

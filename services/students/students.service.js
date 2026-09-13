@@ -3,6 +3,7 @@ const {
   isPassMatched,
 } = require("../../handlers/passHash.handler");
 const Admin = require("../../models/Staff/admin.model");
+const Teacher = require("../../models/Staff/teachers.model");
 const Student = require("../../models/Students/students.model");
 const Parent = require("../../models/Parents/parents.model");
 const ClassLevel = require("../../models/Academic/class.model");
@@ -27,11 +28,81 @@ const generateFamilyNumber = async () => {
   return `FAM-${String(lastNum + 1).padStart(4, "0")}`;
 };
 
+// ---- Family-match helper (shared by registration and add-parent-to-student) ----
+// Attempts to find an existing parent by phone or email.
+// Returns { matchedParent, familyNumber, parentId, newParentCredentials } or
+// { confirmMatch } when admin confirmation is needed.
+const runFamilyMatch = async ({ parentName, parentPhone, parentEmail, whatsappNumber, fatherName, familyAction }) => {
+  const contactPhone = parentPhone || whatsappNumber;
+  const contactEmail = parentEmail || null;
+
+  let existingParent = null;
+  if (contactPhone) {
+    existingParent = await Parent.findOne({ phone: contactPhone })
+      .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
+  }
+  if (!existingParent && contactEmail) {
+    existingParent = await Parent.findOne({ email: contactEmail })
+      .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
+  }
+
+  if (existingParent && !familyAction) {
+    return {
+      confirmMatch: {
+        _id: existingParent._id,
+        name: existingParent.name,
+        phone: existingParent.phone,
+        familyNumber: existingParent.familyNumber,
+        children: existingParent.children,
+      },
+    };
+  }
+
+  if (existingParent && familyAction === "link") {
+    return { familyNumber: existingParent.familyNumber, parentId: existingParent._id };
+  }
+
+  // familyAction === "new" OR no match — create new parent
+  const familyNumber = await generateFamilyNumber();
+  const plainParentPassword = generateRandomPassword();
+  const parentPassword = await hashPassword(plainParentPassword);
+  let email = contactEmail || `${contactPhone}@family.local`;
+  const emailTaken = await Parent.findOne({ email });
+  if (emailTaken) {
+    email = contactEmail || `${contactPhone}_${Date.now()}@family.local`;
+  }
+  const newParent = await Parent.create({
+    name: parentName || fatherName,
+    email,
+    password: parentPassword,
+    phone: contactPhone,
+    relationship: "father",
+    familyNumber,
+    children: [],
+  });
+  return {
+    familyNumber,
+    parentId: newParent._id,
+    newParentCredentials: {
+      name: newParent.name,
+      email: newParent.email,
+      phone: newParent.phone,
+      password: plainParentPassword,
+      familyNumber: newParent.familyNumber,
+    },
+  };
+};
+
 exports.adminRegisterStudentService = async (data, adminId, res) => {
   const { name, email, password, classLevel, rollNumber, fatherName, address, whatsappNumber, feeAgreed, gender, parentName, parentEmail, parentPhone, relationship, familyAction } = data;
 
-  const admin = await Admin.findById(adminId);
-  if (!admin) {
+  // Accept both admins and managers (teachers with isAttendanceManager).
+  const [admin, teacher] = await Promise.all([
+    Admin.findById(adminId),
+    Teacher.findById(adminId).select("isAttendanceManager").lean(),
+  ]);
+  const isManager = teacher && teacher.isAttendanceManager;
+  if (!admin && !isManager) {
     return responseStatus(res, 403, "failed", "Unauthorized access!");
   }
 
@@ -62,74 +133,27 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
   // ---- Family system: match or create parent ----
   let familyNumber = null;
   let parentId = null;
+  var _newParentCredentials;
 
   // Only engage family system if explicit parent details were provided
   const hasParentDetails = parentName || parentPhone || parentEmail;
 
   if (hasParentDetails) {
-    const contactPhone = parentPhone || whatsappNumber;
-    const contactEmail = parentEmail || null;
+    const matchResult = await runFamilyMatch({
+      parentName, parentPhone, parentEmail, whatsappNumber, fatherName, familyAction,
+    });
 
-    // Try to find existing parent by phone or email
-    let existingParent = null;
-    if (contactPhone) {
-      existingParent = await Parent.findOne({ phone: contactPhone })
-        .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
-    }
-    if (!existingParent && contactEmail) {
-      existingParent = await Parent.findOne({ email: contactEmail })
-        .populate({ path: "children", select: "name rollNumber fatherName", populate: { path: "classLevel", select: "name" } });
-    }
-
-    if (existingParent && !familyAction) {
-      // MATCH FOUND — require admin confirmation before linking
+    if (matchResult.confirmMatch) {
       return res.status(200).json({
         status: "confirm",
-        data: {
-          matchedParent: {
-            _id: existingParent._id,
-            name: existingParent.name,
-            phone: existingParent.phone,
-            familyNumber: existingParent.familyNumber,
-            children: existingParent.children,
-          },
-        },
+        data: { matchedParent: matchResult.confirmMatch },
       });
     }
 
-    if (existingParent && familyAction === "link") {
-      // Admin confirmed: link to existing parent's family
-      familyNumber = existingParent.familyNumber;
-      parentId = existingParent._id;
-    } else if (familyAction === "new" || !existingParent) {
-      // Admin chose "create new" OR no match found — create new parent
-      familyNumber = await generateFamilyNumber();
-      const plainParentPassword = generateRandomPassword();
-      const parentPassword = await hashPassword(plainParentPassword);
-      // Ensure unique email — if phone-based email is taken, add timestamp
-      let parentEmail = contactEmail || `${contactPhone}@family.local`;
-      const emailTaken = await Parent.findOne({ email: parentEmail });
-      if (emailTaken) {
-        parentEmail = contactEmail || `${contactPhone}_${Date.now()}@family.local`;
-      }
-      const newParent = await Parent.create({
-        name: parentName || fatherName,
-        email: parentEmail,
-        password: parentPassword,
-        phone: contactPhone,
-        relationship: relationship || "father",
-        familyNumber,
-        children: [],
-      });
-      parentId = newParent._id;
-      // Stash plain-text password so the view route can display it once
-      var _newParentCredentials = {
-        name: newParent.name,
-        email: newParent.email,
-        phone: newParent.phone,
-        password: plainParentPassword,
-        familyNumber: newParent.familyNumber,
-      };
+    familyNumber = matchResult.familyNumber;
+    parentId = matchResult.parentId;
+    if (matchResult.newParentCredentials) {
+      _newParentCredentials = matchResult.newParentCredentials;
     }
   }
 
@@ -154,7 +178,11 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     await Parent.findByIdAndUpdate(parentId, { $push: { children: studentRegistered._id } });
   }
 
-  await Admin.findByIdAndUpdate(adminId, { $push: { students: studentRegistered._id } });
+  // Track the new student on the admin's record (managers don't have a
+  // students array, so this only applies when the caller is an admin).
+  if (admin) {
+    await Admin.findByIdAndUpdate(adminId, { $push: { students: studentRegistered._id } });
+  }
   const responseData = { ...studentRegistered.toObject(), familyNumber, parent: parentId };
   if (typeof _newParentCredentials !== "undefined") {
     responseData.newParentCredentials = _newParentCredentials;
@@ -199,7 +227,10 @@ exports.getAllStudentsByAdminService = async (adminId, query, res) => {
 };
 
 exports.getStudentByAdminService = async (studentID, res) => {
-  const student = await Student.findById(studentID).select("-password").populate("classLevel", "name gradeLevel group section");
+  const student = await Student.findById(studentID)
+    .select("-password")
+    .populate("classLevel", "name gradeLevel group section")
+    .populate("parent", "name email phone relationship");
   if (!student) return responseStatus(res, 402, "failed", "Student not found");
   return responseStatus(res, 200, "success", student);
 };
@@ -292,6 +323,113 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
 
   const studentUpdated = await Student.findByIdAndUpdate(studentId, { $set }, { new: true }).select("-password");
   return responseStatus(res, 200, "success", studentUpdated);
+};
+
+// ---- Feature 1: Update linked parent's basic info ----
+
+exports.updateLinkedParentService = async (studentId, data, res) => {
+  const student = await Student.findById(studentId);
+  if (!student) {
+    return responseStatus(res, 404, "failed", "Student not found");
+  }
+  if (!student.parent) {
+    return responseStatus(res, 400, "failed", "This student has no linked parent account");
+  }
+
+  const parent = await Parent.findById(student.parent);
+  if (!parent) {
+    return responseStatus(res, 404, "failed", "Linked parent account not found");
+  }
+
+  // Validate email format if provided
+  if (data.parentEmail) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(data.parentEmail)) {
+      return responseStatus(res, 400, "failed", "Invalid email format");
+    }
+  }
+
+  // Check email uniqueness if changing
+  if (data.parentEmail && data.parentEmail !== parent.email) {
+    const emailTaken = await Parent.findOne({ email: data.parentEmail, _id: { $ne: parent._id } });
+    if (emailTaken) {
+      return responseStatus(res, 409, "failed", "That email is already used by another parent account");
+    }
+  }
+
+  // Validate relationship enum if provided
+  if (data.relationship && !["father", "mother", "guardian"].includes(data.relationship)) {
+    return responseStatus(res, 400, "failed", "Relationship must be father, mother, or guardian");
+  }
+
+  const $set = {};
+  if (data.parentName !== undefined) $set.name = data.parentName;
+  if (data.parentEmail !== undefined) $set.email = data.parentEmail;
+  if (data.parentPhone !== undefined) $set.phone = data.parentPhone;
+  if (data.relationship !== undefined) $set.relationship = data.relationship;
+
+  if (Object.keys($set).length === 0) {
+    return responseStatus(res, 400, "failed", "No fields to update");
+  }
+
+  const updated = await Parent.findByIdAndUpdate(student.parent, { $set }, { new: true }).select("-password");
+  return responseStatus(res, 200, "success", updated);
+};
+
+// ---- Feature 2: Add parent details to a student with no linked parent ----
+
+exports.addParentToStudentService = async (studentId, data, res) => {
+  const { parentName, parentEmail, parentPhone, relationship, familyAction } = data;
+
+  const student = await Student.findById(studentId);
+  if (!student) {
+    return responseStatus(res, 404, "failed", "Student not found");
+  }
+  if (student.parent) {
+    return responseStatus(res, 400, "failed", "This student already has a linked parent");
+  }
+
+  if (!parentName && !parentPhone && !parentEmail) {
+    return responseStatus(res, 400, "failed", "At least one parent detail (name, phone, or email) is required");
+  }
+
+  // Validate email format if provided
+  if (parentEmail) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(parentEmail)) {
+      return responseStatus(res, 400, "failed", "Invalid email format");
+    }
+  }
+
+  // Reuse the same family-match logic as student registration
+  const matchResult = await runFamilyMatch({
+    parentName,
+    parentPhone,
+    parentEmail,
+    whatsappNumber: student.whatsappNumber,
+    fatherName: student.fatherName,
+    familyAction,
+  });
+
+  if (matchResult.confirmMatch) {
+    return res.status(200).json({
+      status: "confirm",
+      data: { matchedParent: matchResult.confirmMatch },
+    });
+  }
+
+  // Link student to the parent
+  const { familyNumber, parentId, newParentCredentials } = matchResult;
+  await Student.findByIdAndUpdate(studentId, {
+    $set: { familyNumber, parent: parentId },
+  });
+  await Parent.findByIdAndUpdate(parentId, { $push: { children: studentId } });
+
+  const responseData = { familyNumber, parent: parentId };
+  if (newParentCredentials) {
+    responseData.newParentCredentials = newParentCredentials;
+  }
+  return responseStatus(res, 200, "success", responseData);
 };
 
 exports.adminDeleteStudentService = async (studentId, res) => {

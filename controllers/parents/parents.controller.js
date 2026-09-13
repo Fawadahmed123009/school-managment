@@ -7,6 +7,8 @@ const {
   createParentService,
   getAllParentsService,
   addChildToParentService,
+  changeParentPasswordService,
+  adminResetParentPasswordService,
 } = require("../../services/parents/parents.service");
 
 exports.parentLoginController = async (req, res) => {
@@ -61,6 +63,22 @@ exports.getAllParentsController = async (req, res) => {
 exports.addChildToParentController = async (req, res) => {
   try {
     await addChildToParentService(req.params.parentId, req.params.childId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.changeParentPasswordController = async (req, res) => {
+  try {
+    await changeParentPasswordService(req.userAuth.id, req.body, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.adminResetParentPasswordController = async (req, res) => {
+  try {
+    await adminResetParentPasswordService(req.params.studentId, req.body, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

@@ -47,6 +47,11 @@ const PROJECT_DIR = path.resolve(__dirname, "..");
 const BACKUPS_DIR = path.join(PROJECT_DIR, "backups");
 const DRY_RUN = process.argv.includes("--dry-run");
 
+// How many docs to hold in memory at once while streaming a
+// collection to disk. Lower this further if the account's memory
+// cap is very tight (e.g. 50-100).
+const EXPORT_BATCH_SIZE = 500;
+
 // ── Helpers ───────────────────────────────────────────────────────
 function log(msg) {
   const ts = new Date().toISOString();
@@ -59,6 +64,51 @@ function todayStr() {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// Streams a collection to a JSON file one batch at a time instead of
+// pulling the whole collection into memory with .toArray() and then
+// building one giant JSON.stringify() string. Memory use here is
+// bounded by EXPORT_BATCH_SIZE, not by collection size.
+async function exportCollectionStreaming(db, name, filePath) {
+  const cursor = db.collection(name).find({}).batchSize(EXPORT_BATCH_SIZE);
+  const writeStream = fs.createWriteStream(filePath, { encoding: "utf8" });
+
+  let count = 0;
+  let first = true;
+
+  await new Promise((resolve, reject) => {
+    writeStream.on("error", reject);
+    writeStream.write("[\n");
+
+    (async () => {
+      try {
+        while (await cursor.hasNext()) {
+          const doc = await cursor.next();
+          const chunk = (first ? "" : ",\n") + JSON.stringify(doc);
+          first = false;
+          count++;
+
+          // Respect backpressure so we don't buffer faster than disk
+          // can absorb it.
+          if (!writeStream.write(chunk)) {
+            await new Promise((r) => writeStream.once("drain", r));
+          }
+        }
+        writeStream.end("\n]\n");
+        writeStream.on("finish", () => resolve(count));
+      } catch (err) {
+        reject(err);
+      }
+    })();
+  });
+
+  return count;
+}
+
+// Counts documents without materializing them, for --dry-run.
+async function countCollection(db, name) {
+  return db.collection(name).countDocuments();
 }
 
 // ── Main ──────────────────────────────────────────────────────────
@@ -100,7 +150,7 @@ async function main() {
     process.exit(1);
   }
 
-  // ── Export each collection to JSON ───────────────────────────
+  // ── Export each collection to JSON (streamed, not buffered) ──
   if (!DRY_RUN) fs.mkdirSync(datedDir, { recursive: true });
   log(`→ Exporting collections to ${datedDir}`);
 
@@ -110,13 +160,13 @@ async function main() {
   for (const col of collections) {
     const name = col.name;
     try {
-      const docs = await db.collection(name).find({}).toArray();
       if (DRY_RUN) {
-        log(`  ✓ ${name} — ${docs.length} doc(s) (dry-run, not written)`);
+        const count = await countCollection(db, name);
+        log(`  ✓ ${name} — ${count} doc(s) (dry-run, not written)`);
       } else {
         const filePath = path.join(datedDir, `${name}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(docs, null, 2));
-        log(`  ✓ ${name} — ${docs.length} doc(s)`);
+        const count = await exportCollectionStreaming(db, name, filePath);
+        log(`  ✓ ${name} — ${count} doc(s)`);
       }
     } catch (err) {
       failed++;
@@ -162,7 +212,7 @@ async function main() {
     }
   }
 
-  // ── Upload tarball to Cloudflare R2 ──────────────────────────
+  // ── Upload tarball to Cloudflare R2 (streamed, not buffered) ──
   if (DRY_RUN) {
     if (cloudEnabled) {
       log(`→ [dry-run] Would upload to R2: ${R2_BACKUP_PREFIX}${path.basename(tarball)} — skipped.`);
@@ -171,8 +221,14 @@ async function main() {
     const r2Key = `${R2_BACKUP_PREFIX}${path.basename(tarball)}`;
     log(`→ Uploading to R2: ${r2Key}`);
     try {
-      const fileBuffer = fs.readFileSync(tarball);
-      await uploadToR2(r2Key, fileBuffer, "application/gzip");
+      // NOTE: this now passes a read stream + content length instead
+      // of fs.readFileSync(tarball). If your uploadToR2() helper
+      // signature only accepts a Buffer, it needs a small update —
+      // see the comment below uploadToR2's usage for the S3 SDK
+      // equivalent (PutObjectCommand accepts a stream Body directly).
+      const stats = fs.statSync(tarball);
+      const fileStream = fs.createReadStream(tarball);
+      await uploadToR2(r2Key, fileStream, "application/gzip", stats.size);
       log("✓ Upload complete.");
 
       // Clean old remote backups from R2

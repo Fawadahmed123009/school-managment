@@ -13,6 +13,7 @@
 </div>
 
 <% if (editError) { %><div class="flash error"><%= editError %></div><% } %>
+<% if (typeof successMsg !== 'undefined' && successMsg) { %><div class="flash" style="background:var(--paid,#16a34a); color:#fff;"><%= successMsg %></div><% } %>
 
 <div class="panel">
   <div class="panel-head"><h2>Student details</h2></div>
@@ -126,14 +127,125 @@
   </div>
 </div>
 
+<% if (student.parent) { %>
+<div class="panel" style="border:1px solid var(--review, #ca8a04);">
+  <div class="panel-head"><h2>Linked parent</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/students/<%= student._id %>/update-parent" id="editParentForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="parentName">Parent name</label>
+          <input type="text" name="parentName" id="parentName" value="<%= student.parent.name || '' %>" required />
+        </div>
+        <div class="field">
+          <label for="parentEmail">Parent email</label>
+          <input type="email" name="parentEmail" id="parentEmail" value="<%= student.parent.email || '' %>" required />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="parentPhone">Phone number</label>
+          <input type="tel" name="parentPhone" id="parentPhone" value="<%= student.parent.phone || '' %>" required />
+        </div>
+        <div class="field">
+          <label for="relationship">Relationship</label>
+          <select name="relationship" id="relationship">
+            <option value="father" <%= student.parent.relationship === 'father' ? 'selected' : '' %>>Father</option>
+            <option value="mother" <%= student.parent.relationship === 'mother' ? 'selected' : '' %>>Mother</option>
+            <option value="guardian" <%= student.parent.relationship === 'guardian' ? 'selected' : '' %>>Guardian</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:12px;">Changing the phone number here only updates contact info &mdash; it does not re-trigger family matching.</p>
+      <button type="submit" class="btn btn-primary">Save parent changes</button>
+    </form>
+
+    <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--border, #e2e8f0);" />
+
+    <h3 style="margin-bottom: 8px;">Reset parent password</h3>
+    <p class="muted" style="font-size: 13px; margin-bottom: 16px;">
+      Generate a new random password or enter one manually. The new password will be shown once after reset.
+    </p>
+    <form method="POST" action="/students/<%= student._id %>/reset-parent-password" id="resetParentPasswordForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row" style="align-items: flex-end;">
+        <div class="field" style="flex: 1;">
+          <label for="parentPassword">New password <span style="color:var(--ink-soft); font-size:12px;">(leave blank to auto-generate)</span></label>
+          <input type="text" name="password" id="parentPassword" placeholder="Auto-generated if empty" />
+        </div>
+        <button type="button" class="btn btn-ghost" id="generatePasswordBtn" style="margin-bottom: 4px;">Generate</button>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit" class="btn" style="background: var(--review, #ca8a04); color: #fff;">Reset parent password</button>
+      </div>
+    </form>
+  </div>
+</div>
+<% } else { %>
+<div class="panel" style="border:1px solid var(--primary, #3b82f6);">
+  <div class="panel-head"><h2>Add parent / family details</h2></div>
+  <div class="panel-body">
+    <p class="muted" style="font-size: 13px; margin-bottom: 16px;">
+      This student was registered without parent details. You can add parent information now.
+      If the phone or email matches an existing parent account, you&rsquo;ll be asked whether to link to that family or create a new one.
+    </p>
+    <form method="POST" action="/students/<%= student._id %>/add-parent" id="addParentForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="addParentName">Parent name</label>
+          <input type="text" name="parentName" id="addParentName" required />
+        </div>
+        <div class="field">
+          <label for="addParentEmail">Parent email</label>
+          <input type="email" name="parentEmail" id="addParentEmail" placeholder="Optional if phone provided" />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="addParentPhone">Phone number</label>
+          <input type="tel" name="parentPhone" id="addParentPhone" required />
+        </div>
+        <div class="field">
+          <label for="addRelationship">Relationship</label>
+          <select name="relationship" id="addRelationship">
+            <option value="father">Father</option>
+            <option value="mother">Mother</option>
+            <option value="guardian">Guardian</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit" class="btn btn-primary">Add parent details</button>
+      </div>
+    </form>
+  </div>
+</div>
+<% } %>
+
 <div class="panel" style="border:1px solid var(--error, #c00);">
   <div class="panel-head"><h2 style="color:var(--error, #c00);">Danger zone</h2></div>
   <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
     <p>Permanently delete this student record. This cannot be undone.</p>
     <form method="POST" action="/students/<%= student._id %>/delete" data-confirm="Delete <%= student.name %> permanently? This cannot be undone.">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button type="submit" class="btn" style="background:var(--error, #c00); color:#fff;">Delete student</button>
     </form>
   </div>
 </div>
+
+<script>
+document.getElementById('generatePasswordBtn').addEventListener('click', function() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let password = '';
+  const array = new Uint8Array(10);
+  crypto.getRandomValues(array);
+  for (let i = 0; i < 10; i++) {
+    password += chars[array[i] % chars.length];
+  }
+  document.getElementById('parentPassword').value = password;
+});
+</script>
 
 <%- include('../partials/foot') %>

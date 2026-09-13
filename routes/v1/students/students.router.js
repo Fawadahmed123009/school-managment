@@ -16,6 +16,8 @@ const {
   studentUpdateProfileController,
   adminUpdateStudentController,
   adminDeleteStudentController,
+  updateLinkedParentController,
+  addParentToStudentController,
 } = require("../../../controllers/students/students.controller");
 const {
   parseStudentExcelController,
@@ -118,5 +120,13 @@ studentsRouter
 studentsRouter
   .route("/students/:studentId/photo")
   .post(isLoggedIn, isAdminOrManager, photoUpload.single("photo"), setStudentPhotoController);
+// Update linked parent's basic info (Feature 1)
+studentsRouter
+  .route("/students/:studentId/update-parent")
+  .post(isLoggedIn, isAdminOrManager, updateLinkedParentController);
+// Add parent details to a student with no linked parent (Feature 2)
+studentsRouter
+  .route("/students/:studentId/add-parent")
+  .post(isLoggedIn, isAdminOrManager, addParentToStudentController);
 
 module.exports = studentsRouter;

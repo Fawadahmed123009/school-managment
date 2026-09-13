@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { requireRole } = require("../../middlewares/authView");
 const { apiFetch } = require("../../utils/apiClient");
+const { changeParentPasswordService } = require("../../services/parents/parents.service");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const { THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
 
 // ── Helper: compute alert flags from a child's analysis data ──
@@ -60,6 +62,8 @@ router.get("/parent-portal", requireRole("parent"), async (req, res) => {
     childAlerts,
     alertThresholds: THRESHOLDS,
     loadError: result.status === "success" ? null : result.message,
+    passwordSuccess: req.query.passwordSuccess === "1",
+    passwordError: req.query.passwordError || null,
     schoolName: res.locals.schoolName,
   });
 });
@@ -113,6 +117,21 @@ router.get("/child/:childId/fees", requireRole("parent"), async (req, res) => {
     loadError,
     schoolName: res.locals.schoolName,
   });
+});
+
+// ---- Parent Self-Service: Change Password ----
+router.post("/parent-portal/change-password", requireRole("parent"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await changeParentPasswordService(req.user._id, req.body, cap);
+  } catch (err) {
+    return res.redirect("/parent-portal?passwordError=" + encodeURIComponent(err.message || "Password change failed"));
+  }
+
+  if (result.ok) {
+    return res.redirect("/parent-portal?passwordSuccess=1");
+  }
+  return res.redirect("/parent-portal?passwordError=" + encodeURIComponent(result.message || "Password change failed"));
 });
 
 module.exports = router;

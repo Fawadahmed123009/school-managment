@@ -30,8 +30,12 @@ exports.createProgramService = async (data, userId, res) => {
     createdBy: userId,
   });
 
-  // Push the program into the admin's programs array
-  await Admin.findByIdAndUpdate(userId, { $push: { programs: programCreated._id } });
+  // Track the new program on the admin's record (managers don't have a
+  // programs array, so this only applies when the caller is an admin).
+  const admin = await Admin.findById(userId);
+  if (admin) {
+    await Admin.findByIdAndUpdate(userId, { $push: { programs: programCreated._id } });
+  }
 
   // Send the response
   return responseStatus(res, 200, "success", programCreated);

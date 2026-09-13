@@ -31,8 +31,12 @@ exports.createAcademicTermService = async (data, userId, res) => {
     createdBy: userId,
   });
 
-  // Push the academic term into the admin's academicTerms array
-  await Admin.findByIdAndUpdate(userId, { $push: { academicTerms: academicTermCreated._id } });
+  // Track the new academic term on the admin's record (managers don't have an
+  // academicTerms array, so this only applies when the caller is an admin).
+  const admin = await Admin.findById(userId);
+  if (admin) {
+    await Admin.findByIdAndUpdate(userId, { $push: { academicTerms: academicTermCreated._id } });
+  }
 
   // Send the response
   return responseStatus(res, 200, "success", academicTermCreated);
