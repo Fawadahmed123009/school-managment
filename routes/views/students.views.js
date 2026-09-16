@@ -22,6 +22,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
     const classFilter = req.query.class || "";
     const nameSearch = (req.query.name || "").trim();
     const parentSearch = (req.query.parent || "").trim();
+    const sortBy = req.query.sortBy || "";
 
     // Build MongoDB query filter
     const filter = {};
@@ -56,11 +57,17 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       (async () => {
         const Student = require("../../models/Students/students.model");
         const { paginate } = require("../../utils/paginate");
+        // Build sort and optional collation for numeric roll-number ordering
+        var sortOpt = "name";
+        var collationOpt = undefined;
+        if (sortBy === "rollAsc")  { sortOpt = { rollNumber: 1 };  collationOpt = { locale: "en", numericOrdering: true }; }
+        if (sortBy === "rollDesc") { sortOpt = { rollNumber: -1 }; collationOpt = { locale: "en", numericOrdering: true }; }
         return paginate(Student, filter, {
           page,
           limit,
           select: "-password",
-          sort: "name",
+          sort: sortOpt,
+          collation: collationOpt,
           populate: { path: "classLevel", select: "name gradeLevel group section" },
         });
       })(),
@@ -77,7 +84,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       students: studentsResult.data || [],
       pagination: studentsResult.pagination || null,
       classes: classes || [],
-      filters: { class: classFilter, name: nameSearch, parent: parentSearch },
+      filters: { class: classFilter, name: nameSearch, parent: parentSearch, sortBy: sortBy },
       totalStudents,
       loadError: null,
       schoolName: res.locals.schoolName,
@@ -90,7 +97,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       createError: null,
       students: [],
       classes: [],
-      filters: { class: "", name: "", parent: "" },
+      filters: { class: "", name: "", parent: "", sortBy: "" },
       totalStudents: 0,
       loadError: err.message,
       schoolName: res.locals.schoolName,

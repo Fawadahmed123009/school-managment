@@ -54,6 +54,17 @@ exports.updateFeeHeadService = async (feeHeadId, data, res) => {
 };
 
 exports.deleteFeeHeadService = async (feeHeadId, res) => {
+  // Block deletion when any fee records reference this fee head
+  const feeCount = await Fees.countDocuments({ feeHead: feeHeadId });
+  if (feeCount > 0) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      `Cannot delete fee head: ${feeCount} fee record(s) still reference this fee head`
+    );
+  }
+
   const feeHead = await FeeHead.findByIdAndDelete(feeHeadId);
   if (!feeHead) return responseStatus(res, 404, "failed", "Fee head not found");
   return responseStatus(res, 200, "success", "Fee head deleted");
@@ -146,7 +157,7 @@ exports.getDailyCollectionData = async (query) => {
  * report above). Optional filters: classLevelId, academicTermId.
  */
 exports.getDefaulterListData = async (query) => {
-  const { classLevel, academicTerm } = query;
+  const { classLevel, academicTerm, sortBy } = query;
 
   // Exclude inactive students — their pending dues are tracked separately
   const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
@@ -218,6 +229,11 @@ exports.getDefaulterListData = async (query) => {
   Object.values(byClass).forEach((sections) => {
     Object.values(sections).forEach((bucket) => {
       bucket.students = Object.values(bucket.students);
+      if (sortBy === "rollAsc") {
+        bucket.students.sort((a, b) => String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true }));
+      } else if (sortBy === "rollDesc") {
+        bucket.students.sort((a, b) => String(b.rollNumber || "").localeCompare(String(a.rollNumber || ""), undefined, { numeric: true }));
+      }
     });
   });
 
@@ -233,7 +249,7 @@ exports.getDefaulterListData = async (query) => {
  * stats, and defaulters list.
  */
 exports.getInactiveStudentDuesData = async (query) => {
-  const { classLevel, academicTerm } = query;
+  const { classLevel, academicTerm, sortBy } = query;
 
   const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
   const inactiveIds = inactiveStudents.map((s) => s._id);
@@ -310,6 +326,11 @@ exports.getInactiveStudentDuesData = async (query) => {
   Object.values(byClass).forEach((sections) => {
     Object.values(sections).forEach((bucket) => {
       bucket.students = Object.values(bucket.students);
+      if (sortBy === "rollAsc") {
+        bucket.students.sort((a, b) => String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true }));
+      } else if (sortBy === "rollDesc") {
+        bucket.students.sort((a, b) => String(b.rollNumber || "").localeCompare(String(a.rollNumber || ""), undefined, { numeric: true }));
+      }
     });
   });
 

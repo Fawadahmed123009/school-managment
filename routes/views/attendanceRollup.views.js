@@ -26,6 +26,7 @@ router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
     if (req.query.rollNumber) params.set("rollNumber", req.query.rollNumber);
     if (req.query.name) params.set("name", req.query.name);
     if (req.query.studentId) params.set("studentId", req.query.studentId);
+    if (req.query.sortBy) params.set("sortBy", req.query.sortBy);
     fetches.push(apiFetch(`/attendance/student-history?${params.toString()}`, req.token));
   }
 
@@ -76,6 +77,7 @@ router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
       rollNumber: req.query.rollNumber || "",
       name: req.query.name || "",
       studentId: req.query.studentId || "",
+      sortBy: req.query.sortBy || "",
     },
     loadError,
     schoolName: res.locals.schoolName,

@@ -210,6 +210,14 @@
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
         <input type="text" name="name" value="<%= filters.name %>" placeholder="Search by name…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
       </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
+        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Name (A–Z)</option>
+          <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+          <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+        </select>
+      </div>
       <div style="flex:none;">
         <button type="submit" class="btn btn-primary">Search</button>
       </div>
@@ -237,7 +245,7 @@
             <span class="att-s-name"><%= s.name %></span>
             <span class="att-s-meta">Roll #<%= s.rollNumber %> &middot; <%= s.classLevel ? s.classLevel.name : '—' %></span>
           </div>
-          <a href="/attendance/rollup?tab=student&studentId=<%= s._id %><%= classLevel ? '&classLevel=' + classLevel : '' %><%= filters.rollNumber ? '&rollNumber=' + encodeURIComponent(filters.rollNumber) : '' %><%= filters.name ? '&name=' + encodeURIComponent(filters.name) : '' %>" class="btn btn-ghost" style="text-decoration:none; padding:4px 14px; font-size:12px;">View history</a>
+          <a href="/attendance/rollup?tab=student&studentId=<%= s._id %><%= classLevel ? '&classLevel=' + classLevel : '' %><%= filters.rollNumber ? '&rollNumber=' + encodeURIComponent(filters.rollNumber) : '' %><%= filters.name ? '&name=' + encodeURIComponent(filters.name) : '' %><%= filters.sortBy ? '&sortBy=' + encodeURIComponent(filters.sortBy) : '' %>" class="btn btn-ghost" style="text-decoration:none; padding:4px 14px; font-size:12px;">View history</a>
         </div>
       <% }); %>
     </div>

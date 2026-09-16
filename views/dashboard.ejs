@@ -65,6 +65,7 @@
         Bulk assign fees
       </a>
       <form method="POST" action="/fees/generate-monthly" style="display:inline;" onsubmit="return confirm('This will generate this month\'s Tuition fees for all active students. Continue?');">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <button type="submit" class="ql-chip ql-chip-btn">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
           Generate monthly fees
@@ -400,6 +401,11 @@
               <option value="<%= c._id %>" <%= (atRisk.classFilter === c._id.toString()) ? 'selected' : '' %>><%= c.name %></option>
             <% }); %>
           <% } %>
+        </select>
+        <select name="sortBy" onchange="this.form.submit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--ink);">
+          <option value="" <%= !atRisk.sortBy ? 'selected' : '' %>>Risk level</option>
+          <option value="rollAsc" <%= atRisk.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll # (ascending)</option>
+          <option value="rollDesc" <%= atRisk.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll # (descending)</option>
         </select>
       </form>
     </div>

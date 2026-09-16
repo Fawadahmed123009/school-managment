@@ -46,6 +46,14 @@
           <% }); %>
         </select>
       </div>
+      <div class="field" style="min-width:160px;">
+        <label for="sortBy">Sort by</label>
+        <select name="sortBy" id="sortBy">
+          <option value="" <%= !sortBy ? 'selected' : '' %>>Name (A–Z)</option>
+          <option value="rollAsc" <%= sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+          <option value="rollDesc" <%= sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+        </select>
+      </div>
       <div class="field" style="flex:none;">
         <button type="submit" class="btn btn-primary">View</button>
       </div>

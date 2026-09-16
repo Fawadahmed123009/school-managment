@@ -15,6 +15,7 @@ router.get("/attendance/my-classes", requireRole("teacher"), async (req, res) =>
   params.set("year", year);
   params.set("month", month);
   if (classLevel) params.set("classLevel", classLevel);
+  if (req.query.sortBy) params.set("sortBy", req.query.sortBy);
 
   const dataRes = await apiFetch(`/attendance/teacher-view?${params.toString()}`, req.token);
   const data = dataRes.status === "success" ? dataRes.data : {};
@@ -26,6 +27,7 @@ router.get("/attendance/my-classes", requireRole("teacher"), async (req, res) =>
     month: Number(month),
     tab,
     classLevel,
+    sortBy: req.query.sortBy || "",
     classes: data.classes || [],
     perClass: data.perClass || [],
     perStudent: data.perStudent || [],

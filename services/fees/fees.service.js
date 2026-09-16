@@ -152,7 +152,18 @@ exports.getStudentFeesService = async (studentId, res) => {
 };
 
 exports.updateFeeService = async (feeId, data, res) => {
-  const fee = await Fees.findByIdAndUpdate(feeId, data, { new: true });
+  const ALLOWED_FIELDS = [
+    "amount",
+    "status",
+    "datePaid",
+    "notes",
+    "billingMonth",
+  ];
+  const filtered = {};
+  for (const key of ALLOWED_FIELDS) {
+    if (data[key] !== undefined) filtered[key] = data[key];
+  }
+  const fee = await Fees.findByIdAndUpdate(feeId, filtered, { new: true });
   if (!fee) return responseStatus(res, 404, "failed", "Fee record not found");
   return responseStatus(res, 200, "success", fee);
 };

@@ -15,6 +15,7 @@
   <div class="panel-head"><h2><%= program.name %> <span class="mono" style="margin-left:8px;color:#6b7280;font-size:0.85rem;"><%= program.code %></span></h2></div>
   <div class="panel-body">
     <form method="POST" action="/programs/<%= program._id %>/edit">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="name">Name</label>

@@ -15,6 +15,7 @@
   <div class="panel-head"><h2><%= subject.name %></h2></div>
   <div class="panel-body">
     <form method="POST" action="/subjects/<%= subject._id %>/edit" id="editSubjectForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label>Program</label>

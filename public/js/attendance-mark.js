@@ -56,6 +56,24 @@
   if (filterName) filterName.addEventListener('input', applyFilters);
   if (filterRoll) filterRoll.addEventListener('input', applyFilters);
 
+  // ── Sort by roll number (re-orders DOM rows) ──
+  const sortRoll = document.getElementById('sort-roll');
+  if (sortRoll) {
+    sortRoll.addEventListener('change', function () {
+      const tbody = document.getElementById('roster-body');
+      const allRows = Array.from(tbody.querySelectorAll('tr'));
+      const val = this.value;
+      if (!val) return; // default order — no re-sort
+      allRows.sort((a, b) => {
+        const ra = (a.dataset.roll || '').trim();
+        const rb = (b.dataset.roll || '').trim();
+        const cmp = ra.localeCompare(rb, undefined, { numeric: true });
+        return val === 'rollAsc' ? cmp : -cmp;
+      });
+      allRows.forEach((row) => tbody.appendChild(row));
+    });
+  }
+
   // ── Save — iterates ALL rows regardless of filter visibility ──
   if (saveBtn) {
     saveBtn.addEventListener('click', () => {

@@ -17,6 +17,7 @@
   <div class="panel-head"><h2>Create a program</h2></div>
   <div class="panel-body">
     <form method="POST" action="/programs/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="name">Name</label>
@@ -53,6 +54,7 @@
             <td>
               <a href="/programs/<%= p._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
               <form method="POST" action="/programs/<%= p._id %>/delete" style="display:inline;" data-confirm="Delete this program?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
               </form>
             </td>

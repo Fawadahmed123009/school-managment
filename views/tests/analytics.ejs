@@ -194,6 +194,14 @@
           <label for="rollNumberSearch">Roll number</label>
           <input type="text" name="rollNumberSearch" id="rollNumberSearch" value="<%= filters.rollNumberSearch || '' %>" placeholder="Search by roll #…" />
         </div>
+        <div class="field">
+          <label for="sortBy">Sort by</label>
+          <select name="sortBy" id="sortBy">
+            <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Name (A–Z)</option>
+            <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+            <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+          </select>
+        </div>
       </div>
       <button type="submit" class="btn btn-primary">Apply filters</button>
     </form>

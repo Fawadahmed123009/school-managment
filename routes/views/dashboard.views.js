@@ -134,13 +134,15 @@ router.get("/dashboard", async (req, res) => {
 
       // ── At-Risk Students panel ──
       const classFilter = req.query.classLevel || "";
+      const sortBy = req.query.sortBy || "";
       const [atRiskResult, classes] = await Promise.all([
-        getAtRiskStudentsAdmin(classFilter || undefined),
+        getAtRiskStudentsAdmin(classFilter || undefined, sortBy),
         ClassLevel.find().sort({ gradeLevel: 1, name: 1 }).lean(),
       ]);
       atRisk = {
         ...atRiskResult,
         classFilter,
+        sortBy,
         classes,
       };
 

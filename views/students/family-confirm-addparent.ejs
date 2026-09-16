@@ -63,6 +63,7 @@
     <div style="display: flex; gap: 12px; flex-wrap: wrap;">
       <!-- Option 1: Link to this family -->
       <form method="POST" action="/students/<%= studentId %>/add-parent" style="flex: 1; min-width: 280px;">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <% Object.keys(formData).forEach(function(key) { %>
           <input type="hidden" name="<%= key %>" value="<%= formData[key] %>" />
         <% }); %>
@@ -75,6 +76,7 @@
 
       <!-- Option 2: Create new family -->
       <form method="POST" action="/students/<%= studentId %>/add-parent" style="flex: 1; min-width: 280px;">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
         <% Object.keys(formData).forEach(function(key) { %>
           <input type="hidden" name="<%= key %>" value="<%= formData[key] %>" />
         <% }); %>

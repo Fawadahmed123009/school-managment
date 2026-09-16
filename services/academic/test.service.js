@@ -400,7 +400,7 @@ exports.getTestAnalyticsService = async (filters, res) => {
 // most recent prior test for the same subject + class and returns the same
 // stats for comparison.
 exports.getEnhancedTestAnalyticsService = async (filters, res) => {
-  const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch } = filters;
+  const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, sortBy } = filters;
 
   // ── Load filter-option dropdowns ──
   const testQuery = {};
@@ -497,7 +497,15 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
       className: s.classLevel ? s.classLevel.name : "—",
       score: r.score,
     };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  }).sort((a, b) => {
+    if (sortBy === "rollAsc") {
+      return String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true });
+    }
+    if (sortBy === "rollDesc") {
+      return String(b.rollNumber || "").localeCompare(String(a.rollNumber || ""), undefined, { numeric: true });
+    }
+    return a.name.localeCompare(b.name);
+  });
 
   // ── Distribution (histogram buckets) ──
   const distribution = buildDistribution(scores, test.totalMarks);

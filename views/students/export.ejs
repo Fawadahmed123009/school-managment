@@ -1,0 +1,94 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Roster</p>
+    <h1>Export Students</h1>
+  </div>
+</div>
+
+<% if (exportError) { %><div class="flash error"><%= exportError %></div><% } %>
+
+<form method="POST" action="/students/export" id="exportForm">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+
+  <!-- ── Scope ──────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-head"><h2>Scope</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="scope">Export students from</label>
+          <select name="scope" id="scope" required>
+            <option value="all">All classes</option>
+            <option value="class">Specific class(es)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Class multi-select (hidden by default) -->
+      <div id="classPicker" style="display:none; margin-top:12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Select class(es)</label>
+          <button type="button" class="select-all-btn btn btn-ghost" style="padding:2px 10px; font-size:11px;">Select all</button>
+        </div>
+        <div class="picker-items" style="display:flex; flex-wrap:wrap; gap:8px; max-height:200px; overflow-y:auto; padding:12px; border:1px solid var(--border); border-radius:8px; background:#fafbfd;">
+          <!-- populated by student-export.js -->
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── Fields ─────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Fields to include</h2>
+      <button type="button" id="toggleAllFields" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex; flex-wrap:wrap; gap:8px;">
+        <% fields.forEach(function(f) { %>
+          <label style="display:flex; align-items:center; gap:6px; padding:8px 12px; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:13px; background:#fff; min-width:160px;">
+            <input type="checkbox" name="fields" value="<%= f.key %>" class="field-cb" checked />
+            <%= f.label %>
+          </label>
+        <% }); %>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Options ────────────────────────────────────────────── -->
+  <div class="panel">
+    <div class="panel-head"><h2>Options</h2></div>
+    <div class="panel-body">
+      <div class="field-row">
+        <div class="field">
+          <label for="blankCount">Blank columns (for manual fill-in)</label>
+          <input type="number" name="blankCount" id="blankCount" min="0" max="10" value="0" style="width:80px;" />
+          <p class="hint">Adds empty columns at the end of the export — useful for printing and writing in data by hand.</p>
+        </div>
+        <div class="field">
+          <label for="format">Export format</label>
+          <select name="format" id="format" required>
+            <option value="xlsx">Excel (.xlsx)</option>
+            <option value="pdf">PDF</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Submit ─────────────────────────────────────────────── -->
+  <div style="display:flex; gap:12px; margin-top:8px;">
+    <button type="submit" class="btn btn-primary">Export</button>
+    <a href="/students" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+
+<script type="application/json" id="export-classes-data"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script src="/js/student-export.js"></script>
+
+<%- include('../partials/foot') %>

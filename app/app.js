@@ -153,6 +153,7 @@ app.use((req, res, next) => {
 });
 app.use(require("../routes/views/dashboard.views"));
 app.use(require("../routes/views/students.views"));
+app.use(require("../routes/views/studentExport.views"));
 app.use(require("../routes/views/studentImport.views"));
 app.use(require("../routes/views/studentAnalysis.views"));
 app.use(require("../routes/views/studentPhoto.views"));
@@ -177,9 +178,12 @@ app.use(require("../routes/views/attendanceRollup.views"));
 app.use(require("../routes/views/teacherAttendance.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/parentPortal.views"));
+app.use(require("../routes/views/families.views"));
 
-// ── TEMP DEBUG ROUTE — remove after diagnosing production timeout ──
-app.get("/debug/db-test", async (req, res) => {
+// ── DEBUG ROUTE (auth-gated) ──────────────────────────────────
+const isLoggedIn = require("../middlewares/isLoggedIn");
+const isAdmin = require("../middlewares/isAdmin");
+app.get("/debug/db-test", isLoggedIn, isAdmin, async (req, res) => {
   const dns = require("dns");
   const { MongoClient } = require("mongodb");
   const results = {};

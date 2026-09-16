@@ -113,7 +113,7 @@ exports.getDailyRollupService = async (year, month, classLevel, res) => {
 // Teacher-scoped attendance viewing: only shows data for the teacher's assigned classes.
 // Read-only — does NOT open up attendance marking to regular teachers.
 exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
-  const { classLevel, year, month, tab } = filters;
+  const { classLevel, year, month, tab, sortBy } = filters;
 
   // 1. Load the teacher's assigned classLevel IDs
   const assignedClassLevels = await Assignment.distinct("classLevel", { teacher: teacherId });
@@ -224,6 +224,12 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
         rate: total > 0 ? Math.round(((a.present + a.late) / total) * 10000) / 100 : null,
       };
     });
+
+    if (sortBy === "rollAsc") {
+      perStudent.sort((a, b) => String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true }));
+    } else if (sortBy === "rollDesc") {
+      perStudent.sort((a, b) => String(b.rollNumber || "").localeCompare(String(a.rollNumber || ""), undefined, { numeric: true }));
+    }
   }
 
   return responseStatus(res, 200, "success", {
@@ -237,7 +243,7 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
 
 // Search students for attendance history + optionally load one student's full history
 exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, res) => {
-  const { classLevel, rollNumber, name } = filters;
+  const { classLevel, rollNumber, name, sortBy } = filters;
 
   // Build student search filter — same pattern as students list / fees list
   const studentFilter = {};
@@ -249,11 +255,19 @@ exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, 
   }
   if (name) studentFilter.name = { $regex: name, $options: "i" };
 
-  const students = await Student.find(studentFilter)
+  let studentQuery = Student.find(studentFilter)
     .select("name rollNumber email")
-    .populate({ path: "classLevel", select: "name gradeLevel section" })
-    .sort("name")
-    .lean();
+    .populate({ path: "classLevel", select: "name gradeLevel section" });
+
+  if (sortBy === "rollAsc") {
+    studentQuery = studentQuery.sort({ rollNumber: 1 }).collation({ locale: "en", numericOrdering: true });
+  } else if (sortBy === "rollDesc") {
+    studentQuery = studentQuery.sort({ rollNumber: -1 }).collation({ locale: "en", numericOrdering: true });
+  } else {
+    studentQuery = studentQuery.sort("name");
+  }
+
+  const students = await studentQuery.lean();
 
   let history = null;
   let summary = null;

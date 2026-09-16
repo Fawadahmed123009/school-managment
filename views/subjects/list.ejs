@@ -17,6 +17,7 @@
   <div class="panel-head"><h2>Create a subject</h2></div>
   <div class="panel-body">
     <form method="POST" action="/subjects/create" id="createSubjectForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="programId">Program</label>
@@ -109,6 +110,7 @@
             <td>
               <a href="/subjects/<%= s._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
               <form method="POST" action="/subjects/<%= s._id %>/delete" style="display:inline;" data-confirm="Delete this subject?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
               </form>
             </td>

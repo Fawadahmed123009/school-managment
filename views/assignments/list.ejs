@@ -17,6 +17,7 @@
   <div class="panel-head"><h2>Assign a teacher to class sections</h2></div>
   <div class="panel-body">
     <form method="POST" action="/assignments/create" id="assignmentForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="teacher">Teacher</label>
@@ -141,6 +142,7 @@
             </td>
             <td style="text-align:right;">
               <form method="POST" action="/assignments/<%= a._id %>/delete" style="display:inline;" data-confirm="Remove this assignment?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn" style="padding:4px 12px; font-size:13px; background:var(--error); color:#fff; border:none;">Remove</button>
               </form>
             </td>

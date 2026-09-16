@@ -1,0 +1,135 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow"><a href="/families" style="color:inherit; text-decoration:underline;">Families</a></p>
+    <h1><%= family.familyNumber %></h1>
+  </div>
+  <a href="/families" class="btn btn-ghost">&larr; All families</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (successMsg) { %><div class="flash ok"><%= successMsg %></div><% } %>
+<% if (errorMsg) { %><div class="flash error"><%= errorMsg %></div><% } %>
+
+<!-- Parent / family info -->
+<div class="panel">
+  <div class="panel-head"><h2>Parent account</h2></div>
+  <div class="panel-body">
+    <div class="stats">
+      <div class="stat">
+        <div class="n"><%= family.name %></div>
+        <div class="l">Parent name</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= family.familyNumber %></div>
+        <div class="l">Family number</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= family.phone %></div>
+        <div class="l">Phone</div>
+      </div>
+      <div class="stat">
+        <div class="n"><%= family.email %></div>
+        <div class="l">Email</div>
+      </div>
+      <div class="stat">
+        <div class="n"><%= family.relationship %></div>
+        <div class="l">Relationship</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Children list -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Students in this family</h2>
+    <% if (family.children && family.children.length > 0) { %>
+      <span class="muted" style="font-size:13px;"><%= family.children.length %> student<%= family.children.length !== 1 ? 's' : '' %></span>
+    <% } %>
+  </div>
+
+  <% if (!family.children || family.children.length === 0) { %>
+    <div class="empty">
+      <div class="display">No students in this family yet</div>
+      <p class="hint" style="margin-top:8px;">Use the form below to add a student to this family.</p>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Roll #</th>
+          <th>Class</th>
+          <th>Gender</th>
+          <th>Father's name</th>
+          <th>Status</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% family.children.forEach(function(c) { %>
+          <tr>
+            <td><strong><%= c.name %></strong></td>
+            <td class="mono"><%= c.rollNumber || '—' %></td>
+            <td><%= c.classLevel ? c.classLevel.name : '—' %></td>
+            <td><%= c.gender || '—' %></td>
+            <td><%= c.fatherName || '—' %></td>
+            <td>
+              <% if (c.status === 'inactive') { %><span class="pill error">Inactive</span>
+              <% } else if (c.isSuspended) { %><span class="pill review">Suspended</span>
+              <% } else if (c.isWithdrawn) { %><span class="pill error">Withdrawn</span>
+              <% } else { %><span class="pill ocr">Active</span><% } %>
+            </td>
+            <td style="text-align:right;">
+              <a href="/students/<%= c._id %>/edit" class="btn btn-ghost" style="padding:4px 10px; font-size:13px;">Edit student</a>
+              <form method="POST" action="/families/<%= family._id %>/remove-student" style="display:inline;" data-confirm="Remove <%= c.name %> from this family? They will be unlinked but not deleted.">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="studentId" value="<%= c._id %>" />
+                <button type="submit" class="btn" style="padding:4px 10px; font-size:13px; background:var(--error); color:#fff; border:none;">Remove</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- Add student to family -->
+<div class="panel">
+  <div class="panel-head"><h2>Add a student to this family</h2></div>
+  <div class="panel-body">
+    <% if (unlinkedStudents.length === 0) { %>
+      <p class="muted">All active students are already linked to a family. There are no unlinked students to add.</p>
+    <% } else { %>
+      <form method="POST" action="/families/<%= family._id %>/add-student">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+        <div class="field-row" style="align-items:flex-end;">
+          <div class="field" style="flex:2;">
+            <label for="studentId">Select a student</label>
+            <select name="studentId" id="studentId" required>
+              <option value="">Choose a student…</option>
+              <% unlinkedStudents.forEach(function(s) { %>
+                <option value="<%= s._id %>">
+                  <%= s.name %> — Roll <%= s.rollNumber || 'N/A' %><%= s.classLevel ? ' (' + s.classLevel.name + ')' : '' %>
+                </option>
+              <% }); %>
+            </select>
+            <p class="hint">Only active students not currently linked to any family are shown.</p>
+          </div>
+          <div class="field">
+            <button type="submit" class="btn btn-primary">Add to family</button>
+          </div>
+        </div>
+      </form>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

@@ -40,6 +40,14 @@
         <label for="filter-roll">Roll Number</label>
         <input type="search" id="filter-roll" placeholder="Search by roll…" autocomplete="off" />
       </div>
+      <div class="attend-filter-field">
+        <label for="sort-roll">Sort by</label>
+        <select id="sort-roll">
+          <option value="">Default order</option>
+          <option value="rollAsc">Roll number (ascending)</option>
+          <option value="rollDesc">Roll number (descending)</option>
+        </select>
+      </div>
     </div>
     <table class="ledger">
       <thead>
@@ -68,6 +76,7 @@
 <% } %>
 
 <form id="attendance-form" method="POST" action="/attendance/mark/<%= classLevelId %>" style="display:none;">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
   <input type="hidden" name="date" value="<%= date %>" />
   <input type="hidden" name="records" id="records-input" />
 </form>

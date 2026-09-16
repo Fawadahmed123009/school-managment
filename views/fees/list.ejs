@@ -9,6 +9,7 @@
   </div>
   <div class="page-head-actions">
     <form method="POST" action="/fees/generate-monthly" style="display:inline;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button type="submit" class="btn btn-primary">Generate this month's fees</button>
     </form>
     <a href="/fees/bulk-assign" class="btn btn-primary">Bulk assign fees</a>
@@ -27,6 +28,7 @@
   <div class="panel-head"><h2>Add a fee record</h2></div>
   <div class="panel-body">
     <form method="POST" action="/fees/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row" style="margin-bottom:8px;">
         <div class="field" style="min-width:160px;">
           <label for="filter-class">Class</label>
@@ -109,9 +111,17 @@
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Parent name</label>
         <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
       </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
+        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Newest first</option>
+          <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+          <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+        </select>
+      </div>
       <div style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
-        <% if (filters.class || filters.roll || filters.parent || filters.student || filters.feeHead) { %>
+        <% if (filters.class || filters.roll || filters.parent || filters.student || filters.feeHead || filters.sortBy) { %>
           <a href="/fees" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
         <% } %>
       </div>
@@ -149,6 +159,7 @@
             <td>
               <% if (f.status !== 'paid') { %>
                 <form method="POST" action="/fees/<%= f._id %>/update" style="display:inline;">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                   <button type="submit" class="btn btn-ghost" style="padding:6px 10px;">Mark paid</button>
                 </form>
               <% } %>

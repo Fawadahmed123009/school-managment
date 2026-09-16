@@ -27,7 +27,7 @@ const MAX_LIST_SIZE = 10;        // cap for dashboard panels
 // ── Admin / Manager ─────────────────────────────────────────────────────────
 // Returns up to MAX_LIST_SIZE at-risk students school-wide, with reasons.
 // If classLevelId is provided, filters to that class only.
-exports.getAtRiskStudentsAdmin = async (classLevelId) => {
+exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy) => {
   // 1. Attendance % per student via aggregation
   const attAgg = await Attendance.aggregate([
     {
@@ -133,13 +133,19 @@ exports.getAtRiskStudentsAdmin = async (classLevelId) => {
     }
   }
 
-  // Sort: lowest attendance first, then most low-subjects
-  atRisk.sort((a, b) => {
-    const aAtt = a.attendancePercent !== null ? a.attendancePercent : 100;
-    const bAtt = b.attendancePercent !== null ? b.attendancePercent : 100;
-    if (aAtt !== bAtt) return aAtt - bAtt;
-    return b.reasons.length - a.reasons.length;
-  });
+  // Sort: by roll number if requested, otherwise lowest attendance first, then most low-subjects
+  if (sortBy === "rollAsc") {
+    atRisk.sort((a, b) => String(a.student.rollNumber || "").localeCompare(String(b.student.rollNumber || ""), undefined, { numeric: true }));
+  } else if (sortBy === "rollDesc") {
+    atRisk.sort((a, b) => String(b.student.rollNumber || "").localeCompare(String(a.student.rollNumber || ""), undefined, { numeric: true }));
+  } else {
+    atRisk.sort((a, b) => {
+      const aAtt = a.attendancePercent !== null ? a.attendancePercent : 100;
+      const bAtt = b.attendancePercent !== null ? b.attendancePercent : 100;
+      if (aAtt !== bAtt) return aAtt - bAtt;
+      return b.reasons.length - a.reasons.length;
+    });
+  }
 
   return {
     students: atRisk.slice(0, MAX_LIST_SIZE),

@@ -118,6 +118,7 @@ router.get("/fees/defaulters", requireRole("admin"), async (req, res) => {
       classLevels,
       loadError: null,
       queryClassLevel: req.query.classLevel || "",
+      querySortBy: req.query.sortBy || "",
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -128,6 +129,7 @@ router.get("/fees/defaulters", requireRole("admin"), async (req, res) => {
       classLevels: [],
       loadError: err.message,
       queryClassLevel: req.query.classLevel || "",
+      querySortBy: req.query.sortBy || "",
       schoolName: res.locals.schoolName,
     });
   }
@@ -147,6 +149,7 @@ router.get("/fees/inactive-dues", requireRole("admin"), async (req, res) => {
       classLevels,
       loadError: null,
       queryClassLevel: req.query.classLevel || "",
+      querySortBy: req.query.sortBy || "",
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -157,6 +160,7 @@ router.get("/fees/inactive-dues", requireRole("admin"), async (req, res) => {
       classLevels: [],
       loadError: err.message,
       queryClassLevel: req.query.classLevel || "",
+      querySortBy: req.query.sortBy || "",
       schoolName: res.locals.schoolName,
     });
   }

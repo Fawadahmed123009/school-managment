@@ -19,6 +19,7 @@ exports.paginate = async (model, query = {}, options = {}) => {
 
   let chain = model.find(query).skip(skip).limit(limit).sort(sort);
 
+  if (options.collation) chain = chain.collation(options.collation);
   if (options.select) chain = chain.select(options.select);
   if (options.populate) {
     const pops = Array.isArray(options.populate) ? options.populate : [options.populate];

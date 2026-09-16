@@ -56,6 +56,7 @@ exports.getStudentAttendanceHistoryController = async (req, res) => {
       classLevel: req.query.classLevel || "",
       rollNumber: req.query.rollNumber || "",
       name: req.query.name || "",
+      sortBy: req.query.sortBy || "",
     };
     await getStudentAttendanceHistoryService(filters, req.query.studentId || null, res);
   } catch (error) {
@@ -71,6 +72,7 @@ exports.getTeacherAttendanceController = async (req, res) => {
       year: req.query.year || "",
       month: req.query.month || "",
       tab: req.query.tab || "class",
+      sortBy: req.query.sortBy || "",
     };
     await getTeacherAttendanceService(req.userAuth.id, filters, res);
   } catch (error) {

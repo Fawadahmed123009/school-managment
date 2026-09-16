@@ -11,7 +11,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 
 router.get("/fees", requireRole("admin"), async (req, res) => {
   try {
-    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, feeHead: feeHeadFilterRaw, ok, genMsg, genErr, ...restFilters } = req.query;
+    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, feeHead: feeHeadFilterRaw, sortBy, ok, genMsg, genErr, ...restFilters } = req.query;
     const okFlag = ok === "1";
     const genMessage = genMsg || null;
     const genError = genErr || null;
@@ -20,6 +20,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
     const rollSearch = (roll || "").trim();
     const parentSearch = (parent || "").trim();
     const studentNameSearch = (studentNameRaw || "").trim();
+    const sortByRoll = sortBy === "rollAsc" || sortBy === "rollDesc";
 
     // If a feeHead filter was provided, add it directly to the fee query
     if (feeHeadFilter) {
@@ -94,7 +95,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
           user: req.user,
           fees: [],
           pagination: { total: 0, page: 1, limit: 20, pages: 0, hasPrev: false, hasNext: false },
-          filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, ...restFilters },
+          filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, sortBy: sortBy || "", ...restFilters },
           students: studentsResult || [],
           feeHeads: headsResult.data || [],
           classes,
@@ -109,19 +110,48 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       feeQuery.student = { $in: studentIds };
     }
 
-    const [feesResult, studentsResult, headsResult] = await Promise.all([
-      paginate(Fees, feeQuery, {
+    const populateConfig = [
+      { path: "student", select: "name rollNumber fatherName" },
+      { path: "academicTerm" },
+      { path: "academicYear" },
+      { path: "feeHead", select: "name" },
+    ];
+
+    let feesResult;
+    if (sortByRoll) {
+      // Roll-number sort requires JS-level sorting on a populated field,
+      // so we fetch all matching fees, sort in memory, then paginate manually.
+      const allFees = await Fees.find(feeQuery)
+        .populate(populateConfig)
+        .lean();
+      allFees.sort((a, b) => {
+        const ra = String((a.student && a.student.rollNumber) || "");
+        const rb = String((b.student && b.student.rollNumber) || "");
+        const cmp = ra.localeCompare(rb, undefined, { numeric: true });
+        return sortBy === "rollAsc" ? cmp : -cmp;
+      });
+      const pg = Math.max(1, parseInt(page, 10) || 1);
+      const lm = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
+      const skip = (pg - 1) * lm;
+      feesResult = {
+        data: allFees.slice(skip, skip + lm),
+        pagination: {
+          total: allFees.length, page: pg, limit: lm,
+          pages: Math.ceil(allFees.length / lm),
+          hasPrev: pg > 1, hasNext: pg < Math.ceil(allFees.length / lm),
+        },
+      };
+    } else {
+      feesResult = await paginate(Fees, feeQuery, {
         page, limit, sort: "-createdAt",
-        populate: [
-          { path: "student", select: "name rollNumber fatherName" },
-          { path: "academicTerm" },
-          { path: "academicYear" },
-          { path: "feeHead", select: "name" },
-        ],
-      }),
-      // Direct find (not paginate — the fee-entry search box needs every
-      // student in memory for client-side filtering; paginate() caps at 100
-      // which was silently truncating the old dropdown for larger schools).
+        populate: populateConfig,
+      });
+    }
+
+    // Direct find (not paginate — the fee-entry search box needs every
+    // student in memory for client-side filtering; paginate() caps at 100
+    // which was silently truncating the old dropdown for larger schools).
+    const [studentsResult, headsResult] = await Promise.all([
       Student.find({})
         .select("name rollNumber classLevel")
         .populate({ path: "classLevel", select: "name gradeLevel section" })
@@ -134,7 +164,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       user: req.user,
       fees: feesResult.data || [],
       pagination: feesResult.pagination || null,
-      filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, ...restFilters },
+      filters: { class: classFilter, roll: rollSearch, parent: parentSearch, student: studentNameSearch, feeHead: feeHeadFilter, sortBy: sortBy || "", ...restFilters },
       students: studentsResult || [],
       feeHeads: headsResult.data || [],
       classes,

@@ -18,6 +18,7 @@
   <div class="panel-head"><h2>Create a test</h2></div>
   <div class="panel-body">
     <form method="POST" action="/tests/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="name">Test name</label>
@@ -97,6 +98,7 @@
             <td style="display:flex;gap:6px;justify-content:flex-end;">
               <a href="/tests/<%= t._id %>/result-sheet" class="btn btn-ghost" style="padding:4px 10px;">Results</a>
               <form method="POST" action="/tests/<%= t._id %>/delete" data-confirm="Delete this test and ALL submitted scores? This cannot be undone." style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>
               </form>
             </td>

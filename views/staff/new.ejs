@@ -16,6 +16,7 @@
   <div class="panel-head"><h2>New teacher account</h2></div>
   <div class="panel-body">
     <form method="POST" action="/staff/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field">
         <label for="name">Full name</label>
         <input type="text" id="name" name="name" required placeholder="e.g. Ahmed Khan" />

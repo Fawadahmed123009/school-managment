@@ -19,6 +19,7 @@
   <div class="panel-head"><h2>Student details</h2></div>
   <div class="panel-body">
     <form method="POST" action="/students/<%= student._id %>/update">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="name">Student name</label>

@@ -16,6 +16,7 @@
   <div class="panel-head"><h2>Add a fee head</h2></div>
   <div class="panel-body">
     <form method="POST" action="/fee-heads/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="name">Name</label>
@@ -63,10 +64,12 @@
             <td><span class="pill <%= h.isActive ? 'paid' : 'pending' %>"><%= h.isActive ? 'Active' : 'Inactive' %></span></td>
             <td>
               <form method="POST" action="/fee-heads/<%= h._id %>/toggle" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <input type="hidden" name="isActive" value="<%= !h.isActive %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:6px 10px;"><%= h.isActive ? 'Deactivate' : 'Activate' %></button>
               </form>
               <form method="POST" action="/fee-heads/<%= h._id %>/delete" style="display:inline;" data-confirm="Delete this fee head?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:6px 10px; color:var(--review);">Delete</button>
               </form>
             </td>

@@ -22,6 +22,7 @@
       Pick a fee head and a target group. One fee record will be created per student at the fee head's default amount (or a custom override). Students who already have a record for the same fee head will be skipped automatically. Inactive, graduated, and withdrawn students are excluded.
     </p>
     <form method="POST" action="/fees/bulk-assign" id="bulk-assign-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <div class="field-row">
         <div class="field">
           <label for="feeHead">Fee head *</label>

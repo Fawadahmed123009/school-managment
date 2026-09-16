@@ -32,6 +32,14 @@
           <% }); %>
         </select>
       </div>
+      <div class="field">
+        <label for="sortBy">Sort by</label>
+        <select name="sortBy" id="sortBy">
+          <option value="" <%= !querySortBy ? 'selected' : '' %>>Name (A–Z)</option>
+          <option value="rollAsc" <%= querySortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+          <option value="rollDesc" <%= querySortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+        </select>
+      </div>
       <button type="submit" class="btn btn-primary">Filter</button>
     </form>
   </div>

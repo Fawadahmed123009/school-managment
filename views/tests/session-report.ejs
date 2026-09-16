@@ -13,6 +13,7 @@
     </div>
     <a href="/sessions/<%= sessionId %>/report" class="btn btn-ghost">← Pick another student</a>
     <form method="POST" action="/reports/generate" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <input type="hidden" name="reportType" value="session-report" />
       <input type="hidden" name="sessionId" value="<%= sessionId %>" />
       <input type="hidden" name="studentId" value="<%= studentId %>" />

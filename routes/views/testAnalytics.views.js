@@ -4,7 +4,7 @@ const { apiFetch } = require("../../utils/apiClient");
 const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
 router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
-  const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, viewMode, mode, studentId } = req.query;
+  const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, viewMode, mode, studentId, sortBy } = req.query;
 
   // ── Trend mode ──────────────────────────────────────────────────────────
   if (viewMode === "trend") {
@@ -47,6 +47,7 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
   if (subjectId) params.set("subjectId", subjectId);
   if (nameSearch) params.set("nameSearch", nameSearch);
   if (rollNumberSearch) params.set("rollNumberSearch", rollNumberSearch);
+  if (sortBy) params.set("sortBy", sortBy);
 
   const hasFilters = testId;
 
@@ -73,7 +74,7 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
     resultRows: data.resultRows || [],
     resultCount: data.resultCount || 0,
     loadError: analyticsRes.status === "success" ? null : analyticsRes.message,
-    filters: { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, viewMode: "single", mode: "", studentId: "" },
+    filters: { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, viewMode: "single", mode: "", studentId: "", sortBy: sortBy || "" },
     hasFilters,
     schoolName: res.locals.schoolName,
   });
