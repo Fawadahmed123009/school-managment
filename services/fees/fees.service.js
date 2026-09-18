@@ -3,6 +3,7 @@ const Fees = require("../../models/Fees/fees.model");
 const FeeHead = require("../../models/Fees/feeHead.model");
 const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
+const { findOrCreateFeeHeadByName } = require("./feeHead.service");
 
 /** Return the current billing month string in "YYYY-MM" format. */
 function currentBillingMonth() {
@@ -13,6 +14,18 @@ function currentBillingMonth() {
 }
 
 exports.createFeeService = async (data, adminId, res) => {
+  // When no feeHead reference is provided but a feeType name is, promote the
+  // typed string to a real, reusable FeeHead catalog entry (dedupe by name,
+  // case-insensitive). This ensures custom heads typed during fee collection
+  // are saved permanently for future retrieval — not stored as throwaway
+  // strings on a single fee record.
+  if (!data.feeHead && data.feeType) {
+    const head = await findOrCreateFeeHeadByName(data.feeType, adminId);
+    if (head) {
+      data.feeHead = head._id;
+      data.feeType = head.name;
+    }
+  }
   const fee = await Fees.create({ ...data, billingMonth: data.billingMonth || currentBillingMonth(), recordedBy: adminId });
   return responseStatus(res, 201, "success", fee);
 };

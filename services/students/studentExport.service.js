@@ -1,5 +1,9 @@
 const XLSX = require("xlsx");
 const PDFDocument = require("pdfkit");
+const {
+  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+  ImageRun, WidthType, BorderStyle, AlignmentType, Header,
+} = require("docx");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -136,6 +140,7 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   for (let i = 1; i <= (blankCount || 0); i++) headers.push("");
 
   const MARGIN = 28;
+  const HEADER_RESERVE = 44; // space for repeating logo + title + divider
   const doc = new PDFDocument({ size: "A4", margin: MARGIN });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
@@ -144,19 +149,36 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   const pageH = doc.page.height;  // 841.89
   const usableW = pageW - MARGIN * 2;
 
-  // ── Header: small logo + school name ──────────────────────────────────────
-  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.png");
+  // ── Reusable page header (logo + centered title + divider) ────────────────
+  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
   const hasLogo = fs.existsSync(LOGO_PATH);
-  let y = MARGIN;
 
-  if (hasLogo) {
-    try { doc.image(LOGO_PATH, MARGIN, y, { width: 30, height: 30 }); } catch { /* skip */ }
+  function drawPageHeader() {
+    const curY = MARGIN;
+    if (hasLogo) {
+      try { doc.image(LOGO_PATH, MARGIN, curY, { width: 30, height: 30 }); } catch { /* skip */ }
+    }
+    const textX = hasLogo ? MARGIN + 36 : MARGIN;
+    doc.fontSize(16).font("Helvetica-Bold").fillColor("#000")
+      .text("Avenir Academy", textX, curY + 2, { width: usableW - (textX - MARGIN), align: "center" });
+    // Divider line
+    const lineY = curY + HEADER_RESERVE - 6;
+    doc.moveTo(MARGIN, lineY).lineTo(pageW - MARGIN, lineY).strokeColor("#ddd").lineWidth(0.5).stroke();
   }
-  const textX = hasLogo ? MARGIN + 36 : MARGIN;
-  doc.fontSize(14).font("Helvetica-Bold").fillColor("#000")
-    .text("Avenir Academy", textX, y + 4, { width: usableW - (textX - MARGIN) });
 
-  y += hasLogo ? 36 : 24;
+  // Draw header on first page
+  drawPageHeader();
+
+  // Re-draw header on every subsequent page
+  doc.on("pageAdded", () => {
+    drawPageHeader();
+  });
+
+  let y = MARGIN + HEADER_RESERVE;
+
+  // ── Build explicit key list matching headers (prevents stray columns) ───
+  const resolvedKeys = fieldDefs.map((f) => f.label);
+  for (let i = 1; i <= (blankCount || 0); i++) resolvedKeys.push(`___blank_${i}`);
 
   // ── Table dimensions ──────────────────────────────────────────────────────
   const colCount = headers.length;
@@ -194,12 +216,12 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   rows.forEach((row) => {
     if (y + rowH > pageH - MARGIN) {
       doc.addPage();
-      y = MARGIN;
-      // Re-draw header on new page
+      y = MARGIN + HEADER_RESERVE; // start below the repeating header
+      // Re-draw table header row on new page
       drawRow(headers, y, hdrH, true);
       y += hdrH;
     }
-    const vals = Object.values(row);
+    const vals = resolvedKeys.map((k) => (row[k] != null ? String(row[k]) : ""));
     drawRow(vals, y, rowH, false);
     y += rowH;
   });
@@ -211,6 +233,145 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
       resolve(Buffer.concat(buffers));
     });
   });
+};
+
+// ── DOCX export ────────────────────────────────────────────────────────────────
+exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) => {
+  const students = await queryStudents(scope, scopeValues);
+  let rows = buildRows(students, selectedFields);
+  rows = addBlankColumns(rows, blankCount);
+
+  const fieldDefs = ALL_FIELDS.filter((f) => selectedFields.includes(f.key));
+  const headers = fieldDefs.map((f) => f.label);
+  for (let i = 1; i <= (blankCount || 0); i++) headers.push("");
+
+  // ── Word header section (repeats on every page via header1.xml) ─────────
+  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
+  const hasLogo = fs.existsSync(LOGO_PATH);
+
+  const noBorder = { style: BorderStyle.NONE, size: 0 };
+  const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+
+  const logoCellChildren = [];
+  if (hasLogo) {
+    try {
+      const logoData = fs.readFileSync(LOGO_PATH);
+      logoCellChildren.push(
+        new Paragraph({
+          children: [
+            new ImageRun({
+              data: logoData,
+              type: "jpg",
+              transformation: { width: 48, height: 48 },
+            }),
+          ],
+        })
+      );
+    } catch { /* skip logo */ }
+  }
+
+  // Borderless table: logo left, title centered, spacer right
+  const headerTable = new Table({
+    rows: [
+      new TableRow({
+        children: [
+          new TableCell({
+            children: logoCellChildren.length > 0
+              ? logoCellChildren
+              : [new Paragraph({ children: [] })],
+            borders: noBorders,
+            width: { size: 1500, type: WidthType.DXA },
+            verticalAlign: "center",
+          }),
+          new TableCell({
+            children: [
+              new Paragraph({
+                alignment: AlignmentType.CENTER,
+                children: [
+                  new TextRun({ text: "Avenir Academy", bold: true, size: 36 }),
+                ],
+              }),
+            ],
+            borders: noBorders,
+            width: { size: 6000, type: WidthType.DXA },
+            verticalAlign: "center",
+          }),
+          new TableCell({
+            children: [new Paragraph({ children: [] })],
+            borders: noBorders,
+            width: { size: 1500, type: WidthType.DXA },
+          }),
+        ],
+      }),
+    ],
+    width: { size: 9000, type: WidthType.DXA },
+  });
+
+  const docxHeader = new Header({
+    children: [headerTable],
+  });
+
+  // ── Table border style ────────────────────────────────────────────────────
+  const cellBorder = {
+    top: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+    bottom: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+    left: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+    right: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
+  };
+
+  const colCount = headers.length;
+  const colWidth = Math.floor(9000 / Math.max(colCount, 1));
+
+  // ── Header row ────────────────────────────────────────────────────────────
+  const headerRow = new TableRow({
+    children: headers.map((h) =>
+      new TableCell({
+        children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 16 })] })],
+        borders: cellBorder,
+        width: { size: colWidth, type: WidthType.DXA },
+      })
+    ),
+  });
+
+  // ── Build explicit key list matching headers (prevents stray columns) ───
+  const resolvedKeys = fieldDefs.map((f) => f.label);
+  for (let i = 1; i <= (blankCount || 0); i++) resolvedKeys.push(`___blank_${i}`);
+
+  // ── Data rows ─────────────────────────────────────────────────────────────
+  const dataRows = rows.map((row) => {
+    const vals = resolvedKeys.map((k) => (row[k] != null ? String(row[k]) : ""));
+    return new TableRow({
+      children: vals.map((v) =>
+        new TableCell({
+          children: [new Paragraph({ children: [new TextRun({ text: v, size: 16 })] })],
+          borders: cellBorder,
+          width: { size: colWidth, type: WidthType.DXA },
+        })
+      ),
+    });
+  });
+
+  // Column widths array must match per-cell widths so tblGrid and tcW are consistent
+  const columnWidths = headers.map(() => colWidth);
+
+  const doc = new Document({
+    sections: [
+      {
+        headers: {
+          default: docxHeader,
+        },
+        children: [
+          new Table({
+            rows: [headerRow, ...dataRows],
+            width: { size: 9000, type: WidthType.DXA },
+            columnWidths,
+          }),
+        ],
+      },
+    ],
+  });
+
+  return Packer.toBuffer(doc);
 };
 
 // ── Fetch filter options for the form ──────────────────────────────────────────

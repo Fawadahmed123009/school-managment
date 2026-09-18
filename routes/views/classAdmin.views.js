@@ -8,17 +8,22 @@ const {
   updateClassLevelService,
   deleteClassLevelService,
 } = require("../../services/academic/class.service");
+const { getAllSectionsService } = require("../../services/academic/section.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
 router.get("/classes", requireAdminOrManager(), async (req, res) => {
   try {
-    const classes = await getAllClassesService();
+    const [classes, sections] = await Promise.all([
+      getAllClassesService(),
+      getAllSectionsService(),
+    ]);
     res.render("classes/list", {
       page: "classes",
       user: req.user,
       ok: req.query.ok === "1",
       createError: req.query.error || null,
       classes: classes || [],
+      sections: sections || [],
       loadError: null,
       schoolName: res.locals.schoolName,
     });
@@ -29,6 +34,7 @@ router.get("/classes", requireAdminOrManager(), async (req, res) => {
       ok: false,
       createError: null,
       classes: [],
+      sections: [],
       loadError: err.message,
       schoolName: res.locals.schoolName,
     });
@@ -37,12 +43,16 @@ router.get("/classes", requireAdminOrManager(), async (req, res) => {
 
 router.get("/classes/:classLevelId/edit", requireAdminOrManager(), async (req, res) => {
   try {
-    const cls = await getClassLevelsService(req.params.classLevelId);
+    const [cls, sections] = await Promise.all([
+      getClassLevelsService(req.params.classLevelId),
+      getAllSectionsService(),
+    ]);
     if (!cls) return res.redirect(`/classes?error=${encodeURIComponent("Class not found")}`);
     res.render("classes/edit", {
       page: "classes",
       user: req.user,
       cls,
+      sections: sections || [],
       saveError: req.query.error || null,
       schoolName: res.locals.schoolName,
     });
@@ -52,10 +62,10 @@ router.get("/classes/:classLevelId/edit", requireAdminOrManager(), async (req, r
 });
 
 router.post("/classes/create", requireAdminOrManager(), async (req, res) => {
-  const { name, gradeLevel, group, section, description } = req.body;
+  const { name, gradeLevel, group, section, sectionRef, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
-    await createClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.user._id, cap);
+    await createClassLevelService({ name, gradeLevel, group: group || null, section: section || null, sectionRef: sectionRef || null, description }, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/classes?error=${encodeURIComponent(err.message || "Failed to create class")}`);
   }
@@ -64,10 +74,10 @@ router.post("/classes/create", requireAdminOrManager(), async (req, res) => {
 });
 
 router.post("/classes/:classLevelId/edit", requireAdminOrManager(), async (req, res) => {
-  const { name, gradeLevel, group, section, description } = req.body;
+  const { name, gradeLevel, group, section, sectionRef, description } = req.body;
   const { res: cap, result } = captureServiceResponse();
   try {
-    await updateClassLevelService({ name, gradeLevel, group: group || null, section: section || null, description }, req.params.classLevelId, req.user._id, cap);
+    await updateClassLevelService({ name, gradeLevel, group: group || null, section: section || null, sectionRef: sectionRef || null, description }, req.params.classLevelId, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/classes/${req.params.classLevelId}/edit?error=${encodeURIComponent(err.message || "Update failed")}`);
   }

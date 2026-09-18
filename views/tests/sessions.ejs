@@ -60,7 +60,14 @@
             <td><strong><%= s.name %></strong></td>
             <td><%= s.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
             <td><%= s.phases.map(function(p) { return p.name; }).join(' → ') %></td>
-            <td><a href="/sessions/<%= s._id %>/report" class="btn btn-ghost" style="padding:4px 10px;">Report card</a></td>
+            <td style="display:flex;gap:6px;justify-content:flex-end;">
+              <a href="/sessions/<%= s._id %>/weeks" class="btn btn-ghost" style="padding:4px 10px;">Manage weeks</a>
+              <a href="/sessions/<%= s._id %>/report" class="btn btn-ghost" style="padding:4px 10px;">Report card</a>
+              <form method="POST" action="/sessions/<%= s._id %>/delete" style="display:inline;" data-confirm="Delete this session? Its weeks will be removed and any linked tests will become unassigned (not deleted).">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>
+              </form>
+            </td>
           </tr>
         <% }); %>
       </tbody>

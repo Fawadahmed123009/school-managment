@@ -26,6 +26,11 @@ const ClassLevelSchema = new mongoose.Schema(
       enum: ["Boys", "Girls", null],
       default: null,
     },
+    sectionRef: {
+      type: ObjectId,
+      ref: "Section",
+      default: null,
+    },
     description: {
       type: String,
     },

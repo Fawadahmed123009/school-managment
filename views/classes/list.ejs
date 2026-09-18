@@ -40,11 +40,13 @@
         </div>
         <div class="field">
           <label for="section">Section (optional)</label>
-          <select name="section" id="section">
+          <select name="sectionRef" id="sectionRef">
             <option value="">—</option>
-            <option value="Boys">Boys</option>
-            <option value="Girls">Girls</option>
+            <% sections.filter(function(s) { return s.isActive; }).forEach(function(s) { %>
+              <option value="<%= s._id %>"><%= s.name %></option>
+            <% }); %>
           </select>
+          <input type="hidden" name="section" id="section" value="" />
         </div>
       </div>
       <div class="field">
@@ -70,7 +72,7 @@
             <td><strong><%= c.name %></strong></td>
             <td><%= c.gradeLevel %></td>
             <td><%= c.group || '—' %></td>
-            <td><%= c.section || '—' %></td>
+            <td><%= (c.sectionRef && c.sectionRef.name) || c.section || '—' %></td>
             <td class="num mono"><%= c.studentCount || 0 %></td>
             <td>
               <a href="/classes/<%= c._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>

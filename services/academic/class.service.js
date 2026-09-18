@@ -8,7 +8,7 @@ const Test = require("../../models/Academic/test.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 exports.createClassLevelService = async (data, userId, res) => {
-  const { name, description, gradeLevel, group, section } = data;
+  const { name, description, gradeLevel, group, section, sectionRef } = data;
 
   if (!name || !gradeLevel) {
     return responseStatus(res, 400, "failed", "Name and grade level are required");
@@ -25,6 +25,7 @@ exports.createClassLevelService = async (data, userId, res) => {
     gradeLevel,
     group: group || null,
     section: section || null,
+    sectionRef: sectionRef || null,
     createdBy: userId,
   });
 
@@ -41,6 +42,7 @@ exports.createClassLevelService = async (data, userId, res) => {
 exports.getAllClassesService = async () => {
   const classes = await ClassLevel.find()
     .sort({ gradeLevel: 1, group: 1, section: 1 })
+    .populate("sectionRef", "name")
     .lean();
 
   // ClassLevel.students is a legacy array that nothing in the codebase ever
@@ -62,7 +64,7 @@ exports.getClassLevelsService = async (id) => {
 };
 
 exports.updateClassLevelService = async (data, id, userId, res) => {
-  const { name, description, gradeLevel, group, section } = data;
+  const { name, description, gradeLevel, group, section, sectionRef } = data;
 
   if (name) {
     const classFound = await ClassLevel.findOne({ name, _id: { $ne: id } });
@@ -79,6 +81,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
       ...(gradeLevel !== undefined && { gradeLevel }),
       ...(group !== undefined && { group: group || null }),
       ...(section !== undefined && { section: section || null }),
+      ...(sectionRef !== undefined && { sectionRef: sectionRef || null }),
     },
     { new: true }
   );

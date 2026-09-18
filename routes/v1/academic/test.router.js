@@ -12,7 +12,18 @@ const {
   createTestSessionController,
   getAllTestSessionsController,
   getTestSessionByIdController,
+  deleteTestSessionController,
+  deletePhaseController,
 } = require("../../../controllers/academic/testSession.controller");
+
+const {
+  createWeekController,
+  getWeeksForSessionController,
+  getWeekByIdController,
+  getWeeksForPhaseController,
+  updateWeekController,
+  deleteWeekController,
+} = require("../../../controllers/academic/week.controller");
 
 const {
   createTestController,
@@ -21,6 +32,9 @@ const {
   getTeacherAssignedClassesController,
   getTeacherAssignedSubjectsController,
   getTeacherScopedTestsByClassSubjectController,
+  getTeacherCascadeSessionsController,
+  getTeacherCascadePhasesController,
+  getTeacherCascadeWeeksController,
   getTestRosterController,
   submitTestResultsController,
   getTestResultSheetController,
@@ -72,7 +86,25 @@ const isTeacherAssignedOrManager = async (req, res, next) => {
 testRouter.route("/test-sessions").post(isLoggedIn, isAdminOrManager, createTestSessionController);
 testRouter.route("/test-sessions").get(isLoggedIn, isAdminOrManager, getAllTestSessionsController);
 testRouter.route("/test-sessions/:sessionId").get(isLoggedIn, isAdminOrManager, getTestSessionByIdController);
+testRouter.route("/test-sessions/:sessionId").delete(isLoggedIn, isAdminOrManager, deleteTestSessionController);
+testRouter.route("/test-sessions/:sessionId/phases/:phaseId").delete(isLoggedIn, isAdminOrManager, deletePhaseController);
 testRouter.route("/test-sessions/:sessionId/report/:studentId").get(isLoggedIn, isAdminOrManager, getSessionReportCardController);
+
+// ── Weeks (session-scoped, admin/manager) ───────────────────────────────────
+testRouter
+  .route("/sessions/:sessionId/weeks")
+  .get(isLoggedIn, isAdminOrManager, getWeeksForSessionController)
+  .post(isLoggedIn, isAdminOrManager, createWeekController);
+
+testRouter
+  .route("/sessions/:sessionId/weeks/:phaseId")
+  .get(isLoggedIn, isAdminOrManager, getWeeksForPhaseController);
+
+testRouter
+  .route("/weeks/:weekId")
+  .get(isLoggedIn, getWeekByIdController)
+  .patch(isLoggedIn, isAdminOrManager, updateWeekController)
+  .delete(isLoggedIn, isAdminOrManager, deleteWeekController);
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 // POST /tests — admin/manager (creating tests is an admin/manager action)
@@ -80,11 +112,14 @@ testRouter.route("/tests").post(isLoggedIn, isAdminOrManager, createTestControll
 // GET /tests — admin sees all; teacher sees only their assigned subjects/classes
 testRouter.route("/tests").get(isLoggedIn, isAdminOrTeacher, getTestsByRoleController);
 
-// ── Cascade API routes for Class → Subject → Test dropdown ─────────────────
+// ── Cascade API routes for Class → Subject → Session → Phase → Week → Test ──
 // These must come BEFORE /:testId routes to avoid route conflicts.
 // Only teachers need these; managers/admins use the full test list.
 testRouter.get("/tests/cascade/classes", isLoggedIn, isTeacher, getTeacherAssignedClassesController);
 testRouter.get("/tests/cascade/subjects", isLoggedIn, isTeacher, getTeacherAssignedSubjectsController);
+testRouter.get("/tests/cascade/sessions", isLoggedIn, isTeacher, getTeacherCascadeSessionsController);
+testRouter.get("/tests/cascade/phases", isLoggedIn, isTeacher, getTeacherCascadePhasesController);
+testRouter.get("/tests/cascade/weeks", isLoggedIn, isTeacher, getTeacherCascadeWeeksController);
 testRouter.get("/tests/cascade/tests", isLoggedIn, isTeacher, getTeacherScopedTestsByClassSubjectController);
 
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);

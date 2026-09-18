@@ -1,0 +1,135 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Year-end</p>
+    <h1>Promote students</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok"><%= resultMsg || "Promotions applied." %></div><% } %>
+<% if (failMsg) { %><div class="flash error"><%= failMsg %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load data: <%= loadError %></div><% } %>
+<% if (typeof error !== 'undefined' && error) { %><div class="flash error"><%= error %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Step 1 — Pick a source class</h2>
+  </div>
+  <div class="panel-body">
+    <form method="GET" action="/students/promote" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+      <div class="field" style="margin:0; min-width:220px;">
+        <label for="sourceClass">Source class</label>
+        <select name="sourceClass" id="sourceClass" required>
+          <option value="">Select a class…</option>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= sourceClass == c._id ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary" style="padding:8px 20px;">Load students</button>
+    </form>
+  </div>
+</div>
+
+<% if (sourceClass && students.length > 0) { %>
+
+<div class="panel" style="margin-top:20px;">
+  <div class="panel-head">
+    <h2>Assign target classes</h2>
+    <span class="muted" style="font-size:13px;"><%= students.length %> active student(s)</span>
+  </div>
+
+  <!-- Bulk-set bar -->
+  <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button type="button" id="select-all-btn" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;">Select all</button>
+      <button type="button" id="deselect-all-btn" class="btn btn-ghost" style="padding:6px 12px; font-size:12px;">Deselect all</button>
+    </div>
+    <div style="display:flex; gap:8px; align-items:flex-end; margin-left:auto;">
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Bulk set target</label>
+        <select id="bulk-target" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; min-width:180px;">
+          <option value="">Choose target…</option>
+          <% allClasses.forEach(function(c) { %>
+            <option value="<%= c._id %>"><%= c.name %></option>
+          <% }); %>
+          <option value="graduate">— Graduate —</option>
+        </select>
+      </div>
+      <button type="button" id="bulk-apply-btn" class="btn btn-primary" style="padding:8px 16px;">Apply to selected</button>
+    </div>
+  </div>
+
+  <form method="POST" action="/students/promote/preview" id="promotion-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+    <input type="hidden" name="sourceClassId" value="<%= sourceClass %>" />
+    <input type="hidden" name="promotions" id="promotions-field" value="" />
+
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th style="width:36px;"><input type="checkbox" id="check-all-header" /></th>
+            <th>Roll #</th>
+            <th>Name</th>
+            <th>Current class</th>
+            <th>Target</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% students.forEach(function(s) { %>
+            <tr data-student-id="<%= s._id %>">
+              <td><input type="checkbox" class="student-cb" value="<%= s._id %>" /></td>
+              <td class="mono"><%= s.rollNumber %></td>
+              <td><strong><%= s.name %></strong></td>
+              <td><%= s.classLevel ? s.classLevel.name : '—' %></td>
+              <td>
+                <select class="target-select" data-student-id="<%= s._id %>" style="padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; min-width:180px;">
+                  <option value="">— No change —</option>
+                  <% allClasses.forEach(function(c) { %>
+                    <option value="<%= c._id %>"><%= c.name %></option>
+                  <% }); %>
+                  <option value="graduate">— Graduate —</option>
+                </select>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:16px 24px; border-top:1px solid var(--border); display:flex; gap:12px; align-items:center;">
+      <button type="submit" class="btn btn-primary" id="preview-btn">Preview changes</button>
+      <span id="change-count" class="muted" style="font-size:13px;"></span>
+    </div>
+  </form>
+</div>
+
+<div class="panel" style="margin-top:20px;">
+  <div class="panel-body">
+    <div style="padding:12px 16px; background:#fffbeb; border:1px solid #f59e0b; border-radius:8px; font-size:13px; color:#92400e;">
+      <strong>Important:</strong> We strongly recommend a database backup before using this feature in production for the first time.
+      This operation modifies the class enrollment of multiple student records in a single batch.
+    </div>
+  </div>
+</div>
+
+<script src="/js/promotion.js"></script>
+
+<% } else if (sourceClass) { %>
+
+<div class="panel" style="margin-top:20px;">
+  <div class="panel-body">
+    <div class="empty">
+      <div class="display">No active students in this class</div>
+      <p class="muted">All students in this class may already be graduated or inactive.</p>
+    </div>
+  </div>
+</div>
+
+<% } %>
+
+<%- include('../partials/foot') %>

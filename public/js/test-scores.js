@@ -16,10 +16,31 @@
   });
   updateCount();
 
+  // ── Sort by roll number (re-orders DOM rows) ──────────────────────────
+  const sortRoll = document.getElementById('sort-roll');
+  if (sortRoll) {
+    sortRoll.addEventListener('change', function () {
+      const tbody = document.getElementById('roster-body');
+      const allRows = Array.from(tbody.querySelectorAll('tr'));
+      const val = this.value;
+      if (!val) return; // default order — no re-sort
+      allRows.sort(function (a, b) {
+        const ra = (a.dataset.roll || '').trim();
+        const rb = (b.dataset.roll || '').trim();
+        const cmp = ra.localeCompare(rb, undefined, { numeric: true });
+        return val === 'rollAsc' ? cmp : -cmp;
+      });
+      allRows.forEach(function (row) { tbody.appendChild(row); });
+    });
+  }
+
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       const records = [];
-      rows.forEach(function (row) {
+      // Re-query rows from the DOM so we pick up the current (possibly sorted) order.
+      // Each row carries data-student, so score→student binding is per-row, not positional.
+      const currentRows = document.querySelectorAll('#roster-body tr');
+      currentRows.forEach(function (row) {
         const studentId = row.dataset.student;
         const input = row.querySelector('.score-input');
         if (input.value !== '') {

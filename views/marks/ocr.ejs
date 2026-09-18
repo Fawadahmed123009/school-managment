@@ -41,12 +41,35 @@
             </select>
           </div>
 
-          <div class="field">
-            <label for="test-select">3. Select test</label>
-            <select id="test-select" disabled required>
+          <div class="field" id="session-field" style="display:none;">
+            <label for="session-select">3. Select session</label>
+            <select id="session-select" disabled required>
               <option value="">Select a subject first...</option>
             </select>
           </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top:12px;">
+          <div class="field" id="phase-field" style="display:none;">
+            <label for="phase-select">4. Select phase</label>
+            <select id="phase-select" disabled required>
+              <option value="">Select a session first...</option>
+            </select>
+          </div>
+
+          <div class="field" id="week-field" style="display:none;">
+            <label for="week-select">5. Select week</label>
+            <select id="week-select" disabled required>
+              <option value="">Select a phase first...</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field" id="test-field" style="margin-top:12px; display:none;">
+          <label for="test-select">6. Select test</label>
+          <select id="test-select" disabled required>
+            <option value="">Select filters first...</option>
+          </select>
         </div>
       <% } %>
     </div>
@@ -72,12 +95,23 @@
         <h2>Extracted rows</h2>
         <span id="row-count" class="pill ocr"></span>
       </div>
+      <div class="attend-filters" style="padding:0 16px 12px;">
+        <div class="attend-filter-field">
+          <label for="sort-roll-ocr">Sort by</label>
+          <select id="sort-roll-ocr">
+            <option value="">Default order</option>
+            <option value="rollAsc">Roll number (ascending)</option>
+            <option value="rollDesc">Roll number (descending)</option>
+          </select>
+        </div>
+      </div>
       <div class="table-wrap">
       <table class="ledger">
         <thead>
           <tr>
             <th>Confidence</th>
             <th>Student</th>
+            <th>Roll #</th>
             <th class="num">Score</th>
             <th></th>
           </tr>
@@ -102,6 +136,7 @@
 <script type="application/json" id="marks-ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
 <script src="/js/marks-ocr-review.js"></script>
 
+<script src="/js/test-cascade-filters.js"></script>
 <script src="/js/test-cascade-ocr.js"></script>
 
 <%- include('../partials/foot') %>

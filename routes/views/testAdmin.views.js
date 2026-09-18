@@ -26,7 +26,7 @@ router.get("/tests/manage", requireAdminOrManager(), async (req, res) => {
 });
 
 router.post("/tests/create", requireAdminOrManager(), async (req, res) => {
-  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase } = req.body;
+  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = req.body;
 
   const result = await apiFetch("/tests", req.token, {
     method: "POST",
@@ -39,6 +39,7 @@ router.post("/tests/create", requireAdminOrManager(), async (req, res) => {
       passMarks: Number(passMarks),
       session: session || null,
       phase: phase || null,
+      week: week || null,
     }),
   });
 
@@ -97,6 +98,18 @@ router.post("/tests/:testId/delete", requireAdminOrManager(), async (req, res) =
     return res.redirect(`/tests/manage?error=${encodeURIComponent(result.message)}`);
   }
   res.redirect("/tests/manage?ok=1");
+});
+
+// Delete test session
+router.post("/sessions/:sessionId/delete", requireAdminOrManager(), async (req, res) => {
+  const result = await apiFetch(`/test-sessions/${req.params.sessionId}`, req.token, {
+    method: "DELETE",
+  });
+
+  if (result.status !== "success") {
+    return res.redirect(`/sessions/manage?error=${encodeURIComponent(result.message)}`);
+  }
+  res.redirect("/sessions/manage?ok=1");
 });
 
 module.exports = router;

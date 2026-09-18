@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { requireAdminOrManager } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
-const { getExportOptions, generateExcel, generatePDF } = require("../../services/students/studentExport.service");
+const { getExportOptions, generateExcel, generatePDF, generateDOCX } = require("../../services/students/studentExport.service");
 
 // GET /students/export — render the export form
 router.get("/students/export", requireAdminOrManager(), async (req, res) => {
@@ -34,7 +34,7 @@ router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req,
     const { format, scope, classes, fields, blankCount } = req.body;
 
     // Validate format
-    if (!["xlsx", "pdf"].includes(format)) {
+    if (!["xlsx", "pdf", "docx"].includes(format)) {
       return res.redirect("/students/export?error=" + encodeURIComponent("Invalid export format"));
     }
 
@@ -60,6 +60,13 @@ router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req,
       const buffer = await generateExcel(scope, scopeValues, selectedFields, blankCols);
       res.setHeader("Content-Disposition", "attachment; filename=students-export.xlsx");
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      return res.send(buffer);
+    }
+
+    if (format === "docx") {
+      const buffer = await generateDOCX(scope, scopeValues, selectedFields, blankCols);
+      res.setHeader("Content-Disposition", "attachment; filename=students-export.docx");
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       return res.send(buffer);
     }
 

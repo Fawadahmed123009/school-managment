@@ -94,4 +94,36 @@
   </div>
 </div>
 
+<% /* ── Per-child test-progress + subject-wise charts ── */ %>
+<% if (profile && profile.children && profile.children.length > 0) { %>
+  <% profile.children.forEach(function(child) { %>
+    <% var cid = child._id.toString(); %>
+    <% var ca = typeof childAnalyses !== 'undefined' ? childAnalyses[cid] : null; %>
+    <% if (ca && ca.marks) { %>
+    <div class="panel" style="margin-top:16px;">
+      <div class="panel-head"><h2><%= child.name %> — Performance</h2></div>
+      <div class="charts-row" style="padding:16px;">
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Test progress <span class="chart-subtitle">Average % by session</span></h2></div>
+          <div class="panel-body chart-body">
+            <canvas id="progressChart-<%= cid %>"></canvas>
+            <div class="chart-empty" id="progressEmpty-<%= cid %>" style="display:none;">No test results yet</div>
+          </div>
+        </div>
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Subject-wise analysis <span class="chart-subtitle">Average % per subject</span></h2></div>
+          <div class="panel-body chart-body">
+            <canvas id="subjectChart-<%= cid %>"></canvas>
+            <div class="chart-empty" id="subjectEmpty-<%= cid %>" style="display:none;">No test results yet</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="application/json" class="child-chart-data" data-child-id="<%= cid %>"><%- JSON.stringify({ progress: ca.marks.progress || [], bySubject: ca.marks.bySubject || [] }).replace(/</g, '\u003c') %></script>
+    <% } %>
+  <% }); %>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="/js/dashboard-charts.js"></script>
+<% } %>
+
 <%- include('../partials/foot') %>

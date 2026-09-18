@@ -1,0 +1,70 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Academics</p>
+    <h1>Sections</h1>
+  </div>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load sections: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a section</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/sections/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Name</label>
+          <input type="text" name="name" id="name" placeholder="e.g. Boys, Girls, A, B" required />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create section</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All sections</h2></div>
+  <% if (sections.length === 0) { %>
+    <div class="empty"><div class="display">No sections yet</div><div class="sub">Create your first section above.</div></div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <% sections.forEach(function(s) { %>
+          <tr>
+            <td><strong><%= s.name %></strong></td>
+            <td>
+              <% if (s.isActive) { %>
+                <span class="pill" style="background:rgba(34,197,94,0.1);color:#16a34a;">Active</span>
+              <% } else { %>
+                <span class="pill review">Inactive</span>
+              <% } %>
+            </td>
+            <td style="display:flex; gap:4px;">
+              <a href="/sections/<%= s._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <form method="POST" action="/sections/<%= s._id %>/toggle-active" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;"><%= s.isActive ? 'Deactivate' : 'Activate' %></button>
+              </form>
+              <form method="POST" action="/sections/<%= s._id %>/delete" style="display:inline;" data-confirm="Delete this section?">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

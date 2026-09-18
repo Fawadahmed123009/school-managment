@@ -340,14 +340,16 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
       populate: jest.fn().mockReturnValue({
         populate: jest.fn().mockReturnValue({
           populate: jest.fn().mockReturnValue({
-            sort: jest.fn().mockResolvedValue(expectedTests),
+            populate: jest.fn().mockReturnValue({
+              sort: jest.fn().mockResolvedValue(expectedTests),
+            }),
           }),
         }),
       }),
     });
 
     const res = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, res);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, null, null, null, res);
 
     expect(res.json).toHaveBeenCalled();
     const response = res.json.mock.calls[0][0];
@@ -372,7 +374,9 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
       populate: jest.fn().mockReturnValue({
         populate: jest.fn().mockReturnValue({
           populate: jest.fn().mockReturnValue({
-            sort: jest.fn().mockResolvedValue(expectedTests),
+            populate: jest.fn().mockReturnValue({
+              sort: jest.fn().mockResolvedValue(expectedTests),
+            }),
           }),
         }),
       }),
@@ -383,6 +387,7 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
       TEACHER_A,
       `${CLASS_9_GIRLS},${CLASS_10_PREMED}`,
       SUBJECT_MATH,
+      null, null, null,
       res
     );
 
@@ -404,6 +409,7 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
       TEACHER_A,
       `${CLASS_9_GIRLS},${CLASS_10_PREMED}`,
       SUBJECT_PHYSICS,
+      null, null, null,
       res
     );
 
@@ -417,14 +423,14 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
     mockAssignmentFindOne.mockResolvedValue(null);
 
     const res = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_B, CLASS_9_GIRLS, SUBJECT_MATH, res);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_B, CLASS_9_GIRLS, SUBJECT_MATH, null, null, null, res);
 
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
   test("returns 400 when classLevel or subject is missing", async () => {
     const res = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, null, SUBJECT_MATH, res);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, null, SUBJECT_MATH, null, null, null, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
   });
@@ -435,14 +441,16 @@ describe("Cascade Level 3: getTeacherScopedTestsByClassSubjectService", () => {
       populate: jest.fn().mockReturnValue({
         populate: jest.fn().mockReturnValue({
           populate: jest.fn().mockReturnValue({
-            sort: jest.fn().mockResolvedValue([]),
+            populate: jest.fn().mockReturnValue({
+              sort: jest.fn().mockResolvedValue([]),
+            }),
           }),
         }),
       }),
     });
 
     const res = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, res);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, null, null, null, res);
 
     expect(res.json).toHaveBeenCalled();
     const response = res.json.mock.calls[0][0];
@@ -495,14 +503,16 @@ describe("Cascade: Teacher with multiple subjects for same class", () => {
       populate: jest.fn().mockReturnValue({
         populate: jest.fn().mockReturnValue({
           populate: jest.fn().mockReturnValue({
-            sort: jest.fn().mockResolvedValue(mathTests),
+            populate: jest.fn().mockReturnValue({
+              sort: jest.fn().mockResolvedValue(mathTests),
+            }),
           }),
         }),
       }),
     });
 
     const res1 = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, res1);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_MATH, null, null, null, res1);
     const mathResponse = res1.json.mock.calls[0][0];
     expect(mathResponse.data).toHaveLength(1);
     expect(mathResponse.data[0].name).toBe("Math Quiz");
@@ -514,14 +524,16 @@ describe("Cascade: Teacher with multiple subjects for same class", () => {
       populate: jest.fn().mockReturnValue({
         populate: jest.fn().mockReturnValue({
           populate: jest.fn().mockReturnValue({
-            sort: jest.fn().mockResolvedValue(scienceTests),
+            populate: jest.fn().mockReturnValue({
+              sort: jest.fn().mockResolvedValue(scienceTests),
+            }),
           }),
         }),
       }),
     });
 
     const res2 = mockRes();
-    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_SCIENCE, res2);
+    await getTeacherScopedTestsByClassSubjectService(TEACHER_A, CLASS_9_GIRLS, SUBJECT_SCIENCE, null, null, null, res2);
     const scienceResponse = res2.json.mock.calls[0][0];
     expect(scienceResponse.data).toHaveLength(1);
     expect(scienceResponse.data[0].name).toBe("Science Quiz");

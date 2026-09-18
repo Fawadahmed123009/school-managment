@@ -6,6 +6,9 @@ const {
   getTeacherAssignedClassesService,
   getTeacherAssignedSubjectsService,
   getTeacherScopedTestsByClassSubjectService,
+  getTeacherCascadeSessionsService,
+  getTeacherCascadePhasesService,
+  getTeacherCascadeWeeksService,
   getTestRosterService,
   submitTestResultsService,
   getTestResultSheetService,
@@ -159,8 +162,8 @@ exports.getTeacherAssignedSubjectsController = async (req, res) => {
 };
 
 /**
- * GET /api/v1/tests/cascade/tests?classLevel=xxx&subject=yyy
- * Returns tests matching both class and subject.
+ * GET /api/v1/tests/cascade/tests?classLevel=xxx&subject=yyy[&session=zzz][&phase=ppp][&week=www]
+ * Returns tests matching both class and subject, optionally narrowed by session/phase/week.
  * Security: validates teacher is actually assigned to this class+subject combo.
  */
 exports.getTeacherScopedTestsByClassSubjectController = async (req, res) => {
@@ -169,6 +172,63 @@ exports.getTeacherScopedTestsByClassSubjectController = async (req, res) => {
       req.userAuth.id,
       req.query.classLevel,
       req.query.subject,
+      req.query.session || null,
+      req.query.phase || null,
+      req.query.week || null,
+      res
+    );
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * GET /api/v1/tests/cascade/sessions?classLevel=xxx&subject=yyy
+ * Returns distinct sessions that have tests for the selected class+subject.
+ */
+exports.getTeacherCascadeSessionsController = async (req, res) => {
+  try {
+    await getTeacherCascadeSessionsService(
+      req.userAuth.id,
+      req.query.classLevel,
+      req.query.subject,
+      res
+    );
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * GET /api/v1/tests/cascade/phases?classLevel=xxx&subject=yyy&session=zzz
+ * Returns distinct phases from a session that have tests for the selected class+subject.
+ */
+exports.getTeacherCascadePhasesController = async (req, res) => {
+  try {
+    await getTeacherCascadePhasesService(
+      req.userAuth.id,
+      req.query.classLevel,
+      req.query.subject,
+      req.query.session,
+      res
+    );
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * GET /api/v1/tests/cascade/weeks?classLevel=xxx&subject=yyy&session=zzz&phase=ppp
+ * Returns weeks for a session+phase that have tests for the selected class+subject.
+ */
+exports.getTeacherCascadeWeeksController = async (req, res) => {
+  try {
+    await getTeacherCascadeWeeksService(
+      req.userAuth.id,
+      req.query.classLevel,
+      req.query.subject,
+      req.query.session,
+      req.query.phase,
       res
     );
   } catch (error) {

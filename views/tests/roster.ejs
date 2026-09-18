@@ -25,12 +25,25 @@
         <h2>Enter scores</h2>
         <span class="pill ocr">Out of <%= test.totalMarks %></span>
       </div>
+      <div class="attend-filters">
+        <div class="attend-filter-field">
+          <label for="sort-roll">Sort by</label>
+          <select id="sort-roll">
+            <option value="">Default order</option>
+            <option value="rollAsc">Roll number (ascending)</option>
+            <option value="rollDesc">Roll number (descending)</option>
+          </select>
+        </div>
+      </div>
       <table class="ledger">
         <thead><tr><th>Student</th><th class="num">Score</th></tr></thead>
         <tbody id="roster-body">
           <% roster.forEach(function(r) { %>
-            <tr data-student="<%= r.student %>">
-              <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span></td>
+            <tr data-student="<%= r.student %>" data-name="<%= r.name.toLowerCase() %>" data-roll="<%= (r.rollNumber || '').toString().toLowerCase() %>">
+              <td>
+                <% if (r.rollNumber) { %><span class="mono" style="display:inline-block;min-width:36px;margin-right:6px;color:var(--ink-soft);font-size:12px;">#<%= r.rollNumber %></span><% } %>
+                <strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span>
+              </td>
               <td class="num"><input type="number" class="score-input" min="0" max="<%= test.totalMarks %>" value="<%= r.score ?? '' %>" /></td>
             </tr>
           <% }); %>

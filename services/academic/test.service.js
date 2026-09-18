@@ -8,7 +8,7 @@ const Student = require("../../models/Students/students.model");
 const { getAssignedClassLevels } = require("./assignment.service");
 
 exports.createTestService = async (data, adminId, res) => {
-  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase } = data;
+  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = data;
 
   if (!classLevels || classLevels.length === 0) {
     return responseStatus(res, 400, "failed", "A test needs at least one class");
@@ -20,6 +20,18 @@ exports.createTestService = async (data, adminId, res) => {
     if (phase) {
       const phaseExists = sessionDoc.phases.some((p) => p._id.toString() === phase);
       if (!phaseExists) return responseStatus(res, 400, "failed", "Phase not found in this session");
+
+      // Week is required when both session and phase are set
+      if (!week) {
+        return responseStatus(res, 400, "failed", "A week is required for session-based tests — select a week for this phase");
+      }
+
+      // Validate that the selected week belongs to this session+phase
+      const Week = require("../../models/Academic/week.model");
+      const weekDoc = await Week.findById(week);
+      if (!weekDoc || weekDoc.session.toString() !== session || weekDoc.phase.toString() !== phase) {
+        return responseStatus(res, 400, "failed", "The selected week does not belong to this session's phase");
+      }
     }
   }
 
@@ -61,6 +73,7 @@ exports.createTestService = async (data, adminId, res) => {
     date,
     totalMarks,
     passMarks,
+    week,
     session: session || null,
     phase: phase || null,
     createdBy: adminId,
@@ -74,6 +87,7 @@ exports.getAllTestsService = async (res) => {
     .populate("subject", "name")
     .populate("classLevels", "name")
     .populate("session", "name")
+    .populate("week", "name startDate endDate")
     .sort({ date: -1 });
   return responseStatus(res, 200, "success", tests);
 };
@@ -105,6 +119,7 @@ exports.getTeacherScopedTestsService = async (teacherId, res) => {
     .populate("subject", "name")
     .populate("classLevels", "name")
     .populate("session", "name")
+    .populate("week", "name startDate endDate")
     .sort({ date: -1 });
 
   // Keep only tests where the teacher covers at least one of the test's classes
@@ -221,7 +236,7 @@ exports.getTeacherAssignedSubjectsService = async (teacherId, classLevelParam, r
  * Security: validates that the teacher is actually assigned to this
  * subject for at least one of the selected classes.
  */
-exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLevelParam, subjectId, res) => {
+exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLevelParam, subjectId, sessionParam, phaseParam, weekParam, res) => {
   const Assignment = require("../../models/Academic/assignment.model");
 
   if (!classLevelParam || !subjectId) {
@@ -248,24 +263,222 @@ exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLeve
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
   }
 
-  // Find tests matching the subject AND covering at least one selected class
-  const tests = await Test.find({
+  // Build query with optional session/phase/week filters
+  const query = {
     subject: subjectId,
     classLevels: { $in: classLevelIds },
-  })
+  };
+
+  if (sessionParam) {
+    if (sessionParam === "none") {
+      query.session = null;
+    } else {
+      query.session = sessionParam;
+    }
+  }
+  if (phaseParam) {
+    if (phaseParam === "none") {
+      query.phase = null;
+    } else {
+      query.phase = phaseParam;
+    }
+  }
+  if (weekParam) {
+    if (weekParam === "none") {
+      query.week = null;
+    } else {
+      query.week = weekParam;
+    }
+  }
+
+  const tests = await Test.find(query)
     .populate("subject", "name")
     .populate("classLevels", "name")
     .populate("session", "name")
+    .populate("week", "name startDate endDate")
     .sort({ date: -1 });
 
   return responseStatus(res, 200, "success", tests);
+};
+
+// ── Cascade session/phase/week services ───────────────────────────────────────
+// These support the step-down filters (Session → Phase → Week) between the
+// Subject dropdown and the Test dropdown on both the teacher mark-entry and
+// OCR marks-entry pages.
+
+/**
+ * Cascade Level 3: Get distinct sessions that have tests for the selected
+ * class+subject. Returns session docs annotated with their phases.
+ */
+exports.getTeacherCascadeSessionsService = async (teacherId, classLevelParam, subjectId, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+
+  if (!classLevelParam || !subjectId) {
+    return responseStatus(res, 400, "failed", "Both classLevel and subject are required");
+  }
+
+  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  // Security: verify teacher is assigned to this subject for at least one selected class
+  const teacherAssigned = await Assignment.findOne({
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+    subject: subjectId,
+  });
+
+  if (!teacherAssigned) {
+    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
+  }
+
+  // Find distinct session IDs from tests matching class+subject
+  const sessionIds = await Test.distinct("session", {
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: { $ne: null },
+  });
+
+  // Check if there are tests without a session
+  const unassignedCount = await Test.countDocuments({
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: null,
+  });
+
+  let sessions = [];
+  if (sessionIds.length > 0) {
+    sessions = await TestSession.find({ _id: { $in: sessionIds } })
+      .select("name phases")
+      .sort("name");
+  }
+
+  return responseStatus(res, 200, "success", {
+    sessions,
+    hasUnassigned: unassignedCount > 0,
+  });
+};
+
+/**
+ * Cascade Level 4: Get distinct phases from a session that have tests for
+ * the selected class+subject. Phases are subdocuments of TestSession.
+ */
+exports.getTeacherCascadePhasesService = async (teacherId, classLevelParam, subjectId, sessionId, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+
+  if (!classLevelParam || !subjectId || !sessionId) {
+    return responseStatus(res, 400, "failed", "classLevel, subject, and session are required");
+  }
+
+  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  // Security check
+  const teacherAssigned = await Assignment.findOne({
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+    subject: subjectId,
+  });
+
+  if (!teacherAssigned) {
+    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
+  }
+
+  // Find distinct phase IDs from tests matching class+subject+session
+  const phaseIds = await Test.distinct("phase", {
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: sessionId,
+    phase: { $ne: null },
+  });
+
+  // Check if there are tests without a phase in this session
+  const unassignedCount = await Test.countDocuments({
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: sessionId,
+    phase: null,
+  });
+
+  // Get phase details from the session document
+  const session = await TestSession.findById(sessionId);
+  let phases = [];
+  if (session && phaseIds.length > 0) {
+    phases = session.phases
+      .filter((p) => phaseIds.some((id) => id.toString() === p._id.toString()))
+      .sort((a, b) => a.order - b.order);
+  }
+
+  return responseStatus(res, 200, "success", {
+    phases,
+    hasUnassigned: unassignedCount > 0,
+  });
+};
+
+/**
+ * Cascade Level 5: Get weeks for a session+phase that have tests for the
+ * selected class+subject.
+ */
+exports.getTeacherCascadeWeeksService = async (teacherId, classLevelParam, subjectId, sessionId, phaseId, res) => {
+  const Assignment = require("../../models/Academic/assignment.model");
+  const Week = require("../../models/Academic/week.model");
+
+  if (!classLevelParam || !subjectId || !sessionId || !phaseId) {
+    return responseStatus(res, 400, "failed", "classLevel, subject, session, and phase are required");
+  }
+
+  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
+    .map((s) => String(s).trim())
+    .filter(Boolean);
+
+  // Security check
+  const teacherAssigned = await Assignment.findOne({
+    teacher: teacherId,
+    classLevel: { $in: classLevelIds },
+    subject: subjectId,
+  });
+
+  if (!teacherAssigned) {
+    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
+  }
+
+  // Find distinct week IDs from tests matching class+subject+session+phase
+  const weekIds = await Test.distinct("week", {
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: sessionId,
+    phase: phaseId,
+    week: { $ne: null },
+  });
+
+  // Check if there are tests without a week
+  const unassignedCount = await Test.countDocuments({
+    subject: subjectId,
+    classLevels: { $in: classLevelIds },
+    session: sessionId,
+    phase: phaseId,
+    week: null,
+  });
+
+  let weeks = [];
+  if (weekIds.length > 0) {
+    weeks = await Week.find({ _id: { $in: weekIds } })
+      .select("name startDate endDate")
+      .sort("startDate");
+  }
+
+  return responseStatus(res, 200, "success", {
+    weeks,
+    hasUnassigned: unassignedCount > 0,
+  });
 };
 
 // Roster is scoped to only the sections this teacher is assigned to teach for
 // the test's subject. On a multi-section test, a teacher assigned to one
 // section must not see students from sections they don't teach.
 exports.getTestRosterService = async (testId, teacherId, res) => {
-  const test = await Test.findById(testId);
+  const test = await Test.findById(testId).populate("week", "name startDate endDate");
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
   const assignedClassLevels = await getAssignedClassLevels(teacherId, test.subject, test.classLevels);
@@ -273,7 +486,7 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
   }
 
-  const students = await Student.find({ classLevel: { $in: assignedClassLevels } }).select("name studentId classLevel");
+  const students = await Student.find({ classLevel: { $in: assignedClassLevels } }).select("name studentId rollNumber classLevel");
 
   const existing = await TestResult.find({ test: testId });
   const existingMap = {};
@@ -283,6 +496,7 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
     student: s._id,
     name: s.name,
     studentId: s.studentId,
+    rollNumber: s.rollNumber || '',
     score: existingMap[s._id.toString()] ?? null,
   }));
 
@@ -352,7 +566,8 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
 exports.getTestResultSheetService = async (testId, res) => {
   const test = await Test.findById(testId)
     .populate("subject", "name")
-    .populate("classLevels", "name");
+    .populate("classLevels", "name")
+    .populate("week", "name startDate endDate");
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
   const results = await TestResult.find({ test: testId }).populate("student", "name studentId");
@@ -413,6 +628,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     Test.find(testQuery)
       .populate("subject", "name")
       .populate("classLevels", "name")
+      .populate("week", "name startDate endDate")
       .sort({ date: -1 })
       .lean(),
   ]);
@@ -555,7 +771,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     distribution,
     resultRows,
     resultCount: results.length,
-    filters: { testId, classLevelId, subjectId, nameSearch, rollNumberSearch },
+    filters: { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, sortBy },
   });
 };
 

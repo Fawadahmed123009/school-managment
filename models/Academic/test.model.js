@@ -40,6 +40,11 @@ const testSchema = new mongoose.Schema(
         message: "Pass marks cannot exceed total marks",
       },
     },
+    week: {
+      type: ObjectId,
+      ref: "Week",
+      default: null,
+    },
     session: {
       type: ObjectId,
       ref: "TestSession",

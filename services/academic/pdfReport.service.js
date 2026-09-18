@@ -9,57 +9,76 @@ const TestSession = require("../../models/Academic/testSession.model");
 const Student = require("../../models/Students/students.model");
 
 const PDF_DIR = path.join(__dirname, "../../tmp/pdfs");
-const LOGO_PATH = path.join(__dirname, "../../public/images/logo.png");
+const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
 
 // Ensure PDF output directory exists
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
 // ─── Shared PDF drawing helpers ────────────────────────────────────────────────
 
+const HEADER_RESERVE = 68; // vertical space used by drawHeader (logo + titles + divider + gap)
+
+/**
+ * Draw the repeating page header (logo + school name + title + subtitle + divider).
+ * Registers a `pageAdded` listener so the header is redrawn on every new page.
+ * Returns the Y position where body content should start.
+ */
 function drawHeader(doc, { schoolName, title, subtitle }) {
   const hasLogo = fs.existsSync(LOGO_PATH);
   const leftMargin = doc.page.margins.left;
   const topMargin = doc.page.margins.top;
+  const pageW = doc.page.width;
 
-  if (hasLogo) {
-    try {
-      doc.image(LOGO_PATH, leftMargin, topMargin, { width: 48, height: 48 });
-    } catch {
-      // logo corrupt — skip silently
+  function paintHeader() {
+    if (hasLogo) {
+      try {
+        doc.image(LOGO_PATH, leftMargin, topMargin, { width: 48, height: 48 });
+      } catch {
+        // logo corrupt — skip silently
+      }
     }
-  }
 
-  const textX = hasLogo ? leftMargin + 58 : leftMargin;
-  doc
-    .fontSize(18)
-    .font("Helvetica-Bold")
-    .fillColor("#1e3a5f")
-    .text(schoolName || "School Portal", textX, topMargin + 2);
-
-  doc
-    .fontSize(13)
-    .font("Helvetica-Bold")
-    .fillColor("#333")
-    .text(title, textX, topMargin + 22);
-
-  if (subtitle) {
+    const textX = hasLogo ? leftMargin + 58 : leftMargin;
     doc
-      .fontSize(10)
-      .font("Helvetica")
-      .fillColor("#666")
-      .text(subtitle, textX, topMargin + 40);
+      .fontSize(18)
+      .font("Helvetica-Bold")
+      .fillColor("#1e3a5f")
+      .text(schoolName || "School Portal", textX, topMargin + 2);
+
+    doc
+      .fontSize(13)
+      .font("Helvetica-Bold")
+      .fillColor("#333")
+      .text(title, textX, topMargin + 22);
+
+    if (subtitle) {
+      doc
+        .fontSize(10)
+        .font("Helvetica")
+        .fillColor("#666")
+        .text(subtitle, textX, topMargin + 40);
+    }
+
+    // Divider line
+    const lineY = hasLogo ? topMargin + 56 : topMargin + 50;
+    doc.moveTo(leftMargin, lineY).lineTo(pageW - leftMargin - doc.page.margins.right, lineY).strokeColor("#ddd").lineWidth(1).stroke();
   }
 
-  // Divider line
-  const lineY = hasLogo ? topMargin + 56 : topMargin + 50;
-  doc.moveTo(leftMargin, lineY).lineTo(550, lineY).strokeColor("#ddd").lineWidth(1).stroke();
+  // Paint on first page
+  paintHeader();
 
-  return lineY + 10;
+  // Re-paint on every subsequent page
+  doc.on("pageAdded", () => {
+    paintHeader();
+  });
+
+  return topMargin + HEADER_RESERVE;
 }
 
 function drawTable(doc, startY, { headers, rows, colWidths }) {
   let y = startY;
   const leftMargin = doc.page.margins.left;
+  const topMargin = doc.page.margins.top;
   const rowHeight = 22;
   const headerHeight = 24;
 
@@ -80,7 +99,8 @@ function drawTable(doc, startY, { headers, rows, colWidths }) {
   rows.forEach((row, ri) => {
     if (y > 750) {
       doc.addPage();
-      y = doc.page.margins.top;
+      // Start below the repeating page header (drawn by pageAdded handler)
+      y = topMargin + HEADER_RESERVE;
     }
 
     // Alternating row background
@@ -386,7 +406,7 @@ function generateSessionReportPDF(data, schoolName) {
   phases.forEach((phaseBlock) => {
     if (y > 680) {
       doc.addPage();
-      y = doc.page.margins.top;
+      y = doc.page.margins.top + HEADER_RESERVE;
     }
 
     doc.fillColor("#1e3a5f").fontSize(11).font("Helvetica-Bold");

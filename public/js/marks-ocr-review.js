@@ -39,13 +39,13 @@
 
     uploadStep.style.display = 'none';
     reviewStep.style.display = 'block';
-    rowsBody.innerHTML = '<tr><td colspan="4">Extracting…</td></tr>';
+    rowsBody.innerHTML = '<tr><td colspan="5">Extracting…</td></tr>';
 
     const res = await fetch('/marks/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${data.message}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${data.message}</td></tr>`;
       return;
     }
 
@@ -55,7 +55,7 @@
 
   function renderRows() {
     if (!students.length) {
-      rowsBody.innerHTML = '<tr><td colspan="4" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
+      rowsBody.innerHTML = '<tr><td colspan="5" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
       rowCount.textContent = '0 rows';
       saveBtn.disabled = true;
       return;
@@ -63,6 +63,8 @@
     saveBtn.disabled = false;
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
+      const matchedStudent = students.find(s => s._id === row.studentId);
+      const rollDisplay = matchedStudent && matchedStudent.rollNumber ? matchedStudent.rollNumber : '';
       const options = students.map(s => {
         const cls = s.classLevel ? s.classLevel.name : '';
         const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
@@ -71,7 +73,7 @@
         return `<option value="${s._id}" ${row.studentId === s._id ? 'selected' : ''}>${label}</option>`;
       }).join('');
       return `
-        <tr data-row="${i}">
+        <tr data-row="${i}" data-roll="${rollDisplay}">
           <td><span class="dot ${row.confidence}"></span> ${row.confidence}</td>
           <td>
             <select class="student-select" data-row="${i}">
@@ -79,6 +81,7 @@
               ${options}
             </select>
           </td>
+          <td><span class="mono" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + rollDisplay : ''}</span></td>
           <td class="num"><input type="number" class="score-input" data-row="${i}" value="${row.score ?? ''}" /></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
@@ -90,12 +93,41 @@
 
   function attachRowEvents() {
     document.querySelectorAll('.score-input').forEach(el => el.addEventListener('input', updateTotal));
+    // Update roll # column when user changes the student dropdown
+    document.querySelectorAll('.student-select').forEach(sel => {
+      sel.addEventListener('change', function () {
+        const tr = this.closest('tr');
+        const chosen = students.find(s => s._id === this.value);
+        const roll = chosen && chosen.rollNumber ? chosen.rollNumber : '';
+        tr.dataset.roll = roll;
+        const rollCell = tr.querySelectorAll('td')[2];
+        if (rollCell) rollCell.innerHTML = roll ? `<span class="mono" style="color:var(--ink-soft);font-size:12px;">#${roll}</span>` : '';
+      });
+    });
     document.querySelectorAll('.skip-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const i = Number(btn.dataset.row);
         currentRows.splice(i, 1);
         renderRows();
       });
+    });
+  }
+
+  // ── Sort by roll number (re-orders DOM rows) ──────────────────────────
+  const sortRollOcr = document.getElementById('sort-roll-ocr');
+  if (sortRollOcr) {
+    sortRollOcr.addEventListener('change', function () {
+      const tbody = document.getElementById('rows-body');
+      const allRows = Array.from(tbody.querySelectorAll('tr'));
+      const val = this.value;
+      if (!val) return;
+      allRows.sort(function (a, b) {
+        const ra = (a.dataset.roll || '').trim();
+        const rb = (b.dataset.roll || '').trim();
+        const cmp = ra.localeCompare(rb, undefined, { numeric: true });
+        return val === 'rollAsc' ? cmp : -cmp;
+      });
+      allRows.forEach(function (row) { tbody.appendChild(row); });
     });
   }
 

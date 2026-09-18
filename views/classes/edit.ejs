@@ -36,11 +36,12 @@
           <input type="text" name="group" id="group" value="<%= cls.group || '' %>" placeholder="e.g. Computer Science, Pre-Medical" />
         </div>
         <div class="field">
-          <label for="section">Section (optional)</label>
-          <select name="section" id="section">
-            <option value="" <%= !cls.section ? 'selected' : '' %>>—</option>
-            <option value="Boys" <%= cls.section === 'Boys' ? 'selected' : '' %>>Boys</option>
-            <option value="Girls" <%= cls.section === 'Girls' ? 'selected' : '' %>>Girls</option>
+          <label for="sectionRef">Section (optional)</label>
+          <select name="sectionRef" id="sectionRef">
+            <option value="">—</option>
+            <% sections.filter(function(s) { return s.isActive; }).forEach(function(s) { %>
+              <option value="<%= s._id %>" <%= (cls.sectionRef && String(cls.sectionRef) === String(s._id)) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
           </select>
         </div>
       </div>

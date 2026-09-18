@@ -7,7 +7,9 @@
     <p class="eyebrow">Tests</p>
     <h1>Manage tests</h1>
   </div>
-  <a href="/sessions/manage" class="btn btn-ghost">Manage sessions →</a>
+  <div style="display:flex;gap:8px;">
+    <a href="/sessions/manage" class="btn btn-ghost">Manage sessions →</a>
+  </div>
 </div>
 
 <% if (ok) { %><div class="flash ok">Saved.</div><% } %>
@@ -59,7 +61,7 @@
       </div>
       <div class="field-row">
         <div class="field">
-          <label for="session">Session (optional)</label>
+          <label for="session">Session</label>
           <select name="session" id="session">
             <option value="">Standalone test — no session</option>
             <% sessions.forEach(function(s) { %>
@@ -67,11 +69,18 @@
             <% }); %>
           </select>
         </div>
-        <div class="field">
-          <label for="phase">Phase (if session selected)</label>
+        <div class="field" id="phase-field" style="display:none;">
+          <label for="phase">Phase</label>
           <select name="phase" id="phase">
             <option value="">—</option>
           </select>
+        </div>
+        <div class="field" id="week-field" style="display:none;">
+          <label for="week">Week</label>
+          <select name="week" id="week">
+            <option value="">Select a week</option>
+          </select>
+          <p class="hint" id="week-hint"></p>
         </div>
       </div>
       <button type="submit" class="btn btn-primary">Create test</button>
@@ -86,13 +95,14 @@
   <% } else { %>
     <div class="table-wrap">
     <table class="ledger">
-      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Session</th><th class="num">Total</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Week</th><th>Session</th><th class="num">Total</th><th></th></tr></thead>
       <tbody>
         <% tests.forEach(function(t) { %>
           <tr>
             <td><strong><%= t.name %></strong></td>
             <td><%= t.subject ? t.subject.name : '—' %></td>
             <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
+            <td><%= t.week ? t.week.name : '—' %></td>
             <td><%= t.session ? t.session.name : 'Standalone' %></td>
             <td class="num mono"><%= t.totalMarks %></td>
             <td style="display:flex;gap:6px;justify-content:flex-end;">
@@ -110,6 +120,9 @@
   <% } %>
 </div>
 
+<script>
+  window.__SESSIONS_DATA__ = <%- JSON.stringify(sessions) %>;
+</script>
 <script src="/js/test-manage.js"></script>
 
 <%- include('../partials/foot') %>

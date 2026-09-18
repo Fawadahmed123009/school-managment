@@ -1,0 +1,110 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Weeks — <%= session.name %></h1>
+  </div>
+  <a href="/sessions/manage" class="btn btn-ghost">Back to sessions</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load weeks: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Create a week</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/sessions/<%= session._id %>/weeks/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Week name</label>
+          <input type="text" name="name" id="name" placeholder="e.g. Week 3" required />
+        </div>
+        <div class="field">
+          <label for="phase">Phase</label>
+          <select name="phase" id="phase" required>
+            <option value="">Select a phase</option>
+            <% session.phases.sort(function(a, b) { return a.order - b.order; }).forEach(function(p) { %>
+              <option value="<%= p._id %>"><%= p.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="startDate">Start date</label>
+          <input type="date" name="startDate" id="startDate" required />
+        </div>
+        <div class="field">
+          <label for="endDate">End date</label>
+          <input type="date" name="endDate" id="endDate" required />
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create week</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Phases</h2></div>
+  <% if (session.phases.length === 0) { %>
+    <div class="empty"><div class="display">No phases</div></div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead><tr><th>Phase</th><th>Order</th><th></th></tr></thead>
+      <tbody>
+        <% session.phases.sort(function(a, b) { return a.order - b.order; }).forEach(function(p) { %>
+          <tr>
+            <td><strong><%= p.name %></strong></td>
+            <td><%= p.order %></td>
+            <td style="text-align:right;">
+              <form method="POST" action="/sessions/<%= session._id %>/phases/<%= p._id %>/delete" style="display:inline;" data-confirm="Delete this phase and ALL its weeks? Tests linked to those weeks will become unassigned (not deleted).">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All weeks</h2></div>
+  <% if (weeks.length === 0) { %>
+    <div class="empty"><div class="display">No weeks yet</div><div class="sub">Create named weeks within each phase to organise tests in this session.</div></div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Phase</th><th>Start</th><th>End</th><th class="num">Tests</th><th></th></tr></thead>
+      <tbody>
+        <% weeks.forEach(function(w) { %>
+          <tr>
+            <td><strong><%= w.name %></strong></td>
+            <td><%= w.phaseName %></td>
+            <td><%= new Date(w.startDate).toLocaleDateString() %></td>
+            <td><%= new Date(w.endDate).toLocaleDateString() %></td>
+            <td class="num mono"><%= w.testCount || 0 %></td>
+            <td>
+              <a href="/sessions/<%= session._id %>/weeks/<%= w._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <form method="POST" action="/sessions/<%= session._id %>/weeks/<%= w._id %>/delete" style="display:inline;" data-confirm="Delete this week? Tests linked to it will become unassigned (not deleted).">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

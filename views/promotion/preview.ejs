@@ -1,0 +1,77 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Year-end</p>
+    <h1>Confirm promotion</h1>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Review changes — <%= changes.length %> student(s)</h2>
+  </div>
+  <div class="panel-body" style="padding:0;">
+    <div style="padding:16px 24px; background:#f0f9ff; border-bottom:1px solid var(--border); font-size:13px; color:#0c4a6e;">
+      Please review every change below. Nothing is written to the database until you click <strong>"Confirm and apply"</strong>.
+    </div>
+
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Roll #</th>
+            <th>Student name</th>
+            <th>Current class</th>
+            <th></th>
+            <th>New class / status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% changes.forEach(function(c) { %>
+            <tr>
+              <td class="mono"><%= c.rollNumber %></td>
+              <td><strong><%= c.name %></strong></td>
+              <td><%= c.currentClassName %></td>
+              <td style="text-align:center; color:var(--muted); font-size:18px;">&rarr;</td>
+              <td>
+                <% if (c.isGraduate) { %>
+                  <span class="pill paid" style="background:#fef3c7; color:#92400e;">Graduated</span>
+                <% } else { %>
+                  <span class="pill ocr"><%= c.targetClassName %></span>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <form method="POST" action="/students/promote/confirm" style="padding:16px 24px; border-top:1px solid var(--border); display:flex; gap:12px; align-items:center;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="promotions" value="<%= promotionsJson %>" />
+      <button type="submit" class="btn btn-primary" id="confirm-btn">Confirm and apply</button>
+      <a href="/students/promote<%= sourceClassId ? '?sourceClass=' + sourceClassId : '' %>" class="btn btn-ghost">Go back</a>
+      <span class="muted" style="font-size:13px; margin-left:8px;"><%= changes.length %> change(s) will be applied.</span>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  var btn = document.getElementById('confirm-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function(e) {
+    if (!confirm('Are you sure you want to apply these promotions? This cannot be easily undone.')) {
+      e.preventDefault();
+    } else {
+      btn.disabled = true;
+      btn.textContent = 'Applying…';
+    }
+  });
+})();
+</script>
+
+<%- include('../partials/foot') %>

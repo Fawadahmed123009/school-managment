@@ -3,7 +3,7 @@ const router = express.Router();
 const { requireRole } = require("../../middlewares/authView");
 const Fees = require("../../models/Fees/fees.model");
 const { createFeeService, updateFeeService, bulkAssignFeesService, bulkAssignPreviewService, generateMonthlyFeesService } = require("../../services/fees/fees.service");
-const { getAllFeeHeadsService, findOrCreateFeeHeadByName } = require("../../services/fees/feeHead.service");
+const { getAllFeeHeadsService } = require("../../services/fees/feeHead.service");
 const { paginate } = require("../../utils/paginate");
 const Student = require("../../models/Students/students.model");
 const Parent = require("../../models/Parents/parents.model");
@@ -195,31 +195,18 @@ router.post("/fees/create", requireRole("admin"), async (req, res) => {
   const { student, feeHead, feeType, amount } = req.body;
   const body = { student, amount: Number(amount) };
   if (feeHead) {
+    // Selected from the dropdown — pass the ObjectId and resolve the name
+    // for the legacy feeType field (kept for backward-compatible display).
     body.feeHead = feeHead;
     const headsResult = await getAllFeeHeadsService({ limit: 100 });
     const head = (headsResult.data || []).find((h) => h._id.toString() === feeHead);
     if (head) body.feeType = head.name;
+  } else if (feeType && feeType.trim()) {
+    // Admin typed a custom head inline — createFeeService will promote it to
+    // a reusable FeeHead catalog entry (dedupe by name, case-insensitive).
+    body.feeType = feeType.trim();
   } else {
-    // Admin typed a head inline instead of picking one. Promote it to a real,
-    // reusable FeeHead (dedupe by name) and reference it — same catalog as the
-    // Fee Heads page — so it appears in the dropdown next time. Fall back to a
-    // plain feeType string only if creation fails or nothing was typed.
-    const typed = (feeType || "").trim();
-    if (typed) {
-      try {
-        const head = await findOrCreateFeeHeadByName(typed, req.user._id);
-        if (head) {
-          body.feeHead = head._id;
-          body.feeType = head.name;
-        } else {
-          body.feeType = typed;
-        }
-      } catch (err) {
-        body.feeType = typed;
-      }
-    } else {
-      body.feeType = "tuition";
-    }
+    body.feeType = "tuition";
   }
   try {
     await createFeeService(body, req.user._id, { status: () => ({ json: () => {} }) });

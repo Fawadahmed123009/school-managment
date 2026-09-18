@@ -8,10 +8,14 @@
  *     creates both (manual entry allows duplicate fee heads as separate charges).
  *   • The service always calls Fees.create (insert), never findOneAndUpdate
  *     or any upsert variant.
+ *   • When a custom feeType is provided without a feeHead reference, the
+ *     service promotes it to a real FeeHead catalog entry via
+ *     findOrCreateFeeHeadByName and links the fee record to it.
  */
 
 // ── Model mocks ──────────────────────────────────────────────────────────────
 const mockFeesCreate = jest.fn();
+const mockFindOrCreate = jest.fn();
 
 jest.mock("../models/Fees/fees.model", () => ({
   create: (...a) => mockFeesCreate(...a),
@@ -19,6 +23,9 @@ jest.mock("../models/Fees/fees.model", () => ({
 
 jest.mock("../models/Fees/feeHead.model", () => ({}));
 jest.mock("../models/Students/students.model", () => ({}));
+jest.mock("../services/fees/feeHead.service", () => ({
+  findOrCreateFeeHeadByName: (...a) => mockFindOrCreate(...a),
+}));
 
 const { createFeeService } = require("../services/fees/fees.service");
 
@@ -131,5 +138,50 @@ describe("createFeeService — always inserts, never overwrites", () => {
     );
 
     expect(fakeRes._statusCode).toBe(201);
+  });
+});
+
+describe("createFeeService — custom fee head promotion", () => {
+  test("promotes a typed feeType to a FeeHead when no feeHead is provided", async () => {
+    const newHead = { _id: "new-head-id", name: "Sports Day" };
+    mockFindOrCreate.mockResolvedValue(newHead);
+
+    await createFeeService(
+      { student: STUDENT_1, feeType: "Sports Day", amount: 500 },
+      ADMIN_ID,
+      fakeRes,
+    );
+
+    expect(mockFindOrCreate).toHaveBeenCalledWith("Sports Day", ADMIN_ID);
+    expect(mockFeesCreate).toHaveBeenCalledTimes(1);
+    const created = mockFeesCreate.mock.calls[0][0];
+    expect(created.feeHead).toBe("new-head-id");
+    expect(created.feeType).toBe("Sports Day");
+  });
+
+  test("reuses an existing FeeHead (case-insensitive) instead of creating a duplicate", async () => {
+    const existingHead = { _id: "existing-head-id", name: "Lab Fee" };
+    mockFindOrCreate.mockResolvedValue(existingHead);
+
+    await createFeeService(
+      { student: STUDENT_1, feeType: "lab fee", amount: 300 },
+      ADMIN_ID,
+      fakeRes,
+    );
+
+    expect(mockFindOrCreate).toHaveBeenCalledWith("lab fee", ADMIN_ID);
+    const created = mockFeesCreate.mock.calls[0][0];
+    expect(created.feeHead).toBe("existing-head-id");
+    expect(created.feeType).toBe("Lab Fee");
+  });
+
+  test("does NOT call findOrCreateFeeHeadByName when feeHead is already provided", async () => {
+    await createFeeService(
+      { student: STUDENT_1, feeHead: FEE_HEAD_TUITION, feeType: "Tuition", amount: 5000 },
+      ADMIN_ID,
+      fakeRes,
+    );
+
+    expect(mockFindOrCreate).not.toHaveBeenCalled();
   });
 });

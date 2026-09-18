@@ -24,7 +24,15 @@ const mockResultFindOneAndUpdate = jest.fn();
 const mockAssignmentFind = jest.fn();
 
 jest.mock("../models/Academic/test.model", () => ({
-  findById: (...a) => mockTestFindById(...a),
+  findById: (...a) => {
+    const result = mockTestFindById(...a);
+    // Support .populate() chaining (returns thenable with populate method)
+    const chain = { populate: jest.fn().mockReturnThis(), then: result.then ? result.then.bind(result) : undefined };
+    if (result && typeof result.then === "function") {
+      return chain;
+    }
+    return result;
+  },
 }));
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
@@ -78,7 +86,11 @@ function mockRes() {
 beforeEach(() => {
   jest.clearAllMocks();
 
-  mockTestFindById.mockResolvedValue(MULTI_SECTION_TEST);
+  mockTestFindById.mockImplementation(() => {
+    const p = Promise.resolve(MULTI_SECTION_TEST);
+    p.populate = jest.fn().mockReturnThis();
+    return p;
+  });
 
   // Assignment.find({ teacher, subject, classLevel: { $in } }).select("classLevel")
   mockAssignmentFind.mockImplementation((q) => {

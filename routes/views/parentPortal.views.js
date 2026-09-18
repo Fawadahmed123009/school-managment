@@ -43,15 +43,18 @@ router.get("/parent-portal", requireRole("parent"), async (req, res) => {
   const result = await apiFetch("/parents/profile", req.token);
   const profile = result.status === "success" ? result.data : null;
 
-  // Fetch per-child analysis data for alert badges
+  // Fetch per-child analysis data for alert badges + dashboard charts
   let childAlerts = {};
+  let childAnalyses = {};
   if (profile && profile.children && profile.children.length > 0) {
     const analyses = await Promise.all(
       profile.children.map((child) => apiFetch(`/parents/children/${child._id}/analysis`, req.token))
     );
     profile.children.forEach((child, i) => {
       const analysis = analyses[i] && analyses[i].status === "success" ? analyses[i].data : null;
-      childAlerts[child._id.toString()] = computeChildAlerts(analysis, THRESHOLDS);
+      const cid = child._id.toString();
+      childAlerts[cid] = computeChildAlerts(analysis, THRESHOLDS);
+      if (analysis) childAnalyses[cid] = analysis;
     });
   }
 
@@ -60,6 +63,7 @@ router.get("/parent-portal", requireRole("parent"), async (req, res) => {
     user: req.user,
     profile,
     childAlerts,
+    childAnalyses,
     alertThresholds: THRESHOLDS,
     loadError: result.status === "success" ? null : result.message,
     passwordSuccess: req.query.passwordSuccess === "1",
