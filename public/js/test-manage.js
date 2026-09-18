@@ -1,6 +1,4 @@
 (function () {
-  var sessionsData = window.__SESSIONS_DATA__ || [];
-
   var sessionSelect = document.getElementById('session');
   var phaseSelect = document.getElementById('phase');
   var weekSelect = document.getElementById('week');
@@ -9,6 +7,16 @@
   var weekHint = document.getElementById('week-hint');
 
   if (!sessionSelect) return;
+
+  // The session cookie is httpOnly, so it can't be read from document.cookie.
+  // Read the JWT from the server-rendered <meta name="auth-token"> tag instead,
+  // matching every other authenticated fetch in the app (see test-cascade-*.js).
+  function getAuthHeaders() {
+    var headers = {};
+    var meta = document.querySelector('meta[name="auth-token"]');
+    if (meta && meta.content) headers['Authorization'] = 'Bearer ' + meta.content;
+    return headers;
+  }
 
   function updatePhaseOptions() {
     var selected = sessionSelect.options[sessionSelect.selectedIndex];
@@ -53,7 +61,7 @@
 
     // Fetch weeks for this session+phase via API
     fetch('/api/v1/sessions/' + sessionId + '/weeks/' + phaseId, {
-      headers: { 'Authorization': 'Bearer ' + (document.cookie.match(/session=([^;]+)/) || [])[1] }
+      headers: getAuthHeaders()
     })
       .then(function (res) { return res.json(); })
       .then(function (data) {

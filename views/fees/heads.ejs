@@ -10,6 +10,7 @@
 </div>
 
 <% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (typeof createError !== 'undefined' && createError) { %><div class="flash error"><%= createError %></div><% } %>
 <% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
 
 <div class="panel">

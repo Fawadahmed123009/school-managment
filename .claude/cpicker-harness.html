@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ClassPicker verification harness</title>
+  <link rel="stylesheet" href="/css/style.css" />
+  <style>
+    body { background: var(--paper); padding: 24px; }
+    .harness-grid { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+    .harness-col { flex: 1 1 440px; max-width: 560px; }
+    .panel { margin-bottom: 16px; }
+    h2 { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <!--
+    Verifies the shared ClassPicker under the PRODUCTION Content-Security-Policy
+    (see .claude/cpicker-preview-server.js, which mirrors app/app.js: no
+    'unsafe-inline' on script-src). This page contains NO inline executable
+    <script> — data travels via <script type="application/json"> islands and
+    class-picker.js auto-initialises every [data-cpicker] element, exactly like
+    views/tests/manage.ejs and views/tests/sessions.ejs now do. Submission is
+    inspected from the test driver via preview_eval, not an inline handler.
+  -->
+  <div class="harness-grid">
+    <div class="harness-col">
+      <div class="panel">
+        <div class="panel-head"><h2>Test creation form</h2></div>
+        <div class="panel-body">
+          <form id="form-manage" method="POST" action="#">
+            <div class="field">
+              <label>Classes / sections</label>
+              <div id="cpicker-manage"
+                   data-cpicker
+                   data-cpicker-source="cpicker-manage-classes"
+                   data-cpicker-field="classLevels"
+                   data-cpicker-required></div>
+              <p class="hint">manage.ejs pattern — required</p>
+            </div>
+            <button type="submit" class="btn btn-primary">Create test</button>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="harness-col">
+      <div class="panel">
+        <div class="panel-head"><h2>Session creation form</h2></div>
+        <div class="panel-body">
+          <form id="form-sessions" method="POST" action="#">
+            <div class="field">
+              <label>Classes included</label>
+              <div id="cpicker-sessions"
+                   data-cpicker
+                   data-cpicker-source="cpicker-sessions-classes"
+                   data-cpicker-field="classLevels"></div>
+              <p class="hint">sessions.ejs pattern — optional</p>
+            </div>
+            <button type="submit" class="btn btn-primary">Create session</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    Representative 49-class dataset mirroring the ClassLevel model
+    (PG, Class One..Eight, then 9th/10th/11th/12th split by group + section),
+    emitted the SAME way the real views emit it: a JSON island rendered by EJS.
+  -->
+  <script type="application/json" id="cpicker-manage-classes">
+    [
+      {"_id":"pg","name":"PG","gradeLevel":"PG","group":null,"section":null},
+      {"_id":"g1","name":"Class One","gradeLevel":"1","group":null,"section":null},
+      {"_id":"g2","name":"Class Two","gradeLevel":"2","group":null,"section":null},
+      {"_id":"g3","name":"Class Three","gradeLevel":"3","group":null,"section":null},
+      {"_id":"g4","name":"Class Four","gradeLevel":"4","group":null,"section":null},
+      {"_id":"g5","name":"Class Five","gradeLevel":"5","group":null,"section":null},
+      {"_id":"g6","name":"Class Six","gradeLevel":"6","group":null,"section":null},
+      {"_id":"g7","name":"Class Seven","gradeLevel":"7","group":null,"section":null},
+      {"_id":"g8","name":"Class Eight","gradeLevel":"8","group":null,"section":null},
+      {"_id":"9-cs-boys","name":"9th Computer Science Boys","gradeLevel":"9","group":"Computer Science","section":"Boys"},
+      {"_id":"9-cs-girls","name":"9th Computer Science Girls","gradeLevel":"9","group":"Computer Science","section":"Girls"},
+      {"_id":"9-bio-boys","name":"9th Biology Boys","gradeLevel":"9","group":"Biology","section":"Boys"},
+      {"_id":"9-bio-girls","name":"9th Biology Girls","gradeLevel":"9","group":"Biology","section":"Girls"},
+      {"_id":"9-arts-boys","name":"9th Arts Boys","gradeLevel":"9","group":"Arts","section":"Boys"},
+      {"_id":"9-arts-girls","name":"9th Arts Girls","gradeLevel":"9","group":"Arts","section":"Girls"},
+      {"_id":"9-ca-boys","name":"9th Computer/Arts Boys","gradeLevel":"9","group":"Computer/Arts","section":"Boys"},
+      {"_id":"9-ca-girls","name":"9th Computer/Arts Girls","gradeLevel":"9","group":"Computer/Arts","section":"Girls"},
+      {"_id":"10-cs-boys","name":"10th Computer Science Boys","gradeLevel":"10","group":"Computer Science","section":"Boys"},
+      {"_id":"10-cs-girls","name":"10th Computer Science Girls","gradeLevel":"10","group":"Computer Science","section":"Girls"},
+      {"_id":"10-bio-boys","name":"10th Biology Boys","gradeLevel":"10","group":"Biology","section":"Boys"},
+      {"_id":"10-bio-girls","name":"10th Biology Girls","gradeLevel":"10","group":"Biology","section":"Girls"},
+      {"_id":"10-arts-boys","name":"10th Arts Boys","gradeLevel":"10","group":"Arts","section":"Boys"},
+      {"_id":"10-arts-girls","name":"10th Arts Girls","gradeLevel":"10","group":"Arts","section":"Girls"},
+      {"_id":"10-ca-boys","name":"10th Computer/Arts Boys","gradeLevel":"10","group":"Computer/Arts","section":"Boys"},
+      {"_id":"10-ca-girls","name":"10th Computer/Arts Girls","gradeLevel":"10","group":"Computer/Arts","section":"Girls"},
+      {"_id":"11-preeng-boys","name":"11th Pre-Engineering Boys","gradeLevel":"11","group":"Pre-Engineering","section":"Boys"},
+      {"_id":"11-preeng-girls","name":"11th Pre-Engineering Girls","gradeLevel":"11","group":"Pre-Engineering","section":"Girls"},
+      {"_id":"11-premed-boys","name":"11th Pre-Medical Boys","gradeLevel":"11","group":"Pre-Medical","section":"Boys"},
+      {"_id":"11-premed-girls","name":"11th Pre-Medical Girls","gradeLevel":"11","group":"Pre-Medical","section":"Girls"},
+      {"_id":"11-icsphy-boys","name":"11th ICS Physics Boys","gradeLevel":"11","group":"ICS Physics","section":"Boys"},
+      {"_id":"11-icsphy-girls","name":"11th ICS Physics Girls","gradeLevel":"11","group":"ICS Physics","section":"Girls"},
+      {"_id":"11-icsstat-boys","name":"11th ICS Stats Boys","gradeLevel":"11","group":"ICS Stats","section":"Boys"},
+      {"_id":"11-icsstat-girls","name":"11th ICS Stats Girls","gradeLevel":"11","group":"ICS Stats","section":"Girls"},
+      {"_id":"11-fa-boys","name":"11th FA Boys","gradeLevel":"11","group":"FA","section":"Boys"},
+      {"_id":"11-fa-girls","name":"11th FA Girls","gradeLevel":"11","group":"FA","section":"Girls"},
+      {"_id":"11-com-boys","name":"11th Commerce Boys","gradeLevel":"11","group":"Commerce","section":"Boys"},
+      {"_id":"11-com-girls","name":"11th Commerce Girls","gradeLevel":"11","group":"Commerce","section":"Girls"},
+      {"_id":"12-preeng-boys","name":"12th Pre-Engineering Boys","gradeLevel":"12","group":"Pre-Engineering","section":"Boys"},
+      {"_id":"12-preeng-girls","name":"12th Pre-Engineering Girls","gradeLevel":"12","group":"Pre-Engineering","section":"Girls"},
+      {"_id":"12-premed-boys","name":"12th Pre-Medical Boys","gradeLevel":"12","group":"Pre-Medical","section":"Boys"},
+      {"_id":"12-premed-girls","name":"12th Pre-Medical Girls","gradeLevel":"12","group":"Pre-Medical","section":"Girls"},
+      {"_id":"12-icsphy-boys","name":"12th ICS Physics Boys","gradeLevel":"12","group":"ICS Physics","section":"Boys"},
+      {"_id":"12-icsphy-girls","name":"12th ICS Physics Girls","gradeLevel":"12","group":"ICS Physics","section":"Girls"},
+      {"_id":"12-icsstat-boys","name":"12th ICS Stats Boys","gradeLevel":"12","group":"ICS Stats","section":"Boys"},
+      {"_id":"12-icsstat-girls","name":"12th ICS Stats Girls","gradeLevel":"12","group":"ICS Stats","section":"Girls"},
+      {"_id":"12-fa-boys","name":"12th FA Boys","gradeLevel":"12","group":"FA","section":"Boys"},
+      {"_id":"12-fa-girls","name":"12th FA Girls","gradeLevel":"12","group":"FA","section":"Girls"},
+      {"_id":"12-com-boys","name":"12th Commerce Boys","gradeLevel":"12","group":"Commerce","section":"Boys"},
+      {"_id":"12-com-girls","name":"12th Commerce Girls","gradeLevel":"12","group":"Commerce","section":"Girls"}
+    ]
+  </script>
+  <script type="application/json" id="cpicker-sessions-classes">
+    [
+      {"_id":"pg","name":"PG","gradeLevel":"PG","group":null,"section":null},
+      {"_id":"g1","name":"Class One","gradeLevel":"1","group":null,"section":null},
+      {"_id":"g2","name":"Class Two","gradeLevel":"2","group":null,"section":null},
+      {"_id":"g3","name":"Class Three","gradeLevel":"3","group":null,"section":null},
+      {"_id":"g4","name":"Class Four","gradeLevel":"4","group":null,"section":null},
+      {"_id":"g5","name":"Class Five","gradeLevel":"5","group":null,"section":null},
+      {"_id":"g6","name":"Class Six","gradeLevel":"6","group":null,"section":null},
+      {"_id":"g7","name":"Class Seven","gradeLevel":"7","group":null,"section":null},
+      {"_id":"g8","name":"Class Eight","gradeLevel":"8","group":null,"section":null},
+      {"_id":"9-cs-boys","name":"9th Computer Science Boys","gradeLevel":"9","group":"Computer Science","section":"Boys"},
+      {"_id":"9-cs-girls","name":"9th Computer Science Girls","gradeLevel":"9","group":"Computer Science","section":"Girls"},
+      {"_id":"9-bio-boys","name":"9th Biology Boys","gradeLevel":"9","group":"Biology","section":"Boys"},
+      {"_id":"9-bio-girls","name":"9th Biology Girls","gradeLevel":"9","group":"Biology","section":"Girls"},
+      {"_id":"9-arts-boys","name":"9th Arts Boys","gradeLevel":"9","group":"Arts","section":"Boys"},
+      {"_id":"9-arts-girls","name":"9th Arts Girls","gradeLevel":"9","group":"Arts","section":"Girls"},
+      {"_id":"9-ca-boys","name":"9th Computer/Arts Boys","gradeLevel":"9","group":"Computer/Arts","section":"Boys"},
+      {"_id":"9-ca-girls","name":"9th Computer/Arts Girls","gradeLevel":"9","group":"Computer/Arts","section":"Girls"},
+      {"_id":"10-cs-boys","name":"10th Computer Science Boys","gradeLevel":"10","group":"Computer Science","section":"Boys"},
+      {"_id":"10-cs-girls","name":"10th Computer Science Girls","gradeLevel":"10","group":"Computer Science","section":"Girls"},
+      {"_id":"10-bio-boys","name":"10th Biology Boys","gradeLevel":"10","group":"Biology","section":"Boys"},
+      {"_id":"10-bio-girls","name":"10th Biology Girls","gradeLevel":"10","group":"Biology","section":"Girls"},
+      {"_id":"10-arts-boys","name":"10th Arts Boys","gradeLevel":"10","group":"Arts","section":"Boys"},
+      {"_id":"10-arts-girls","name":"10th Arts Girls","gradeLevel":"10","group":"Arts","section":"Girls"},
+      {"_id":"10-ca-boys","name":"10th Computer/Arts Boys","gradeLevel":"10","group":"Computer/Arts","section":"Boys"},
+      {"_id":"10-ca-girls","name":"10th Computer/Arts Girls","gradeLevel":"10","group":"Computer/Arts","section":"Girls"},
+      {"_id":"11-preeng-boys","name":"11th Pre-Engineering Boys","gradeLevel":"11","group":"Pre-Engineering","section":"Boys"},
+      {"_id":"11-preeng-girls","name":"11th Pre-Engineering Girls","gradeLevel":"11","group":"Pre-Engineering","section":"Girls"},
+      {"_id":"11-premed-boys","name":"11th Pre-Medical Boys","gradeLevel":"11","group":"Pre-Medical","section":"Boys"},
+      {"_id":"11-premed-girls","name":"11th Pre-Medical Girls","gradeLevel":"11","group":"Pre-Medical","section":"Girls"},
+      {"_id":"11-icsphy-boys","name":"11th ICS Physics Boys","gradeLevel":"11","group":"ICS Physics","section":"Boys"},
+      {"_id":"11-icsphy-girls","name":"11th ICS Physics Girls","gradeLevel":"11","group":"ICS Physics","section":"Girls"},
+      {"_id":"11-icsstat-boys","name":"11th ICS Stats Boys","gradeLevel":"11","group":"ICS Stats","section":"Boys"},
+      {"_id":"11-icsstat-girls","name":"11th ICS Stats Girls","gradeLevel":"11","group":"ICS Stats","section":"Girls"},
+      {"_id":"11-fa-boys","name":"11th FA Boys","gradeLevel":"11","group":"FA","section":"Boys"},
+      {"_id":"11-fa-girls","name":"11th FA Girls","gradeLevel":"11","group":"FA","section":"Girls"},
+      {"_id":"11-com-boys","name":"11th Commerce Boys","gradeLevel":"11","group":"Commerce","section":"Boys"},
+      {"_id":"11-com-girls","name":"11th Commerce Girls","gradeLevel":"11","group":"Commerce","section":"Girls"},
+      {"_id":"12-preeng-boys","name":"12th Pre-Engineering Boys","gradeLevel":"12","group":"Pre-Engineering","section":"Boys"},
+      {"_id":"12-preeng-girls","name":"12th Pre-Engineering Girls","gradeLevel":"12","group":"Pre-Engineering","section":"Girls"},
+      {"_id":"12-premed-boys","name":"12th Pre-Medical Boys","gradeLevel":"12","group":"Pre-Medical","section":"Boys"},
+      {"_id":"12-premed-girls","name":"12th Pre-Medical Girls","gradeLevel":"12","group":"Pre-Medical","section":"Girls"},
+      {"_id":"12-icsphy-boys","name":"12th ICS Physics Boys","gradeLevel":"12","group":"ICS Physics","section":"Boys"},
+      {"_id":"12-icsphy-girls","name":"12th ICS Physics Girls","gradeLevel":"12","group":"ICS Physics","section":"Girls"},
+      {"_id":"12-icsstat-boys","name":"12th ICS Stats Boys","gradeLevel":"12","group":"ICS Stats","section":"Boys"},
+      {"_id":"12-icsstat-girls","name":"12th ICS Stats Girls","gradeLevel":"12","group":"ICS Stats","section":"Girls"},
+      {"_id":"12-fa-boys","name":"12th FA Boys","gradeLevel":"12","group":"FA","section":"Boys"},
+      {"_id":"12-fa-girls","name":"12th FA Girls","gradeLevel":"12","group":"FA","section":"Girls"},
+      {"_id":"12-com-boys","name":"12th Commerce Boys","gradeLevel":"12","group":"Commerce","section":"Boys"},
+      {"_id":"12-com-girls","name":"12th Commerce Girls","gradeLevel":"12","group":"Commerce","section":"Girls"}
+    ]
+  </script>
+  <script src="/js/class-picker.js"></script>
+</body>
+</html>

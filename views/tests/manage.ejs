@@ -37,13 +37,9 @@
         </div>
       </div>
       <div class="field">
-        <label for="classLevels">Classes / sections</label>
-        <select name="classLevels" id="classLevels" multiple size="8" required>
-          <% classes.forEach(function(c) { %>
-            <option value="<%= c._id %>"><%= c.name %></option>
-          <% }); %>
-        </select>
-        <p class="hint">Hold Ctrl/Cmd to select multiple — this creates one unified roster across all selected.</p>
+        <label>Classes / sections</label>
+        <div id="cpicker-manage" data-cpicker data-cpicker-source="cpicker-manage-classes" data-cpicker-field="classLevels" data-cpicker-required></div>
+        <p class="hint">Select classes to include — this creates one unified roster across all selected.</p>
       </div>
       <div class="field-row">
         <div class="field">
@@ -120,9 +116,8 @@
   <% } %>
 </div>
 
-<script>
-  window.__SESSIONS_DATA__ = <%- JSON.stringify(sessions) %>;
-</script>
+<script type="application/json" id="cpicker-manage-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script src="/js/class-picker.js"></script>
 <script src="/js/test-manage.js"></script>
 
 <%- include('../partials/foot') %>
