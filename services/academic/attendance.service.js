@@ -29,7 +29,9 @@ exports.markClassAttendanceService = async (classLevel, date, records, teacherId
 
 // Roster for a class + whatever attendance already exists for a given day (used to pre-fill the marking UI)
 exports.getClassRosterForDateService = async (classLevel, date, res) => {
-  const students = await Student.find({ classLevel }).select("name studentId");
+  const students = await Student.find({ classLevel })
+    .select("name studentId rollNumber parent")
+    .populate("parent", "name");
 
   const day = new Date(date);
   day.setHours(0, 0, 0, 0);
@@ -42,6 +44,8 @@ exports.getClassRosterForDateService = async (classLevel, date, res) => {
     student: s._id,
     name: s.name,
     studentId: s.studentId,
+    rollNumber: s.rollNumber || "",
+    parentName: s.parent ? s.parent.name : "",
     status: existingMap[s._id.toString()] || null,
   }));
 
