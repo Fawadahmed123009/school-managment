@@ -14,6 +14,52 @@ const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
 // Ensure PDF output directory exists
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
+// ─── Photo helpers (download + embed remote/local student photos) ──────────────
+
+function detectImageType(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return "png";
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
+  if (buffer.slice(0, 3).toString("ascii") === "GIF") return "gif";
+  return null;
+}
+
+async function fetchRemoteImage(url) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const type = detectImageType(buffer);
+    if (!type) return null;
+    return { buffer, type };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve a student photoUrl to { buffer, type } or null.
+ * Handles remote URLs (https://…) and local paths (/uploads/…).
+ * Never throws — returns null on any failure so the report still generates.
+ */
+async function resolveStudentPhoto(photoUrl) {
+  if (!photoUrl) return null;
+  // Finding 3.2: use async file read instead of blocking sync call
+  if (photoUrl.startsWith("/")) {
+    try {
+      const filePath = path.join(process.cwd(), photoUrl);
+      const buffer = await fs.promises.readFile(filePath);
+      const type = detectImageType(buffer);
+      if (!type) return null;
+      return { buffer, type };
+    } catch {
+      return null;
+    }
+  }
+  return fetchRemoteImage(photoUrl);
+}
+
 // ─── Shared PDF drawing helpers ────────────────────────────────────────────────
 
 const HEADER_RESERVE = 68; // vertical space used by drawHeader (logo + titles + divider + gap)
@@ -158,7 +204,7 @@ async function gatherResultSheet(testId) {
     .populate("classLevels", "name");
   if (!test) return null;
 
-  const results = await TestResult.find({ test: testId }).populate("student", "name studentId whatsappNumber");
+  const results = await TestResult.find({ test: testId }).populate("student", "name studentId rollNumber whatsappNumber");
 
   return { test, results };
 }
@@ -180,38 +226,46 @@ async function gatherAnalytics({ studentId, subjectId, fromDate, toDate }) {
   if (studentId) resultQuery.student = studentId;
 
   const results = await TestResult.find(resultQuery)
-    .populate("student", "name studentId whatsappNumber")
+    .populate("student", "name studentId rollNumber whatsappNumber photoUrl")
     .populate({ path: "test", populate: { path: "subject", select: "name" } });
 
-  const rows = results.map((r) => ({
-    studentName: r.student.name,
-    studentId: r.student.studentId,
-    whatsappNumber: r.student.whatsappNumber,
-    test: r.test.name,
-    subject: r.test.subject ? r.test.subject.name : "Unknown",
-    date: r.test.date,
-    score: r.score,
-    totalMarks: r.test.totalMarks,
-    percent: Math.round((r.score / r.test.totalMarks) * 10000) / 100,
-  }));
+  const rows = results.map((r) => {
+    const percent = r.test.totalMarks
+      ? Math.round((r.score / r.test.totalMarks) * 10000) / 100
+      : null;
+    return {
+      studentName: r.student.name,
+      studentId: r.student.studentId,
+      rollNumber: r.student.rollNumber,
+      whatsappNumber: r.student.whatsappNumber,
+      test: r.test.name,
+      subject: r.test.subject ? r.test.subject.name : "Unknown",
+      date: r.test.date,
+      score: r.score,
+      totalMarks: r.test.totalMarks,
+      percent,
+    };
+  });
 
   // Determine if scope resolves to exactly one student
   const uniqueStudents = [...new Set(results.map((r) => r.student._id.toString()))];
   let studentName = null;
   let whatsappNumber = null;
+  let studentPhotoUrl = null;
   if (uniqueStudents.length === 1) {
     studentName = rows[0].studentName;
     whatsappNumber = rows[0].whatsappNumber;
+    studentPhotoUrl = results[0].student.photoUrl || null;
   }
 
-  return { rows, studentName, whatsappNumber };
+  return { rows, studentName, whatsappNumber, studentPhotoUrl };
 }
 
 async function gatherSessionReport(sessionId, studentId) {
   const session = await TestSession.findById(sessionId);
   if (!session) return null;
 
-  const student = await Student.findById(studentId).select("name studentId whatsappNumber fatherName classLevel");
+  const student = await Student.findById(studentId).select("name studentId rollNumber whatsappNumber fatherName classLevel photoUrl");
   if (!student) return null;
 
   const tests = await Test.find({ session: sessionId }).populate("subject", "name");
@@ -229,17 +283,24 @@ async function gatherSessionReport(sessionId, studentId) {
       const phaseTests = tests.filter((t) => t.phase && t.phase.toString() === phase._id.toString());
       const rows = phaseTests
         .filter((t) => resultByTest[t._id.toString()] !== undefined)
-        .map((t) => ({
-          test: t.name,
-          subject: t.subject ? t.subject.name : "Unknown",
-          score: resultByTest[t._id.toString()],
-          totalMarks: t.totalMarks,
-          percent: Math.round((resultByTest[t._id.toString()] / t.totalMarks) * 10000) / 100,
-        }));
+        .map((t) => {
+          const score = resultByTest[t._id.toString()];
+          const percent = t.totalMarks
+            ? Math.round((score / t.totalMarks) * 10000) / 100
+            : null;
+          return {
+            test: t.name,
+            subject: t.subject ? t.subject.name : "Unknown",
+            score,
+            totalMarks: t.totalMarks,
+            percent,
+          };
+        });
 
+      const validRows = rows.filter((r) => r.percent !== null);
       const phaseAverage =
-        rows.length > 0
-          ? Math.round((rows.reduce((sum, r) => sum + r.percent, 0) / rows.length) * 100) / 100
+        validRows.length > 0
+          ? Math.round((validRows.reduce((sum, r) => sum + r.percent, 0) / validRows.length) * 100) / 100
           : null;
 
       return { phase: phase.name, order: phase.order, tests: rows, average: phaseAverage };
@@ -264,6 +325,7 @@ async function gatherSessionReport(sessionId, studentId) {
       whatsappNumber: student.whatsappNumber,
       fatherName: student.fatherName,
       className: classLevelPop ? classLevelPop.name : "—",
+      photoUrl: student.photoUrl,
     },
     phases: phaseBlocks,
     overallAverage,
@@ -294,22 +356,27 @@ function generateResultSheetPDF(data, schoolName) {
 
   // Stats
   const passCount = results.filter((r) => r.score >= test.passMarks).length;
+  // Finding 1.3: show meaningful message when test has zero results
   const passRate = results.length > 0 ? Math.round((passCount / results.length) * 100) : 0;
 
   drawStatBox(doc, 50, y, String(results.length), "Students");
-  drawStatBox(doc, 170, y, String(passCount), "Passed");
-  drawStatBox(doc, 290, y, `${passRate}%`, "Pass Rate");
+  drawStatBox(doc, 170, y, results.length > 0 ? String(passCount) : "—", "Passed");
+  drawStatBox(doc, 290, y, results.length > 0 ? `${passRate}%` : "—", "Pass Rate");
   y += 50;
 
   // Results table
   if (results.length > 0) {
-    const headers = ["Student", "ID", "Score", "%", "Status"];
-    const colWidths = [180, 100, 70, 70, 80];
+    const headers = ["Student", "Roll No", "ID", "Score", "%", "Status"];
+    const colWidths = [150, 60, 90, 70, 60, 70];
     const rows = results.map((r) => {
-      const pct = Math.round((r.score / test.totalMarks) * 10000) / 100;
-      return [r.student.name, r.student.studentId, `${r.score}/${test.totalMarks}`, `${pct}%`, r.score >= test.passMarks ? "Pass" : "Fail"];
+      const pct = test.totalMarks ? Math.round((r.score / test.totalMarks) * 10000) / 100 : null;
+      return [r.student.name, r.student.rollNumber || "—", r.student.studentId, `${r.score}/${test.totalMarks}`, pct !== null ? `${pct}%` : "—", r.score >= test.passMarks ? "Pass" : "Fail"];
     });
     drawTable(doc, y, { headers, rows, colWidths });
+  } else {
+    doc.fillColor("#999").fontSize(10).font("Helvetica-Oblique");
+    doc.text("No results recorded yet", 50, y);
+    y += 20;
   }
 
   drawFooter(doc);
@@ -325,7 +392,7 @@ function generateResultSheetPDF(data, schoolName) {
   });
 }
 
-function generateAnalyticsPDF(data, schoolName, filters) {
+function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
   const { rows, studentName } = data;
   const doc = new PDFDocument({ size: "A4", margin: 50 });
   const buffers = [];
@@ -343,20 +410,42 @@ function generateAnalyticsPDF(data, schoolName, filters) {
     subtitle,
   });
 
+  // Student photo + info strip when scoped to a single student with a photo
+  if (studentName && photoResult && photoResult.buffer) {
+    const PHOTO_SIZE = 54;
+    const stripH = 40;
+    doc.fillStyle = "#f0f4f8";
+    doc.rect(50, y, 495, stripH).fill();
+    try {
+      doc.image(photoResult.buffer, 56, y + (stripH - PHOTO_SIZE) / 2, {
+        width: PHOTO_SIZE,
+        height: PHOTO_SIZE,
+        fit: [PHOTO_SIZE, PHOTO_SIZE],
+      });
+    } catch {
+      // photo corrupt — skip
+    }
+    doc.fillColor("#1e3a5f").fontSize(10).font("Helvetica-Bold");
+    doc.text(studentName, 118, y + 13);
+    y += stripH + 10;
+  }
+
   // Stats
-  const avg = rows.length > 0 ? Math.round((rows.reduce((s, r) => s + r.percent, 0) / rows.length) * 100) / 100 : 0;
+  // Filter out rows where totalMarks is falsy (0 or undefined) to avoid NaN — Finding 2.1
+  const validRows = rows.filter((r) => r.totalMarks);
+  const avg = validRows.length > 0 ? Math.round((validRows.reduce((s, r) => s + r.percent, 0) / validRows.length) * 100) / 100 : 0;
   drawStatBox(doc, 50, y, String(rows.length), "Results");
   drawStatBox(doc, 170, y, `${avg}%`, "Average");
   y += 50;
 
   // Table
   if (rows.length > 0) {
-    const headers = studentName ? ["Test", "Subject", "Date", "Score", "%"] : ["Student", "Test", "Subject", "Score", "%"];
-    const colWidths = studentName ? [130, 120, 80, 70, 70] : [150, 110, 100, 70, 70];
+    const headers = studentName ? ["Test", "Subject", "Date", "Score", "%"] : ["Student", "Roll No", "Test", "Subject", "Score", "%"];
+    const colWidths = studentName ? [130, 120, 80, 70, 70] : [120, 60, 100, 90, 60, 60];
     const rows_data = rows.map((r) =>
       studentName
-        ? [r.test, r.subject, new Date(r.date).toLocaleDateString(), `${r.score}/${r.totalMarks}`, `${r.percent}%`]
-        : [r.studentName, r.test, r.subject, `${r.score}/${r.totalMarks}`, `${r.percent}%`]
+        ? [r.test, r.subject, new Date(r.date).toLocaleDateString(), `${r.score}/${r.totalMarks}`, `${r.percent !== null ? r.percent : "—"}%`]
+        : [r.studentName, r.rollNumber || "—", r.test, r.subject, `${r.score}/${r.totalMarks}`, `${r.percent !== null ? r.percent : "—"}%`]
     );
     drawTable(doc, y, { headers, rows: rows_data, colWidths });
   }
@@ -375,7 +464,7 @@ function generateAnalyticsPDF(data, schoolName, filters) {
   });
 }
 
-function generateSessionReportPDF(data, schoolName) {
+function generateSessionReportPDF(data, schoolName, photoResult) {
   const { session, student, phases, overallAverage } = data;
   const doc = new PDFDocument({ size: "A4", margin: 50 });
   const buffers = [];
@@ -387,16 +476,36 @@ function generateSessionReportPDF(data, schoolName) {
     subtitle: `${session.name}`,
   });
 
-  // Student info box
+  // Student info box (taller to accommodate passport photo on the right)
+  const PHOTO_SIZE = 72; // 1 inch
+  const infoBoxH = photoResult ? 80 : 55;
   doc.fillStyle = "#f0f4f8";
-  doc.rect(50, y, 495, 55).fill();
+  doc.rect(50, y, 495, infoBoxH).fill();
+
+  // Student photo (right side of info box)
+  if (photoResult && photoResult.buffer) {
+    try {
+      const photoX = 50 + 495 - PHOTO_SIZE - 6;
+      const photoY = y + (infoBoxH - PHOTO_SIZE) / 2;
+      doc.image(photoResult.buffer, photoX, photoY, {
+        width: PHOTO_SIZE,
+        height: PHOTO_SIZE,
+        fit: [PHOTO_SIZE, PHOTO_SIZE],
+      });
+    } catch {
+      // photo corrupt or unsupported format — skip silently
+    }
+  }
+
+  // Text area: keep within the left portion when photo is present
+  const textMaxWidth = photoResult ? 495 - PHOTO_SIZE - 20 : 495 - 20;
   doc.fillColor("#1e3a5f").fontSize(12).font("Helvetica-Bold");
-  doc.text(student.name, 60, y + 8);
+  doc.text(student.name, 60, y + 8, { width: textMaxWidth });
   doc.fillColor("#555").fontSize(9).font("Helvetica");
-  doc.text(`ID: ${student.studentId}`, 60, y + 25);
+  doc.text(`Roll No: ${student.rollNumber || "—"}  |  ID: ${student.studentId}`, 60, y + 25);
   doc.text(`Father: ${student.fatherName}`, 200, y + 25);
   doc.text(`Class: ${student.className}`, 370, y + 25);
-  y += 65;
+  y += infoBoxH + 10;
 
   // Overall average
   drawStatBox(doc, 50, y, overallAverage !== null ? `${overallAverage}%` : "—", "Overall Average");
@@ -454,13 +563,15 @@ exports.generateResultSheetPDF = async (testId, schoolName) => {
 
 exports.generateAnalyticsPDF = async (filters, schoolName) => {
   const data = await gatherAnalytics(filters);
-  return generateAnalyticsPDF(data, schoolName, filters);
+  const photoResult = data.studentPhotoUrl ? await resolveStudentPhoto(data.studentPhotoUrl) : null;
+  return generateAnalyticsPDF(data, schoolName, filters, photoResult);
 };
 
 exports.generateSessionReportPDF = async (sessionId, studentId, schoolName) => {
   const data = await gatherSessionReport(sessionId, studentId);
   if (!data) throw new Error("Session or student not found");
-  return generateSessionReportPDF(data, schoolName);
+  const photoResult = await resolveStudentPhoto(data.student.photoUrl);
+  return generateSessionReportPDF(data, schoolName, photoResult);
 };
 
 exports.getPdfPath = (uuid) => {

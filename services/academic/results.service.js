@@ -46,6 +46,13 @@ exports.studentCheckExamResultService = async (examId, studentId, res) => {
  * @param {string} teacherId - The ID of the teacher
  * @param {Object} res - Express response object
  */
+/**
+ * @deprecated Route retired — no longer mounted in v1 routes.
+ * The legacy Exam/ExamResult models are superseded by Test/TestResult.
+ * This function is kept only for reference; safe to remove entirely.
+ * Finding 8.2: the original access check (result.teacher === teacherId)
+ * was comparing a property on an array, always returning 401.
+ */
 exports.getAllExamResultsService = async (classId, teacherId, res) => {
   // Finding all results for the given class
   const result = await Results.find({ classLevel: classId });

@@ -775,7 +775,11 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   });
 };
 
-// Helper: compute stats from an array of scores
+// Helper: compute stats from an array of scores.
+// Uses population stddev (divides by n, not n-1) because we treat the scores
+// as the full set of interest (all students who took the test), not a sample
+// from a larger population. This is the conventional choice for class-level
+// descriptive statistics.
 function computeStats(scores, test) {
   if (!scores || scores.length === 0) {
     return { avg: null, max: null, min: null, stddev: null, count: 0, totalMarks: test ? test.totalMarks : null };
@@ -1075,7 +1079,6 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
 
   const perClass = Object.keys(perClassMap).map((clId) => {
     const scores = perClassMap[clId];
-    const stats = computeStats(scores, { totalMarks: 100 });
     // Compute percentage-based stats using actual test totalMarks
     const testMap = {};
     scopedTests.forEach((t) => { testMap[t._id.toString()] = t; });

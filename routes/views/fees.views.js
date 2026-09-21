@@ -114,7 +114,14 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
     }
 
     const populateConfig = [
-      { path: "student", select: "name rollNumber fatherName" },
+      {
+        path: "student",
+        select: "name rollNumber fatherName classLevel parent",
+        populate: [
+          { path: "classLevel", select: "name gradeLevel section" },
+          { path: "parent", select: "name" },
+        ],
+      },
       { path: "academicTerm" },
       { path: "academicYear" },
       { path: "feeHead", select: "name" },

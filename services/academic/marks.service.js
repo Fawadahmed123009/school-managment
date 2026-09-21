@@ -1,6 +1,8 @@
 /**
  * @deprecated This service uses the legacy Exam/ExamResult models.
  * TODO: Migrate to Test/TestResult models (test.model.js, testResult.model.js).
+ * Note: getStudentTermReportService is still active but should be migrated.
+ * getAllExamResultsService has been retired — its route is no longer mounted.
  */
 const responseStatus = require("../../handlers/responseStatus.handler");
 const ExamResult = require("../../models/Academic/results.model");
@@ -136,7 +138,15 @@ exports.getStudentTermReportService = async (studentId, academicTermId, res) => 
     return responseStatus(res, 404, "failed", "No results found for this student/term");
   }
 
-  const average = results.reduce((sum, r) => sum + r.grade, 0) / results.length;
+  // Finding 8.1: compute weighted average — sum(score)/sum(totalMarks)*100
+  // instead of unweighted average of percentages, which is mathematically wrong
+  // when exams have different totalMarks.
+  const totalScore = results.reduce((sum, r) => sum + (r.score || 0), 0);
+  const totalPossible = results.reduce((sum, r) => {
+    const examTotal = r.exam && r.exam.totalMark ? r.exam.totalMark : 0;
+    return sum + examTotal;
+  }, 0);
+  const average = totalPossible > 0 ? (totalScore / totalPossible) * 100 : 0;
   const overall = gradeCalculate(average, 100, 50);
 
   return responseStatus(res, 200, "success", {

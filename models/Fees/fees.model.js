@@ -28,8 +28,8 @@ const feesSchema = new mongoose.Schema(
       required: true,
       min: [0, "Amount cannot be negative"],
       validate: {
-        validator: (v) => v > 0,
-        message: "Fee amount must be greater than zero",
+        validator: (v) => v >= 0,
+        message: "Fee amount cannot be negative",
       },
     },
     status: {

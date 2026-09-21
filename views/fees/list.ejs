@@ -142,6 +142,9 @@
       <thead>
         <tr>
           <th>Student</th>
+          <th>Roll #</th>
+          <th>Class</th>
+          <th>Parent</th>
           <th>Fee head</th>
           <th>Source</th>
           <th class="num">Amount</th>
@@ -153,6 +156,9 @@
         <% fees.forEach(function(f) { %>
           <tr>
             <td><strong><%= (f.student && f.student.name) || 'Unknown' %></strong></td>
+            <td><%= (f.student && f.student.rollNumber) || '—' %></td>
+            <td><% if (f.student && f.student.classLevel) { %><%= f.student.classLevel.gradeLevel + ' — ' + f.student.classLevel.name %><% } else { %>—<% } %></td>
+            <td><%= (f.student && f.student.parent && f.student.parent.name) || (f.student && f.student.fatherName) || '—' %></td>
             <td><%= (f.feeHead && f.feeHead.name) || f.feeType || '—' %></td>
             <td><span class="pill <%= f.source %>"><%= f.source %></span></td>
             <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>

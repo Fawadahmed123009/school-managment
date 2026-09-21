@@ -64,7 +64,7 @@ router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req,
     }
 
     if (format === "docx") {
-      const buffer = await generateDOCX(scope, scopeValues, selectedFields, blankCols);
+      const buffer = await generateDOCX(scope, scopeValues, selectedFields, blankCols, schoolName);
       res.setHeader("Content-Disposition", "attachment; filename=students-export.docx");
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       return res.send(buffer);
