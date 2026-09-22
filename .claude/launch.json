@@ -6,6 +6,12 @@
       "runtimeExecutable": "wsl",
       "runtimeArgs": ["-d", "ubuntu", "--", "bash", "-c", "cd /home/fawad/project/school-mgmt && exec node server.js"],
       "port": 5130
+    },
+    {
+      "name": "cpicker-harness",
+      "runtimeExecutable": "wsl",
+      "runtimeArgs": ["-d", "ubuntu", "--", "bash", "-c", "cd /home/fawad/project/school-mgmt && exec node .claude/cpicker-preview-server.js"],
+      "port": 4599
     }
   ]
 }

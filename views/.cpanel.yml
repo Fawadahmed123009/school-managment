@@ -1,0 +1,6 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home2/avenslms/repositories/school-managment/
+    - /home2/avenslms/nodevenv/repositories/school-managment/20/bin/npm install --prefix $DEPLOYPATH --production
+    - /bin/touch $DEPLOYPATH/tmp/restart.txt

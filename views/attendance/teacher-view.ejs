@@ -18,27 +18,64 @@
   </div>
 <% } else { %>
 
-<!-- ── Tab bar ─────────────────────────────────────────────── -->
-<div class="tab-bar">
-  <a href="/attendance/my-classes?tab=class&year=<%= year %>&month=<%= month %><%= classLevel ? '&classLevel=' + classLevel : '' %>" class="<%= tab === 'class' ? 'active' : '' %>">By class</a>
-  <a href="/attendance/my-classes?tab=student&year=<%= year %>&month=<%= month %><%= classLevel ? '&classLevel=' + classLevel : '' %>" class="<%= tab === 'student' ? 'active' : '' %>">Student breakdown</a>
-</div>
-
-<!-- ── Filters ─────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- UNIFIED FILTER BAR                                                -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
 <div class="panel">
   <div class="panel-body">
-    <form method="GET" action="/attendance/my-classes" class="field-row" style="align-items:flex-end; margin-bottom:0;">
-      <input type="hidden" name="tab" value="<%= tab %>" />
-      <div class="field" style="max-width:140px;">
+    <form method="GET" action="/attendance/my-classes" class="field-row" id="filterForm"
+          style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap; gap:12px;">
+
+      <!-- Date range control -->
+      <div class="field" style="min-width:150px;">
+        <label for="rangeType">Date range</label>
+        <select name="rangeType" id="rangeType">
+          <option value="today"  <%= rangeType === 'today'  ? 'selected' : '' %>>Today</option>
+          <option value="week"   <%= rangeType === 'week'   ? 'selected' : '' %>>This Week</option>
+          <option value="month"  <%= rangeType === 'month'  ? 'selected' : '' %>>This Month</option>
+          <option value="custom" <%= rangeType === 'custom' ? 'selected' : '' %>>Custom range</option>
+        </select>
+      </div>
+
+      <!-- Week picker -->
+      <div class="field range-field range-week" style="display:none; max-width:180px;">
+        <label for="weekStart">Week of</label>
+        <input type="date" name="weekStart" id="weekStart" value="<%= weekStartValue %>" />
+      </div>
+
+      <!-- Month picker -->
+      <div class="field range-field range-month" style="display:none; max-width:100px;">
         <label for="year">Year</label>
         <input type="number" name="year" id="year" value="<%= year %>" />
       </div>
-      <div class="field" style="max-width:140px;">
+      <div class="field range-field range-month" style="display:none; max-width:100px;">
         <label for="month">Month</label>
         <input type="number" name="month" id="month" min="1" max="12" value="<%= month %>" />
       </div>
-      <div class="field" style="min-width:180px;">
-        <label for="classLevel">Class filter</label>
+
+      <!-- Custom range pickers -->
+      <div class="field range-field range-custom" style="display:none; max-width:170px;">
+        <label for="startDate">From</label>
+        <input type="date" name="startDate" id="startDate" value="<%= rangeType === 'custom' ? startDate : '' %>" />
+      </div>
+      <div class="field range-field range-custom" style="display:none; max-width:170px;">
+        <label for="endDate">To</label>
+        <input type="date" name="endDate" id="endDate" value="<%= rangeType === 'custom' ? endDate : '' %>" />
+      </div>
+
+      <!-- Scope control (teacher: no "whole institute") -->
+      <div class="field" style="min-width:170px;">
+        <label for="scope">Scope</label>
+        <select name="scope" id="scope">
+          <option value="myClasses"       <%= scope === 'myClasses'       ? 'selected' : '' %>>My classes</option>
+          <option value="specificClass"   <%= scope === 'specificClass'   ? 'selected' : '' %>>Specific class</option>
+          <option value="specificStudent" <%= scope === 'specificStudent' ? 'selected' : '' %>>Specific student</option>
+        </select>
+      </div>
+
+      <!-- Class selector (visible when scope = specificClass or specificStudent) -->
+      <div class="field scope-field scope-specificClass scope-specificStudent" style="display:none; min-width:180px;">
+        <label for="classLevel">Class</label>
         <select name="classLevel" id="classLevel">
           <option value="">All my classes</option>
           <% classes.forEach(function(c) { %>
@@ -46,14 +83,7 @@
           <% }); %>
         </select>
       </div>
-      <div class="field" style="min-width:160px;">
-        <label for="sortBy">Sort by</label>
-        <select name="sortBy" id="sortBy">
-          <option value="" <%= !sortBy ? 'selected' : '' %>>Name (A–Z)</option>
-          <option value="rollAsc" <%= sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
-          <option value="rollDesc" <%= sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
-        </select>
-      </div>
+
       <div class="field" style="flex:none;">
         <button type="submit" class="btn btn-primary">View</button>
       </div>
@@ -61,129 +91,378 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 1 — BY CLASS SUMMARY                                  -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<% if (tab === 'class') { %>
+<!-- Student search sub-filters (toggled by JS; always in DOM) -->
+<div class="panel scope-specificStudent-panel" id="studentSearchPanel" style="display:<%= scope === 'specificStudent' ? '' : 'none' %>;">
+  <div class="panel-body">
+    <form method="GET" action="/attendance/my-classes" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+      <input type="hidden" name="scope" value="specificStudent" />
+      <input type="hidden" name="rangeType" value="<%= rangeType %>" />
+      <% if (rangeType === 'week') { %>
+        <input type="hidden" name="weekStart" value="<%= weekStartValue %>" />
+      <% } else if (rangeType === 'month') { %>
+        <input type="hidden" name="year" value="<%= year %>" />
+        <input type="hidden" name="month" value="<%= month %>" />
+      <% } else if (rangeType === 'custom') { %>
+        <input type="hidden" name="startDate" value="<%= startDate %>" />
+        <input type="hidden" name="endDate" value="<%= endDate %>" />
+      <% } %>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
+        <select name="classLevel" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="">All my classes</option>
+          <% classes.forEach(function(c) { %>
+            <option value="<%= c._id %>" <%= classLevel === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
+        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+          <option value="" <%= !sortBy ? 'selected' : '' %>>Name (A–Z)</option>
+          <option value="rollAsc" <%= sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+          <option value="rollDesc" <%= sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+        </select>
+      </div>
+      <div style="flex:none;">
+        <button type="submit" class="btn btn-primary">Search</button>
+      </div>
+    </form>
+  </div>
+</div>
 
-<% if (perClass.length === 0) { %>
-  <div class="empty"><div class="display">No attendance recorded for this month</div><p>Try a different month or check back later.</p></div>
-<% } else { %>
-  <%
-    var totalP = 0, totalA = 0, totalL = 0;
-    perClass.forEach(function(c) { totalP += c.present; totalA += c.absent; totalL += c.late; });
-    var totalAll = totalP + totalA + totalL;
-  %>
-  <div class="stats">
-    <div class="stat">
-      <div class="n mono"><%= perClass.length %></div>
-      <div class="l">Classes</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--paid);"><%= totalP %></div>
-      <div class="l">Total present</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--error);"><%= totalA %></div>
-      <div class="l">Total absent</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--review);"><%= totalL %></div>
-      <div class="l">Total late</div>
-    </div>
-    <% if (totalAll > 0) { %>
-    <div class="stat">
-      <div class="n mono"><%= Math.round(((totalP + totalL) / totalAll) * 100) %>%</div>
-      <div class="l">Attendance rate</div>
-    </div>
+<!-- ── Range label ── -->
+<div style="margin-bottom:20px;">
+  <strong style="font-size:16px;">
+    <% if (rangeType === 'today') { %>
+      <%= startDate %>
+    <% } else if (rangeType === 'week') { %>
+      Week of <%= startDate %> &ndash; <%= endDate %>
+    <% } else if (rangeType === 'month') { %>
+      <%= year %> - <%= String(month).padStart(2, '0') %>
+    <% } else if (rangeType === 'custom') { %>
+      <%= startDate %> &ndash; <%= endDate %>
     <% } %>
-  </div>
+    <% if (scope === 'specificClass' && classLevel) { %>
+      <% var selClass = classes.find(function(c) { return c._id === classLevel; }); %>
+      &middot; <%= selClass ? selClass.name : 'Class' %>
+    <% } else if (scope === 'specificStudent') { %>
+      &middot; Student view
+    <% } %>
+  </strong>
+</div>
 
-  <div class="panel">
-    <div class="panel-head"><h2><%= year %> - <%= String(month).padStart(2, '0') %></h2></div>
-    <div class="table-wrap">
-    <table class="ledger">
-      <thead>
-        <tr><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
-      </thead>
-      <tbody>
-        <% perClass.forEach(function(c) { %>
-          <tr>
-            <td><strong><%= c.className %></strong></td>
-            <td class="num mono"><%= c.present %></td>
-            <td class="num mono"><%= c.absent %></td>
-            <td class="num mono"><%= c.late %></td>
-            <td class="num mono"><%= c.total %></td>
-            <td class="num mono"><%= c.total > 0 ? Math.round(((c.present + c.late) / c.total) * 100) : 0 %>%</td>
-          </tr>
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- MY CLASSES / SPECIFIC CLASS SCOPE                                 -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<% if (scope === 'myClasses' || scope === 'specificClass') { %>
+
+  <% if (isSingleDay) { %>
+    <!-- ── SNAPSHOT VIEW (single day) ── -->
+    <% if (perClass.length === 0) { %>
+      <div class="empty">
+        <div class="display">No attendance recorded for this day</div>
+        <p>Try a different date or check back later.</p>
+      </div>
+    <% } else { %>
+      <%
+        // Aggregate per-class data into a single snapshot
+        var snapP = 0, snapA = 0, snapL = 0;
+        perClass.forEach(function(c) { snapP += c.present; snapA += c.absent; snapL += c.late; });
+        var snapTotal = snapP + snapA + snapL;
+        var snapshot = { present: snapP, absent: snapA, late: snapL, total: snapTotal };
+      %>
+      <div class="stats">
+        <div class="stat">
+          <div class="n mono"><%= snapTotal %></div>
+          <div class="l">Total students</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--paid);"><%= snapP %></div>
+          <div class="l">Present</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--error);"><%= snapA %></div>
+          <div class="l">Absent</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--review);"><%= snapL %></div>
+          <div class="l">Late</div>
+        </div>
+        <div class="stat">
+          <div class="n mono"><%= snapTotal > 0 ? Math.round(((snapP + snapL) / snapTotal) * 100) : 0 %>%</div>
+          <div class="l">Attendance rate</div>
+        </div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="panel-head"><h2>Snapshot — <%= startDate %></h2></div>
+        <div class="panel-body chart-body">
+          <canvas id="snapshotChart"></canvas>
+        </div>
+      </div>
+      <script type="application/json" id="snapshot-data"><%- JSON.stringify(snapshot) %></script>
+
+      <!-- Class breakdown table -->
+      <div class="panel" style="margin-top:24px;">
+        <div class="panel-head"><h2>Class breakdown</h2></div>
+        <div class="table-wrap">
+          <table class="ledger">
+            <thead>
+              <tr><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
+            </thead>
+            <tbody>
+              <% perClass.forEach(function(c) { %>
+                <tr>
+                  <td><strong><%= c.className %></strong></td>
+                  <td class="num mono"><%= c.present %></td>
+                  <td class="num mono"><%= c.absent %></td>
+                  <td class="num mono"><%= c.late %></td>
+                  <td class="num mono"><%= c.total %></td>
+                  <td class="num mono"><%= c.total > 0 ? Math.round(((c.present + c.late) / c.total) * 100) : 0 %>%</td>
+                </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    <% } %>
+
+  <% } else { %>
+    <!-- ── TREND VIEW (multi-day) ── -->
+    <% if (dailyTrend.length === 0 && perClass.length === 0) { %>
+      <div class="empty">
+        <div class="display">No attendance recorded for this range</div>
+        <p>Try a different range or check back later.</p>
+      </div>
+    <% } else { %>
+      <%
+        var totalP = 0, totalA = 0, totalL = 0;
+        perClass.forEach(function(c) { totalP += c.present; totalA += c.absent; totalL += c.late; });
+        var totalAll = totalP + totalA + totalL;
+      %>
+      <div class="stats">
+        <div class="stat">
+          <div class="n mono"><%= perClass.length %></div>
+          <div class="l">Classes</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--paid);"><%= totalP %></div>
+          <div class="l">Total present</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--error);"><%= totalA %></div>
+          <div class="l">Total absent</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--review);"><%= totalL %></div>
+          <div class="l">Total late</div>
+        </div>
+        <% if (totalAll > 0) { %>
+        <div class="stat">
+          <div class="n mono"><%= Math.round(((totalP + totalL) / totalAll) * 100) %>%</div>
+          <div class="l">Attendance rate</div>
+        </div>
+        <% } %>
+      </div>
+
+      <!-- Trend line chart (only if dailyTrend data exists) -->
+      <% if (dailyTrend.length > 0) { %>
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Daily attendance trend</h2></div>
+          <div class="panel-body chart-body">
+            <canvas id="dailyAttChart"></canvas>
+          </div>
+        </div>
+        <script type="application/json" id="daily-rollup-data"><%- JSON.stringify(dailyTrend) %></script>
+
+        <!-- Day grid -->
+        <div class="day-grid">
+          <% dailyTrend.forEach(function(d) { %>
+            <% var dateObj = new Date(d.date + 'T00:00:00'); %>
+            <% var dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dateObj.getDay()]; %>
+            <div class="day-cell">
+              <div class="day-date"><%= dayName %> <%= dateObj.getDate() %></div>
+              <div class="day-counts">
+                <span class="c-present" title="Present"><%= d.present %></span>
+                <span class="c-absent" title="Absent"><%= d.absent %></span>
+                <span class="c-late" title="Late"><%= d.late %></span>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      <% } %>
+
+      <!-- Class breakdown table -->
+      <% if (perClass.length > 0) { %>
+        <div class="panel" style="margin-top:24px;">
+          <div class="panel-head"><h2>Class breakdown</h2></div>
+          <div class="table-wrap">
+            <table class="ledger">
+              <thead>
+                <tr><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
+              </thead>
+              <tbody>
+                <% perClass.forEach(function(c) { %>
+                  <tr>
+                    <td><strong><%= c.className %></strong></td>
+                    <td class="num mono"><%= c.present %></td>
+                    <td class="num mono"><%= c.absent %></td>
+                    <td class="num mono"><%= c.late %></td>
+                    <td class="num mono"><%= c.total %></td>
+                    <td class="num mono"><%= c.total > 0 ? Math.round(((c.present + c.late) / c.total) * 100) : 0 %>%</td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      <% } %>
+    <% } %>
+  <% } %>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- SPECIFIC STUDENT SCOPE                                            -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<% } else if (scope === 'specificStudent') { %>
+
+  <% var students = perStudent || []; %>
+
+  <!-- Student list -->
+  <% if (students.length === 0 && !filters.studentId) { %>
+    <div class="empty">
+      <div class="display">No students found</div>
+      <p>No students are enrolled in the selected class(es).</p>
+    </div>
+  <% } else if (students.length > 0) { %>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Students</h2>
+        <span style="font-size:13px; color:var(--ink-soft);"><%= students.length %> found</span>
+      </div>
+      <div class="att-student-list">
+        <% students.forEach(function(s) { %>
+          <%
+            var histParams = new URLSearchParams();
+            histParams.set('scope', 'specificStudent');
+            histParams.set('rangeType', rangeType);
+            if (rangeType === 'week') histParams.set('weekStart', weekStartValue);
+            else if (rangeType === 'month') { histParams.set('year', year); histParams.set('month', month); }
+            else if (rangeType === 'custom') { histParams.set('startDate', startDate); histParams.set('endDate', endDate); }
+            histParams.set('studentId', s.student);
+            if (classLevel) histParams.set('classLevel', classLevel);
+            if (sortBy) histParams.set('sortBy', sortBy);
+          %>
+          <div class="att-student-row">
+            <div class="att-s-info">
+              <span class="att-s-name"><%= s.name %></span>
+              <span class="att-s-meta">Roll #<%= s.rollNumber %> &middot; <%= s.className %></span>
+            </div>
+            <a href="/attendance/my-classes?<%= histParams.toString() %>" class="btn btn-ghost" style="text-decoration:none; padding:4px 14px; font-size:12px;">View history</a>
+          </div>
         <% }); %>
-      </tbody>
-    </table>
+      </div>
     </div>
-  </div>
+  <% } %>
+
+  <!-- Selected student's history + snapshot -->
+  <% if (filters.studentId && studentHistory) { %>
+    <%
+      var hist = studentHistory.history;
+      var summ = studentHistory.summary;
+      var selectedStudent = students.find(function(s) { return String(s.student) === String(filters.studentId); });
+      var studentLabel = selectedStudent ? selectedStudent.name : 'Selected student';
+      var studentRoll = selectedStudent ? selectedStudent.rollNumber : '';
+      var studentCls = selectedStudent ? selectedStudent.className : '';
+    %>
+    <div style="margin-top:28px;">
+      <div class="page-head" style="margin-bottom:16px;">
+        <div>
+          <p class="eyebrow">Student attendance</p>
+          <h1><%= studentLabel %></h1>
+          <% if (studentRoll || studentCls) { %>
+            <p style="font-size:13px; color:var(--ink-soft); margin-top:4px;">
+              <% if (studentRoll) { %>Roll #<%= studentRoll %><% } %>
+              <% if (studentRoll && studentCls) { %> &middot; <% } %>
+              <% if (studentCls) { %><%= studentCls %><% } %>
+            </p>
+          <% } %>
+        </div>
+      </div>
+
+      <!-- Summary stats -->
+      <div class="stats">
+        <div class="stat">
+          <div class="n mono"><%= summ.total %></div>
+          <div class="l">School days in range</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--paid);"><%= summ.present %></div>
+          <div class="l">Present</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--error);"><%= summ.absent %></div>
+          <div class="l">Absent</div>
+        </div>
+        <div class="stat">
+          <div class="n mono" style="color:var(--review);"><%= summ.late %></div>
+          <div class="l">Late</div>
+        </div>
+        <div class="stat">
+          <div class="n mono"><%= summ.total > 0 ? Math.round(((summ.present + summ.late) / summ.total) * 100) : 0 %>%</div>
+          <div class="l">Attendance rate</div>
+        </div>
+      </div>
+
+      <!-- Snapshot doughnut -->
+      <% if (summ.total > 0) { %>
+        <div class="panel chart-panel">
+          <div class="panel-head"><h2>Summary — <%= startDate %> to <%= endDate %></h2></div>
+          <div class="panel-body chart-body">
+            <canvas id="studentSummaryChart"></canvas>
+          </div>
+        </div>
+        <script type="application/json" id="student-summary-data"><%- JSON.stringify(summ) %></script>
+      <% } %>
+
+      <!-- Timeline -->
+      <% if (hist.length > 0) { %>
+        <div class="panel" style="margin-top:24px;">
+          <div class="panel-head">
+            <h2>Day-by-day timeline</h2>
+            <span style="font-size:13px; color:var(--ink-soft);"><%= hist.length %> days</span>
+          </div>
+          <div class="att-timeline">
+            <% hist.forEach(function(h) { %>
+              <% var dateObj = new Date(h.date + 'T00:00:00'); %>
+              <% var dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][dateObj.getDay()]; %>
+              <div class="att-timeline-row">
+                <span class="att-date"><%= h.date %></span>
+                <span class="att-day"><%= dayName %></span>
+                <% if (h.status === 'present') { %>
+                  <span class="pill paid">Present</span>
+                <% } else if (h.status === 'absent') { %>
+                  <span class="pill error">Absent</span>
+                <% } else if (h.status === 'late') { %>
+                  <span class="pill review">Late</span>
+                <% } %>
+              </div>
+            <% }); %>
+          </div>
+        </div>
+      <% } else { %>
+        <div class="empty"><div class="display">No attendance records in this range</div></div>
+      <% } %>
+    </div>
+  <% } %>
+
 <% } %>
 
-<!-- ══════════════════════════════════════════════════════════ -->
-<!-- TAB 2 — STUDENT BREAKDOWN                                 -->
-<!-- ══════════════════════════════════════════════════════════ -->
-<% } else if (tab === 'student') { %>
-
-<% if (perStudent.length === 0) { %>
-  <div class="empty"><div class="display">No students found</div><p>No students are enrolled in the selected class(es) for this period.</p></div>
-<% } else { %>
-  <%
-    var sTotalP = 0, sTotalA = 0, sTotalL = 0;
-    perStudent.forEach(function(s) { sTotalP += s.present; sTotalA += s.absent; sTotalL += s.late; });
-  %>
-  <div class="stats">
-    <div class="stat">
-      <div class="n mono"><%= perStudent.length %></div>
-      <div class="l">Students</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--paid);"><%= sTotalP %></div>
-      <div class="l">Total present</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--error);"><%= sTotalA %></div>
-      <div class="l">Total absent</div>
-    </div>
-    <div class="stat">
-      <div class="n mono" style="color:var(--review);"><%= sTotalL %></div>
-      <div class="l">Total late</div>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-head">
-      <h2>Student breakdown</h2>
-      <span style="font-size:13px; color:var(--ink-soft);"><%= year %> - <%= String(month).padStart(2, '0') %></span>
-    </div>
-    <div class="table-wrap">
-    <table class="ledger">
-      <thead>
-        <tr><th>Student</th><th>Class</th><th class="num">Present</th><th class="num">Absent</th><th class="num">Late</th><th class="num">Total</th><th class="num">Rate</th></tr>
-      </thead>
-      <tbody>
-        <% perStudent.forEach(function(s) { %>
-          <tr>
-            <td><strong><%= s.name %></strong><br><span style="font-size:11px; color:var(--ink-soft);">Roll #<%= s.rollNumber %></span></td>
-            <td><%= s.className %></td>
-            <td class="num mono"><%= s.present %></td>
-            <td class="num mono"><%= s.absent %></td>
-            <td class="num mono"><%= s.late %></td>
-            <td class="num mono"><%= s.total %></td>
-            <td class="num mono"><%= s.rate !== null ? s.rate + '%' : '—' %></td>
-          </tr>
-        <% }); %>
-      </tbody>
-    </table>
-    </div>
-  </div>
 <% } %>
 
-<% } %>
-
-<% } %>
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- SCRIPTS (external files only — CSP-safe, no inline code)           -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="/js/attendance-teacher-view.js"></script>
 
 <%- include('../partials/foot') %>

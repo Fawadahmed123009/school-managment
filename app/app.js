@@ -65,9 +65,11 @@ app.use("/api", corsMiddleware);
 // ── Rate limiting (global) ────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000,                  // limit each IP to 300 requests per window
+ max: 1000, // limit each IP to 1000 requests per window
   standardHeaders: true,
   legacyHeaders: false,
+  // Don't count static assets toward the limit
+  skip: (req) => req.path.startsWith("/css/") || req.path.startsWith("/js/") || req.path.startsWith("/images/") || req.path.endsWith(".ico"),
   message: { status: "failed", message: "Too many requests, please try again later." },
 });
 app.use(globalLimiter);
@@ -132,6 +134,7 @@ app.use("/uploads", (req, res, next) => {
 
 app.use((req, res, next) => {
   res.locals.schoolName = process.env.SCHOOL_NAME || "School Portal";
+  res.locals.instituteWhatsApp = process.env.INSTITUTE_WHATSAPP || "";
   next();
 });
 

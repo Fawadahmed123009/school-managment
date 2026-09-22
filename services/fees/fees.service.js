@@ -39,8 +39,8 @@ exports.bulkCreateFeesService = async (rows, adminId, res) => {
   const invalidRows = [];
   rows.forEach((row, idx) => {
     const amt = row.amount;
-    if (amt == null || amt <= 0) {
-      invalidRows.push({ index: idx, amount: amt, reason: amt == null ? "amount is null/missing" : amt === 0 ? "amount is zero" : "amount is negative" });
+    if (amt == null || amt < 0) {
+      invalidRows.push({ index: idx, amount: amt, reason: amt == null ? "amount is null/missing" : "amount is negative" });
     }
   });
 
@@ -150,7 +150,14 @@ exports.getAllFeesService = async (filters, query, res) => {
     limit: query.limit,
     sort: "-createdAt",
     populate: [
-      { path: "student", select: "name rollNumber" },
+      {
+        path: "student",
+        select: "name rollNumber fatherName classLevel parent",
+        populate: [
+          { path: "classLevel", select: "name gradeLevel section" },
+          { path: "parent", select: "name" },
+        ],
+      },
       { path: "academicTerm" },
       { path: "academicYear" },
       { path: "feeHead", select: "name" },
@@ -268,12 +275,16 @@ exports.bulkAssignFeesService = async (params, adminId, res) => {
   }
 
   // Layer 2: Tuition-specific feeAgreed (only when no per-student override set)
+  // feeAgreed is stored as String in Student model, convert to Number
   students.forEach((s) => {
     const sid = s._id.toString();
     if (perStudentMap[sid] !== undefined && perStudentMap[sid] !== null && perStudentMap[sid] !== '') {
       studentAmountMap[sid] = Number(perStudentMap[sid]);
-    } else if (isTuition && s.feeAgreed !== null && s.feeAgreed !== undefined) {
-      studentAmountMap[sid] = s.feeAgreed;
+    } else if (isTuition && s.feeAgreed !== null && s.feeAgreed !== undefined && s.feeAgreed !== '') {
+      const agreedAmount = Number(s.feeAgreed);
+      if (!isNaN(agreedAmount)) {
+        studentAmountMap[sid] = agreedAmount;
+      }
     }
   });
 
@@ -332,18 +343,17 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
     return responseStatus(res, 404, "failed", 'No active "Tuition" fee head found. Create one first.');
   }
 
-  const amount = tuitionHead.defaultAmount;
-  if (!amount || amount <= 0) {
-    return responseStatus(res, 400, "failed", "Tuition fee head has no default amount set (or it is zero).");
-  }
+  const defaultAmount = tuitionHead.defaultAmount;
+  const hasDefault = defaultAmount != null && defaultAmount > 0;
 
   // Active students: NOT graduated AND NOT withdrawn AND status != 'inactive'
-  // Fetch feeAgreed so we can use per-student override when set
+  // Fetch feeAgreed so we can use per-student override when set,
+  // and name for clear per-student skip messages.
   const activeStudents = await Student.find({
     status: { $ne: "inactive" },
     isGraduated: { $ne: true },
     isWithdrawn: { $ne: true },
-  }).select("_id feeAgreed").lean();
+  }).select("_id name feeAgreed").lean();
 
   // Count graduated/withdrawn/inactive for the summary
   const totalExcluded = await Student.countDocuments({
@@ -367,10 +377,27 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
   }
 
   // Build a map of student → effective amount (feeAgreed overrides default when explicitly set)
+  // Also track students who have neither feeAgreed nor a valid fee head default.
   const studentAmountMap = {};
+  const skippedNoAmount = [];
   activeStudents.forEach((s) => {
-    if (s.feeAgreed !== null && s.feeAgreed !== undefined) {
-      studentAmountMap[s._id.toString()] = s.feeAgreed;
+    const sid = s._id.toString();
+    // feeAgreed is stored as String in Student model, convert to Number
+    // Treat null, undefined, and empty string as "not set"
+    if (s.feeAgreed !== null && s.feeAgreed !== undefined && s.feeAgreed !== "") {
+      const agreedAmount = Number(s.feeAgreed);
+      // Only use if it's a valid number (including 0 for scholarships)
+      if (!isNaN(agreedAmount)) {
+        studentAmountMap[sid] = agreedAmount;
+        return;
+      }
+    }
+    // feeAgreed not set — fall back to fee head default
+    if (hasDefault) {
+      studentAmountMap[sid] = defaultAmount;
+    } else {
+      // Neither feeAgreed nor a valid default: skip this student
+      skippedNoAmount.push(s.name || s._id.toString());
     }
   });
 
@@ -382,20 +409,18 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
   }).select("student").lean();
   const alreadyHaveSet = new Set(existingFees.map((f) => f.student.toString()));
 
-  // Build new fee records for students who don't have one yet
+  // Build new fee records for students who don't have one yet and have a valid amount
   // Use per-student feeAgreed when explicitly set (including 0 for scholarship),
   // otherwise fall back to the fee head's defaultAmount.
   const newRows = activeIds
     .filter((id) => !alreadyHaveSet.has(id.toString()))
+    .filter((id) => studentAmountMap[id.toString()] !== undefined)
     .map((student) => {
-      const studentAmount = studentAmountMap[student.toString()] !== undefined
-        ? studentAmountMap[student.toString()]
-        : amount;
       return {
         student,
         feeHead: tuitionHead._id,
         feeType: tuitionHead.name,
-        amount: studentAmount,
+        amount: studentAmountMap[student.toString()],
         status: "pending",
         source: "manual",
         billingMonth,
@@ -411,11 +436,19 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
 
   const alreadyGenerated = alreadyHaveSet.size;
 
+  // Build a clear message including any per-student skips
+  let skipNote = "";
+  if (skippedNoAmount.length > 0) {
+    skipNote = ` ${skippedNoAmount.length} student(s) skipped (no agreed fee and Tuition has no default amount): ${skippedNoAmount.join(", ")}.`;
+  }
+
   return responseStatus(res, 201, "success", {
-    message: `${generatedCount} fee(s) generated, ${alreadyGenerated} student(s) already had this month's fee, ${totalExcluded} student(s) skipped (graduated/withdrawn/inactive).`,
+    message: `${generatedCount} fee(s) generated, ${alreadyGenerated} student(s) already had this month's fee, ${totalExcluded} student(s) skipped (graduated/withdrawn/inactive).${skipNote}`,
     generated: generatedCount,
     alreadyGenerated,
     skippedExcluded: totalExcluded,
+    skippedNoAmount: skippedNoAmount.length,
+    skippedNoAmountNames: skippedNoAmount,
     billingMonth,
   });
 };

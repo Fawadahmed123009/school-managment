@@ -55,16 +55,16 @@
       </thead>
       <tbody id="roster-body">
         <% roster.forEach(function(r) { %>
-          <tr data-student="<%= r.student %>" data-name="<%= r.name.toLowerCase() %>" data-roll="<%= r.studentId.toLowerCase() %>">
-            <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.studentId %></span></td>
-            <td>
-              <div class="attend-toggle">
-                <button type="button" class="attend-btn present <%= r.status === 'present' ? 'active' : '' %>" data-status="present">P</button>
-                <button type="button" class="attend-btn absent <%= r.status === 'absent' ? 'active' : '' %>" data-status="absent">A</button>
-                <button type="button" class="attend-btn late <%= r.status === 'late' ? 'active' : '' %>" data-status="late">L</button>
-              </div>
-            </td>
-          </tr>
+          <tr data-student="<%= r.student %>" data-name="<%= r.name.toLowerCase() %>" data-roll="<%= (r.rollNumber || '').toLowerCase() %>">
+  <td>
+    <strong><%= r.name %></strong>
+    <span class="mono" style="color:var(--ink-soft)">Roll #<%= r.rollNumber || '—' %></span>
+    <% if (r.parentName) { %>
+      <div style="font-size:11px;color:var(--ink-soft);">Parent: <%= r.parentName %></div>
+    <% } %>
+  </td>
+  <td>
+          
         <% }); %>
       </tbody>
     </table>

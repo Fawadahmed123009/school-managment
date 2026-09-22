@@ -17,7 +17,9 @@ if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 // ── Field definitions ──────────────────────────────────────────────────────────
 // Each entry: { key, label, populate? }
 // "populate" means we need to resolve a ref before displaying.
+// "photo" is first so it lands as the leftmost column when selected.
 const ALL_FIELDS = [
+  { key: "photo",        label: "Photo" },
   { key: "studentId",    label: "Student ID" },
   { key: "rollNumber",   label: "Roll Number" },
   { key: "name",         label: "Name" },
@@ -38,13 +40,18 @@ const ALL_FIELDS = [
 exports.ALL_FIELDS = ALL_FIELDS;
 
 // ── Query students based on scope ──────────────────────────────────────────────
-async function queryStudents(scope, scopeValues) {
+async function queryStudents(scope, scopeValues, includeInactive) {
   const filter = {};
 
   if (scope === "class" && scopeValues && scopeValues.length > 0) {
     filter.classLevel = { $in: scopeValues };
   }
-  // scope === "all" → no filter
+
+  // Finding 4.5: default "all" scope to active students only unless explicitly opted in
+  if (!includeInactive) {
+    filter.status = { $ne: "inactive" };
+    filter.isWithdrawn = { $ne: true };
+  }
 
   return Student.find(filter)
     .populate("classLevel", "name")
@@ -62,6 +69,13 @@ function buildRows(students, selectedFieldKeys) {
     fieldDefs.forEach((f) => {
       let val;
       switch (f.key) {
+        case "photo":
+          // Raw URL only — used directly by the Excel hyperlink step.
+          // PDF/docx ignore this value and fetch the actual image bytes
+          // separately (see fetchPhotosForStudents), correlated by the
+          // same array order as `students`.
+          val = s.photoUrl || "";
+          break;
         case "className":
           val = s.classLevel ? s.classLevel.name : "";
           break;
@@ -98,6 +112,54 @@ function addBlankColumns(rows, count) {
   });
 }
 
+// ── Photo fetching (PDF/docx need real bytes, not a URL) ───────────────────────
+// Detects the real image type from the downloaded bytes themselves — NOT from
+// the URL's file extension or any header we're told to trust. This is
+// deliberate: trusting an untrusted extension/label caused the earlier docx
+// ".undefined" embedded-image corruption bug. Sniffing the actual magic bytes
+// means a wrong/missing extension can never produce a broken embed again.
+function detectImageType(buffer) {
+  if (!buffer || buffer.length < 4) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return "png";
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
+  if (buffer.slice(0, 3).toString("ascii") === "GIF") return "gif";
+  return null; // unknown/unsupported — caller must skip embedding, never guess
+}
+
+async function fetchImageBuffer(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const type = detectImageType(buffer);
+    if (!type) return null; // couldn't verify it's a real, supported image
+    return { buffer, type };
+  } catch {
+    return null; // network failure, timeout, bad URL — never crash the export
+  }
+}
+
+// Fetches photos for a list of students with limited concurrency, so a
+// large "all classes" export doesn't fire hundreds of simultaneous requests
+// at once. Returns a Map keyed by array index (same order as `students`).
+async function fetchPhotosForStudents(students, concurrency = 8) {
+  const photoMap = new Map();
+  let idx = 0;
+  async function worker() {
+    while (idx < students.length) {
+      const i = idx++;
+      const result = await fetchImageBuffer(students[i].photoUrl);
+      photoMap.set(i, result); // result is { buffer, type } or null
+    }
+  }
+  const workerCount = Math.min(concurrency, students.length) || 0;
+  const workers = Array.from({ length: workerCount }, worker);
+  await Promise.all(workers);
+  return photoMap;
+}
+
 // ── Excel export ───────────────────────────────────────────────────────────────
 exports.generateExcel = async (scope, scopeValues, selectedFields, blankCount) => {
   const students = await queryStudents(scope, scopeValues);
@@ -110,9 +172,6 @@ exports.generateExcel = async (scope, scopeValues, selectedFields, blankCount) =
   const blankHeaders = [];
   for (let i = 1; i <= (blankCount || 0); i++) blankHeaders.push(`___blank_${i}`);
   if (blankHeaders.length > 0) {
-    const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
-    // Find the columns that correspond to blank headers and clear them
-    const headerRow = 0; // 0-indexed
     Object.keys(worksheet).forEach((cellRef) => {
       if (cellRef[0] !== "!") {
         const cell = worksheet[cellRef];
@@ -122,6 +181,33 @@ exports.generateExcel = async (scope, scopeValues, selectedFields, blankCount) =
         }
       }
     });
+  }
+
+  // Photo column → convert each cell's raw URL into a clickable hyperlink
+  // ("View Photo" text). SheetJS/xlsx cannot embed actual images into cells
+  // in its free version — a hyperlink is the correct approach here, not an
+  // embedded thumbnail.
+  if (selectedFields.includes("photo")) {
+    const range = XLSX.utils.decode_range(worksheet["!ref"] || "A1");
+    let photoCol = -1;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const headerCell = worksheet[XLSX.utils.encode_cell({ r: 0, c })];
+      if (headerCell && headerCell.v === "Photo") { photoCol = c; break; }
+    }
+    if (photoCol !== -1) {
+      for (let r = 1; r <= range.e.r; r++) {
+        const ref = XLSX.utils.encode_cell({ r, c: photoCol });
+        const cell = worksheet[ref];
+        if (cell && cell.v) {
+          const url = cell.v;
+          worksheet[ref] = {
+            t: "s",
+            v: "View Photo",
+            l: { Target: url, Tooltip: "Open student photo" },
+          };
+        }
+      }
+    }
   }
 
   const workbook = XLSX.utils.book_new();
@@ -135,9 +221,15 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   let rows = buildRows(students, selectedFields);
   rows = addBlankColumns(rows, blankCount);
 
+  const includesPhoto = selectedFields.includes("photo");
+  // Only pay the network cost of fetching images when Photo is actually selected.
+  const photoMap = includesPhoto ? await fetchPhotosForStudents(students) : new Map();
+
   const fieldDefs = ALL_FIELDS.filter((f) => selectedFields.includes(f.key));
   const headers = fieldDefs.map((f) => f.label);
   for (let i = 1; i <= (blankCount || 0); i++) headers.push("");
+
+  const photoColIndex = includesPhoto ? fieldDefs.findIndex((f) => f.key === "photo") : -1;
 
   const MARGIN = 28;
   const HEADER_RESERVE = 44; // space for repeating logo + title + divider
@@ -160,19 +252,13 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
     }
     const textX = hasLogo ? MARGIN + 36 : MARGIN;
     doc.fontSize(16).font("Helvetica-Bold").fillColor("#000")
-      .text("Avenir Academy", textX, curY + 2, { width: usableW - (textX - MARGIN), align: "center" });
-    // Divider line
+      .text(schoolName || "School Portal", textX, curY + 2, { width: usableW - (textX - MARGIN), align: "center" });
     const lineY = curY + HEADER_RESERVE - 6;
     doc.moveTo(MARGIN, lineY).lineTo(pageW - MARGIN, lineY).strokeColor("#ddd").lineWidth(0.5).stroke();
   }
 
-  // Draw header on first page
   drawPageHeader();
-
-  // Re-draw header on every subsequent page
-  doc.on("pageAdded", () => {
-    drawPageHeader();
-  });
+  doc.on("pageAdded", () => { drawPageHeader(); });
 
   let y = MARGIN + HEADER_RESERVE;
 
@@ -188,19 +274,28 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   const usedWidth = colWidths.reduce((a, b) => a + b, 0);
   colWidths[colWidths.length - 1] += tableWidth - usedWidth;
 
-  const rowH = 16;
+  const THUMB = 72; // passport-photo size in points (72pt = 1 inch)
+  const rowH = includesPhoto ? THUMB + 8 : 16;
   const hdrH = 18;
   const fontSize = 7;
 
-  // Helper: draw a bordered row
-  function drawRow(cells, rowY, rh, isHeader) {
+  // Helper: draw a bordered row. `photoResult` is { buffer, type } or null/undefined.
+  function drawRow(cells, rowY, rh, isHeader, photoResult) {
     doc.font(isHeader ? "Helvetica-Bold" : "Helvetica").fontSize(fontSize).fillColor("#000");
     let x = MARGIN;
     cells.forEach((cell, i) => {
-      doc.text(String(cell || ""), x + 3, rowY + 3, { width: colWidths[i] - 6, align: "left", lineBreak: false });
+      if (!isHeader && i === photoColIndex) {
+        if (photoResult && photoResult.buffer) {
+          try {
+            const size = Math.min(THUMB, colWidths[i] - 4);
+            doc.image(photoResult.buffer, x + 2, rowY + 2, { width: size, height: size, fit: [size, size] });
+          } catch { /* corrupt/unsupported image data — leave cell blank rather than crash */ }
+        }
+      } else {
+        doc.text(String(cell || ""), x + 3, rowY + 3, { width: colWidths[i] - 6, align: "left", lineBreak: false });
+      }
       x += colWidths[i];
     });
-    // Draw cell borders
     x = MARGIN;
     for (let i = 0; i < cells.length; i++) {
       doc.rect(x, rowY, colWidths[i], rh).stroke("#999");
@@ -213,16 +308,16 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   y += hdrH;
 
   // ── Data rows ─────────────────────────────────────────────────────────────
-  rows.forEach((row) => {
+  rows.forEach((row, i) => {
     if (y + rowH > pageH - MARGIN) {
       doc.addPage();
-      y = MARGIN + HEADER_RESERVE; // start below the repeating header
-      // Re-draw table header row on new page
+      y = MARGIN + HEADER_RESERVE;
       drawRow(headers, y, hdrH, true);
       y += hdrH;
     }
     const vals = resolvedKeys.map((k) => (row[k] != null ? String(row[k]) : ""));
-    drawRow(vals, y, rowH, false);
+    const photoResult = includesPhoto ? photoMap.get(i) : null;
+    drawRow(vals, y, rowH, false, photoResult);
     y += rowH;
   });
 
@@ -236,14 +331,19 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
 };
 
 // ── DOCX export ────────────────────────────────────────────────────────────────
-exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) => {
+exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, schoolName) => {
   const students = await queryStudents(scope, scopeValues);
   let rows = buildRows(students, selectedFields);
   rows = addBlankColumns(rows, blankCount);
 
+  const includesPhoto = selectedFields.includes("photo");
+  const photoMap = includesPhoto ? await fetchPhotosForStudents(students) : new Map();
+
   const fieldDefs = ALL_FIELDS.filter((f) => selectedFields.includes(f.key));
   const headers = fieldDefs.map((f) => f.label);
   for (let i = 1; i <= (blankCount || 0); i++) headers.push("");
+
+  const photoColIndex = includesPhoto ? fieldDefs.findIndex((f) => f.key === "photo") : -1;
 
   // ── Word header section (repeats on every page via header1.xml) ─────────
   const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
@@ -259,26 +359,19 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) =>
       logoCellChildren.push(
         new Paragraph({
           children: [
-            new ImageRun({
-              data: logoData,
-              type: "jpg",
-              transformation: { width: 48, height: 48 },
-            }),
+            new ImageRun({ data: logoData, type: "jpg", transformation: { width: 48, height: 48 } }),
           ],
         })
       );
     } catch { /* skip logo */ }
   }
 
-  // Borderless table: logo left, title centered, spacer right
   const headerTable = new Table({
     rows: [
       new TableRow({
         children: [
           new TableCell({
-            children: logoCellChildren.length > 0
-              ? logoCellChildren
-              : [new Paragraph({ children: [] })],
+            children: logoCellChildren.length > 0 ? logoCellChildren : [new Paragraph({ children: [] })],
             borders: noBorders,
             width: { size: 1500, type: WidthType.DXA },
             verticalAlign: "center",
@@ -287,9 +380,7 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) =>
             children: [
               new Paragraph({
                 alignment: AlignmentType.CENTER,
-                children: [
-                  new TextRun({ text: "Avenir Academy", bold: true, size: 36 }),
-                ],
+                children: [new TextRun({ text: schoolName || "School Portal", bold: true, size: 36 })],
               }),
             ],
             borders: noBorders,
@@ -307,11 +398,8 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) =>
     width: { size: 9000, type: WidthType.DXA },
   });
 
-  const docxHeader = new Header({
-    children: [headerTable],
-  });
+  const docxHeader = new Header({ children: [headerTable] });
 
-  // ── Table border style ────────────────────────────────────────────────────
   const cellBorder = {
     top: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
     bottom: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
@@ -322,7 +410,6 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) =>
   const colCount = headers.length;
   const colWidth = Math.floor(9000 / Math.max(colCount, 1));
 
-  // ── Header row ────────────────────────────────────────────────────────────
   const headerRow = new TableRow({
     children: headers.map((h) =>
       new TableCell({
@@ -333,33 +420,59 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount) =>
     ),
   });
 
-  // ── Build explicit key list matching headers (prevents stray columns) ───
   const resolvedKeys = fieldDefs.map((f) => f.label);
   for (let i = 1; i <= (blankCount || 0); i++) resolvedKeys.push(`___blank_${i}`);
 
-  // ── Data rows ─────────────────────────────────────────────────────────────
-  const dataRows = rows.map((row) => {
+  const THUMB_DXA = 1440; // 1440 DXA = 1 inch, passport-photo size
+  // Finding 4.4: shrink photo thumbnail when many columns to avoid table overflow
+  const effectiveThumb = colCount > 8 ? Math.min(THUMB_DXA, Math.max(colWidth, 720)) : THUMB_DXA;
+  const photoPx = Math.round(effectiveThumb / 15); // DXA to px (approx 96px per inch)
+
+  const dataRows = rows.map((row, rowIdx) => {
     const vals = resolvedKeys.map((k) => (row[k] != null ? String(row[k]) : ""));
+    const photoResult = includesPhoto ? photoMap.get(rowIdx) : null;
+
     return new TableRow({
-      children: vals.map((v) =>
-        new TableCell({
-          children: [new Paragraph({ children: [new TextRun({ text: v, size: 16 })] })],
+      children: vals.map((v, colIdx) => {
+        let children;
+        if (colIdx === photoColIndex) {
+          if (photoResult && photoResult.buffer) {
+            try {
+              children = [
+                new Paragraph({
+                  children: [
+                    new ImageRun({
+                      data: photoResult.buffer,
+                      type: photoResult.type, // detected from real bytes — never guessed
+                      transformation: { width: photoPx, height: photoPx },
+                    }),
+                  ],
+                }),
+              ];
+            } catch {
+              children = [new Paragraph({ children: [] })];
+            }
+          } else {
+            children = [new Paragraph({ children: [] })];
+          }
+        } else {
+          children = [new Paragraph({ children: [new TextRun({ text: v, size: 16 })] })];
+        }
+        return new TableCell({
+          children,
           borders: cellBorder,
-          width: { size: colWidth, type: WidthType.DXA },
-        })
-      ),
+          width: { size: colIdx === photoColIndex ? Math.max(colWidth, effectiveThumb) : colWidth, type: WidthType.DXA },
+        });
+      }),
     });
   });
 
-  // Column widths array must match per-cell widths so tblGrid and tcW are consistent
-  const columnWidths = headers.map(() => colWidth);
+  const columnWidths = headers.map((h, i) => (i === photoColIndex ? Math.max(colWidth, effectiveThumb) : colWidth));
 
   const doc = new Document({
     sections: [
       {
-        headers: {
-          default: docxHeader,
-        },
+        headers: { default: docxHeader },
         children: [
           new Table({
             rows: [headerRow, ...dataRows],

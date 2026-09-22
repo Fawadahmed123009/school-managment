@@ -2,19 +2,21 @@ const express = require("express");
 const router = express.Router();
 const { requireRole } = require("../../middlewares/authView");
 const Fees = require("../../models/Fees/fees.model");
-const { createFeeService, updateFeeService, bulkAssignFeesService, bulkAssignPreviewService, generateMonthlyFeesService } = require("../../services/fees/fees.service");
+const { createFeeService, updateFeeService, deleteFeeService, bulkAssignFeesService, bulkAssignPreviewService, generateMonthlyFeesService } = require("../../services/fees/fees.service");
 const { getAllFeeHeadsService } = require("../../services/fees/feeHead.service");
 const { paginate } = require("../../utils/paginate");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const Student = require("../../models/Students/students.model");
 const Parent = require("../../models/Parents/parents.model");
 const ClassLevel = require("../../models/Academic/class.model");
 
 router.get("/fees", requireRole("admin"), async (req, res) => {
   try {
-    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, feeHead: feeHeadFilterRaw, sortBy, ok, genMsg, genErr, ...restFilters } = req.query;
+    const { page, limit, roll, parent, student: studentNameRaw, class: classFilterRaw, feeHead: feeHeadFilterRaw, sortBy, ok, msg, genMsg, genErr, error: queryError, ...restFilters } = req.query;
     const okFlag = ok === "1";
     const genMessage = genMsg || null;
     const genError = genErr || null;
+    const createError = queryError || null;
     const classFilter = (classFilterRaw || "").trim();
     const feeHeadFilter = (feeHeadFilterRaw || "").trim();
     const rollSearch = (roll || "").trim();
@@ -101,6 +103,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
           classes,
           loadError: null,
           ok: okFlag,
+          msg: msg || null,
           genMsg: genMessage,
           genErr: genError,
           schoolName: res.locals.schoolName,
@@ -111,7 +114,14 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
     }
 
     const populateConfig = [
-      { path: "student", select: "name rollNumber fatherName" },
+      {
+        path: "student",
+        select: "name rollNumber fatherName classLevel parent",
+        populate: [
+          { path: "classLevel", select: "name gradeLevel section" },
+          { path: "parent", select: "name" },
+        ],
+      },
       { path: "academicTerm" },
       { path: "academicYear" },
       { path: "feeHead", select: "name" },
@@ -170,8 +180,10 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       classes,
       loadError: null,
       ok: okFlag,
+      msg: msg || null,
       genMsg: genMessage,
       genErr: genError,
+      createError,
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -186,6 +198,7 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       ok: false,
       genMsg: null,
       genErr: null,
+      createError: null,
       schoolName: res.locals.schoolName,
     });
   }
@@ -208,21 +221,37 @@ router.post("/fees/create", requireRole("admin"), async (req, res) => {
   } else {
     body.feeType = "tuition";
   }
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await createFeeService(body, req.user._id, { status: () => ({ json: () => {} }) });
+    await createFeeService(body, req.user._id, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to create fee record")}`);
   }
-  res.redirect("/fees?ok=1");
+  if (result.ok) return res.redirect("/fees?ok=1");
+  return res.redirect(`/fees?error=${encodeURIComponent(result.message || "Failed to create fee record")}`);
 });
 
 router.post("/fees/:feeId/update", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await updateFeeService(req.params.feeId, { status: "paid", datePaid: new Date().toISOString() }, { status: () => ({ json: () => {} }) });
+    await updateFeeService(req.params.feeId, { status: "paid", datePaid: new Date().toISOString() }, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to update fee record")}`);
   }
-  res.redirect("/fees?ok=1");
+  if (result.ok) return res.redirect("/fees?ok=1");
+  return res.redirect(`/fees?error=${encodeURIComponent(result.message || "Failed to update fee record")}`);
+});
+
+// ---- Delete an individual fee record ----
+router.post("/fees/:feeId/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await deleteFeeService(req.params.feeId, cap);
+  } catch (err) {
+    return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to delete fee record")}`);
+  }
+  if (result.ok) return res.redirect("/fees?ok=1&msg=" + encodeURIComponent("Fee record deleted."));
+  return res.redirect(`/fees?error=${encodeURIComponent(result.message || "Failed to delete fee record")}`);
 });
 
 // ---- Bulk fee assignment page ----

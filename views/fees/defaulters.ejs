@@ -93,10 +93,11 @@
                       <% if (s.whatsappNumber) { %>
                         <%
                           var phone = s.whatsappNumber.replace(/[^0-9]/g, '');
+                          var contactLine = instituteWhatsApp ? ' For queries, contact us on WhatsApp: ' + instituteWhatsApp : '';
                           var msg = encodeURIComponent(
                             'Dear parent/guardian of ' + s.name + ', this is a reminder that Rs ' +
                             Number(s.owed).toLocaleString() + ' is currently outstanding on the school fee account. ' +
-                            'Kindly clear the balance at your earliest convenience. Thank you — ' + schoolName
+                            'Kindly clear the balance at your earliest convenience. Thank you — ' + schoolName + contactLine
                           );
                         %>
                         <a href="https://wa.me/<%= phone %>?text=<%= msg %>" target="_blank" rel="noopener" class="btn btn-secondary" style="padding:4px 10px; font-size:0.8rem;">

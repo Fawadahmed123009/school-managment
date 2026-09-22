@@ -2,7 +2,7 @@
  * Tests schema-level min-value validation across multiple models and services.
  *
  * Verifies:
- *   1. Fees.amount rejects negative and zero values
+ *   1. Fees.amount rejects negative values, accepts zero (scholarship)
  *   2. FeeHead.defaultAmount rejects negative values
  *   3. Test.totalMarks rejects values < 1
  *   4. Test.passMarks rejects negative values and values > totalMarks
@@ -47,21 +47,14 @@ describe("Fees schema – amount validation", () => {
     }
   });
 
-  test("rejects a zero amount", async () => {
+  test("accepts a zero amount (scholarship)", async () => {
     const fee = new Fees({
       student: STUDENT_ID,
       amount: 0,
       recordedBy: ADMIN_ID,
     });
 
-    await expect(fee.validate()).rejects.toThrow(mongoose.Error.ValidationError);
-
-    try {
-      await fee.validate();
-    } catch (err) {
-      expect(err.errors.amount).toBeDefined();
-      expect(err.errors.amount.message).toMatch(/must be greater than zero/i);
-    }
+    await expect(fee.validate()).resolves.toBeUndefined();
   });
 
   test("accepts a positive amount", async () => {
@@ -345,19 +338,19 @@ describe("bulkCreateFeesService – amount validation", () => {
     expect(mockInsertMany).not.toHaveBeenCalled();
   });
 
-  test("rejects rows with zero amounts", async () => {
+  test("accepts rows with zero amounts (scholarship)", async () => {
     const rows = [
       { student: STUDENT_ID, amount: 0 },
       { student: STUDENT_ID, amount: 500 },
     ];
 
+    mockFind.mockReturnValue({ sort: jest.fn().mockResolvedValue([]) });
+    mockCreate.mockResolvedValue([{ _id: "fee1" }, { _id: "fee2" }]);
+
     await bulkCreateFeesService(rows, ADMIN_ID, fakeRes);
 
-    expect(fakeRes._statusCode).toBe(400);
-    expect(fakeRes._body.message.message).toMatch(/invalid amounts/i);
-    expect(fakeRes._body.message.invalidRows).toHaveLength(1);
-    expect(fakeRes._body.message.invalidRows[0].reason).toMatch(/zero/i);
-    expect(mockInsertMany).not.toHaveBeenCalled();
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(fakeRes._statusCode).toBe(201);
   });
 
   test("rejects rows with null/missing amounts", async () => {

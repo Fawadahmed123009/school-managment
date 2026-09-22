@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', function () {
             legend: { display: false },
             tooltip: {
               callbacks: {
-                label: function (ctx) { return ctx.parsed.y + '% average'; }
+                label: function (ctx) { return ctx.parsed.y.toFixed(2) + '% average'; }
               }
             }
           }
@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function () {
               callbacks: {
                 label: function (ctx) {
                   var d = bySubject[ctx.dataIndex];
-                  return d.average + '% avg over ' + d.count + ' test' + (d.count === 1 ? '' : 's');
+                  return d.average.toFixed(2) + '% avg over ' + d.count + ' test' + (d.count === 1 ? '' : 's');
                 }
               }
             }

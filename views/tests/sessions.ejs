@@ -24,13 +24,9 @@
         <input type="text" name="name" id="name" placeholder="Term 1 Test Session" required />
       </div>
       <div class="field">
-        <label for="classLevels">Classes included</label>
-        <select name="classLevels" id="classLevels" multiple size="8">
-          <% classes.forEach(function(c) { %>
-            <option value="<%= c._id %>"><%= c.name %></option>
-          <% }); %>
-        </select>
-        <p class="hint">Hold Ctrl/Cmd to select multiple.</p>
+        <label>Classes included</label>
+        <div id="cpicker-sessions" data-cpicker data-cpicker-source="cpicker-sessions-classes" data-cpicker-field="classLevels"></div>
+        <p class="hint">Select the classes this session applies to.</p>
       </div>
       <div class="field">
         <label>Phases</label>
@@ -76,6 +72,8 @@
   <% } %>
 </div>
 
+<script type="application/json" id="cpicker-sessions-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script src="/js/class-picker.js"></script>
 <script src="/js/test-sessions.js"></script>
 
 <%- include('../partials/foot') %>

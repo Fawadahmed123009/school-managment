@@ -290,8 +290,10 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
           const num = Number(data[key]);
           if (!isNaN(num)) $set[key] = num;
         }
-      } else if (key === "rollNumber") {
+            } else if (key === "rollNumber") {
         $set[key] = String(data[key]).trim();
+      } else {
+        $set[key] = data[key];
       }
     }
   }

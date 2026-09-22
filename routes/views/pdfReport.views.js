@@ -120,7 +120,8 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
   let whatsappLink = null;
   if (singleStudent && singleStudent.whatsapp) {
     const phone = singleStudent.whatsapp.replace(/[^0-9]/g, "");
-    const msg = encodeURIComponent(`Here is the report for ${singleStudent.name} — ${process.env.SCHOOL_NAME || "School Portal"}`);
+    const contactLine = process.env.INSTITUTE_WHATSAPP ? ` For queries, contact us on WhatsApp: ${process.env.INSTITUTE_WHATSAPP}` : "";
+    const msg = encodeURIComponent(`Here is the report for ${singleStudent.name} — ${process.env.SCHOOL_NAME || "School Portal"}${contactLine}`);
     whatsappLink = `https://wa.me/${phone}?text=${msg}`;
   }
 

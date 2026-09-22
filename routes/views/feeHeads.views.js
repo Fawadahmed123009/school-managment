@@ -10,6 +10,7 @@ const {
   getDefaulterListData,
   getInactiveStudentDuesData,
 } = require("../../services/fees/feeHead.service");
+const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const ClassLevel = require("../../models/Academic/class.model");
 
 // ---- Fee Heads management page ----
@@ -22,6 +23,7 @@ router.get("/fee-heads", requireRole("admin"), async (req, res) => {
       feeHeads: result.data || [],
       loadError: null,
       ok: req.query.ok === "1",
+      createError: req.query.error || null,
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -31,49 +33,58 @@ router.get("/fee-heads", requireRole("admin"), async (req, res) => {
       feeHeads: [],
       loadError: err.message,
       ok: false,
+      createError: null,
       schoolName: res.locals.schoolName,
     });
   }
 });
 
 router.post("/fee-heads/create", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
     await createFeeHeadService(
       { name: req.body.name, description: req.body.description || "", defaultAmount: Number(req.body.defaultAmount) || 0 },
       req.user._id,
-      { status: () => ({ json: () => {} }) }
+      cap
     );
   } catch (err) {
-    // ignore
+    return res.redirect(`/fee-heads?error=${encodeURIComponent(err.message || "Failed to create fee head")}`);
   }
-  res.redirect("/fee-heads?ok=1");
+  if (result.ok) return res.redirect("/fee-heads?ok=1");
+  return res.redirect(`/fee-heads?error=${encodeURIComponent(result.message || "Failed to create fee head")}`);
 });
 
 router.post("/fee-heads/:feeHeadId/update", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await updateFeeHeadService(req.params.feeHeadId, req.body, { status: () => ({ json: () => {} }) });
+    await updateFeeHeadService(req.params.feeHeadId, req.body, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/fee-heads?error=${encodeURIComponent(err.message || "Failed to update fee head")}`);
   }
-  res.redirect("/fee-heads?ok=1");
+  if (result.ok) return res.redirect("/fee-heads?ok=1");
+  return res.redirect(`/fee-heads?error=${encodeURIComponent(result.message || "Failed to update fee head")}`);
 });
 
 router.post("/fee-heads/:feeHeadId/toggle", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await updateFeeHeadService(req.params.feeHeadId, { isActive: req.body.isActive === "true" }, { status: () => ({ json: () => {} }) });
+    await updateFeeHeadService(req.params.feeHeadId, { isActive: req.body.isActive === "true" }, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/fee-heads?error=${encodeURIComponent(err.message || "Failed to update fee head")}`);
   }
-  res.redirect("/fee-heads?ok=1");
+  if (result.ok) return res.redirect("/fee-heads?ok=1");
+  return res.redirect(`/fee-heads?error=${encodeURIComponent(result.message || "Failed to update fee head")}`);
 });
 
 router.post("/fee-heads/:feeHeadId/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
   try {
-    await deleteFeeHeadService(req.params.feeHeadId, { status: () => ({ json: () => {} }) });
+    await deleteFeeHeadService(req.params.feeHeadId, cap);
   } catch (err) {
-    // ignore
+    return res.redirect(`/fee-heads?error=${encodeURIComponent(err.message || "Failed to delete fee head")}`);
   }
-  res.redirect("/fee-heads?ok=1");
+  if (result.ok) return res.redirect("/fee-heads?ok=1");
+  return res.redirect(`/fee-heads?error=${encodeURIComponent(result.message || "Failed to delete fee head")}`);
 });
 
 // ---- Daily Collection Report page ----
