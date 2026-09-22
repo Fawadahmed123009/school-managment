@@ -65,7 +65,7 @@ app.use("/api", corsMiddleware);
 // ── Rate limiting (global) ────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500,                  // limit each IP to 500 requests per window
+ max: 1000, // limit each IP to 1000 requests per window
   standardHeaders: true,
   legacyHeaders: false,
   // Don't count static assets toward the limit
@@ -77,7 +77,7 @@ app.use(globalLimiter);
 // ── Stricter rate limit on login routes ───────────────────────
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20,                   // 20 login attempts per window
+  max: 30,                   // 20 login attempts per window
   standardHeaders: true,
   legacyHeaders: false,
   message: { status: "failed", message: "Too many login attempts, please try again after 15 minutes." },

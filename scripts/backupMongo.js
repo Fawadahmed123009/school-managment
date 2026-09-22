@@ -58,6 +58,21 @@ function log(msg) {
   console.log(`[${ts}] ${msg}`);
 }
 
+// Dedicated heartbeat file, written synchronously (fs.appendFileSync)
+// so entries hit disk immediately instead of sitting in Node's stdout
+// buffer. If the process gets killed, this file still shows the last
+// step that actually completed — unlike the cron-test.log, which can
+// lose buffered console.log output on a hard kill.
+const HEARTBEAT_FILE = path.join(PROJECT_DIR, "backup-heartbeat.log");
+function heartbeat(msg) {
+  const ts = new Date().toISOString();
+  try {
+    fs.appendFileSync(HEARTBEAT_FILE, `[${ts}] [pid ${process.pid}] ${msg}\n`);
+  } catch (_) {
+    // best-effort — never let heartbeat logging itself crash the backup
+  }
+}
+
 function todayStr() {
   const d = new Date();
   const yyyy = d.getFullYear();
@@ -113,6 +128,7 @@ async function countCollection(db, name) {
 
 // ── Main ──────────────────────────────────────────────────────────
 async function main() {
+  heartbeat("process started");
   log("═══════════════════════════════════════════════════════════");
   log("  MongoDB Backup — pure Node.js (no mongodump)");
   if (DRY_RUN) log("  ** DRY-RUN MODE — no files will be written **");
@@ -137,15 +153,24 @@ async function main() {
 
   // ── Connect to MongoDB ───────────────────────────────────────
   log("→ Connecting to MongoDB...");
-  const client = new MongoClient(MONGO_URI);
+  heartbeat("connecting to MongoDB");
+  // Fail fast instead of hanging indefinitely on a network/firewall
+  // issue (e.g. this server's IP not whitelisted in Atlas).
+  const client = new MongoClient(MONGO_URI, {
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 8000,
+  });
   let collections;
 
   try {
     await client.connect();
+    heartbeat("MongoDB connected");
     const db = client.db();
     collections = await db.listCollections().toArray();
+    heartbeat(`listed ${collections.length} collections`);
     log(`✓ Connected. Database: "${db.databaseName}", ${collections.length} collection(s) found.`);
   } catch (err) {
+    heartbeat(`MongoDB connect FAILED: ${err.message}`);
     log(`ERROR: Failed to connect to MongoDB: ${err.message}`);
     process.exit(1);
   }
@@ -159,6 +184,7 @@ async function main() {
 
   for (const col of collections) {
     const name = col.name;
+    heartbeat(`exporting collection: ${name} — start`);
     try {
       if (DRY_RUN) {
         const count = await countCollection(db, name);
@@ -168,8 +194,10 @@ async function main() {
         const count = await exportCollectionStreaming(db, name, filePath);
         log(`  ✓ ${name} — ${count} doc(s)`);
       }
+      heartbeat(`exporting collection: ${name} — done`);
     } catch (err) {
       failed++;
+      heartbeat(`exporting collection: ${name} — FAILED: ${err.message}`);
       log(`  ✗ ${name} — FAILED: ${err.message} (continuing)`);
     }
   }
@@ -186,6 +214,7 @@ async function main() {
     log("→ [dry-run] Would compress and create tarball — skipped.");
   } else {
     log(`→ Compressing ${dateTag}/ into ${dateTag}.tar.gz ...`);
+    heartbeat("tar compression — start");
     try {
       // Run tar from the backups/ directory so paths inside the
       // archive are relative (just the date-tagged folder).
@@ -194,8 +223,10 @@ async function main() {
         { stdio: "pipe" }
       );
       const sizeMB = (fs.statSync(tarball).size / (1024 * 1024)).toFixed(2);
+      heartbeat(`tar compression — done (${sizeMB} MB)`);
       log(`✓ Compressed: ${dateTag}.tar.gz (${sizeMB} MB)`);
     } catch (err) {
+      heartbeat(`tar compression — FAILED: ${err.message}`);
       log(`ERROR: Compression failed: ${err.message}`);
       log("  The uncompressed folder is kept for manual recovery.");
       // Don't exit — try to continue with upload / cleanup
@@ -220,6 +251,7 @@ async function main() {
   } else if (cloudEnabled && fs.existsSync(tarball)) {
     const r2Key = `${R2_BACKUP_PREFIX}${path.basename(tarball)}`;
     log(`→ Uploading to R2: ${r2Key}`);
+    heartbeat(`R2 upload — start (${r2Key})`);
     try {
       // NOTE: this now passes a read stream + content length instead
       // of fs.readFileSync(tarball). If your uploadToR2() helper
@@ -229,6 +261,7 @@ async function main() {
       const stats = fs.statSync(tarball);
       const fileStream = fs.createReadStream(tarball);
       await uploadToR2(r2Key, fileStream, "application/gzip", stats.size);
+      heartbeat("R2 upload — done");
       log("✓ Upload complete.");
 
       // Clean old remote backups from R2
@@ -240,6 +273,7 @@ async function main() {
         log(`WARNING: Remote cleanup failed: ${err.message}`);
       }
     } catch (err) {
+      heartbeat(`R2 upload — FAILED: ${err.message}`);
       log(`WARNING: R2 upload failed: ${err.message}`);
       log("  Local backup is still available.");
     }
@@ -313,6 +347,7 @@ async function main() {
   log(`  Collections: ${collections.length} (${collections.length - failed} exported OK)`);
   log("═══════════════════════════════════════════════════════════");
   log("✓ All done.");
+  heartbeat("process finished successfully");
 }
 
 main().catch((err) => {
