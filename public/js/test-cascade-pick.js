@@ -33,6 +33,19 @@
     if (classCount) classCount.textContent = n > 0 ? n + ' selected' : '';
   }
 
+  /** Reflect selection state on each grade's "all sections" checkbox. */
+  function syncGradeCheckBoxes() {
+    document.querySelectorAll('.grade-group').forEach(function (group) {
+      var gradeCb = group.querySelector('.grade-all-cb');
+      if (!gradeCb) return;
+      var boxes = group.querySelectorAll('.class-cb');
+      var checked = 0;
+      boxes.forEach(function (cb) { if (cb.checked) checked++; });
+      gradeCb.checked = checked === boxes.length;
+      gradeCb.indeterminate = checked > 0 && checked < boxes.length;
+    });
+  }
+
   function resetDownstream() {
     setOptions(subjectSelect, [{ value: '', label: 'Select class(es) first...' }]);
     subjectSelect.disabled = true;
@@ -52,6 +65,7 @@
   if (selectAllBtn) {
     selectAllBtn.addEventListener('click', function() {
       classCheckboxes.forEach(function(cb) { cb.checked = true; });
+      syncGradeCheckBoxes();
       updateClassCount();
       loadSubjects();
     });
@@ -59,10 +73,23 @@
   if (clearAllBtn) {
     clearAllBtn.addEventListener('click', function() {
       classCheckboxes.forEach(function(cb) { cb.checked = false; });
+      syncGradeCheckBoxes();
       updateClassCount();
       resetDownstream();
     });
   }
+
+  // ── Per-grade "select all sections" (e.g. all sections of Grade 9) ───────
+  document.querySelectorAll('.grade-all-cb').forEach(function(gradeCb) {
+    gradeCb.addEventListener('change', function() {
+      var group = this.closest('.grade-group');
+      if (!group) return;
+      var checked = this.checked;
+      group.querySelectorAll('.class-cb').forEach(function(cb) { cb.checked = checked; });
+      this.indeterminate = false;
+      loadSubjects();
+    });
+  });
 
   // ── Level 1 → Level 2: Load subjects for selected classes ──────────────
   async function loadSubjects() {
@@ -92,20 +119,8 @@
         data.data.forEach(function(s) {
           var opt = document.createElement('option');
           opt.value = s._id;
-          // Show class annotation when multiple classes selected
-          if (s.classLevels && classIds.length > 1) {
-            var classNames = [];
-            s.classLevels.forEach(function(cid) {
-              var cb = document.querySelector('.class-cb[value="' + cid + '"]');
-              if (cb) {
-                var lbl = cb.parentElement.textContent.trim();
-                classNames.push(lbl);
-              }
-            });
-            opt.textContent = s.name + ' (' + classNames.join(', ') + ')';
-          } else {
-            opt.textContent = s.name;
-          }
+          // Subject name only — annotating sections clutters the dropdown.
+          opt.textContent = s.name;
           subjectSelect.appendChild(opt);
         });
         subjectSelect.disabled = false;
@@ -125,6 +140,7 @@
   // Listen for checkbox changes
   classCheckboxes.forEach(function(cb) {
     cb.addEventListener('change', function() {
+      syncGradeCheckBoxes();
       loadSubjects();
     });
   });

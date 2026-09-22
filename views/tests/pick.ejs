@@ -24,12 +24,26 @@
           <button type="button" id="clear-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
           <span id="class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
         </div>
-        <div id="class-checkbox-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
-          <% classes.forEach(function(c) { %>
-            <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
-              <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
-              <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
-            </label>
+        <div id="class-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <% var gradeGroups = {}; %>
+          <% classes.forEach(function(c) { var g = c.gradeLevel || '—'; (gradeGroups[g] = gradeGroups[g] || []).push(c); }); %>
+          <% Object.keys(gradeGroups).forEach(function(g) { var groupClasses = gradeGroups[g]; %>
+          <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:10px;">
+            <% if (groupClasses.length > 1) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
+                <input type="checkbox" class="grade-all-cb" />
+                All sections of grade <%= g %>
+              </label>
+            <% } else { %>
+              <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
+            <% } %>
+            <% groupClasses.forEach(function(c) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+                <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
+                <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+              </label>
+            <% }); %>
+          </div>
           <% }); %>
         </div>
       </div>

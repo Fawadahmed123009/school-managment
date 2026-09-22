@@ -31,6 +31,8 @@ router.get(
       page: "tests-mark",
       user: req.user,
       ok: req.query.ok === "1",
+      marksOk: req.query.marksOk === "1",
+      error: req.query.error ? String(req.query.error) : "",
       testId: req.params.testId,
       test: result.status === "success" ? result.data.test : null,
       roster: result.status === "success" ? result.data.roster : [],
@@ -58,6 +60,26 @@ router.post(
       return res.redirect(`/tests/mark/${req.params.testId}?error=${encodeURIComponent(result.message)}`);
     }
     res.redirect(`/tests/mark/${req.params.testId}?ok=1`);
+  }
+);
+
+// Edit the test's total / pass marks from the mark page — same assignment guard
+router.post(
+  "/tests/mark/:testId/settings",
+  requireRole("teacher"),
+  isAssignedToTestView,
+  async (req, res) => {
+    const { totalMarks, passMarks } = req.body;
+
+    const result = await apiFetch(`/tests/${req.params.testId}/marks`, req.token, {
+      method: "PATCH",
+      body: JSON.stringify({ totalMarks, passMarks }),
+    });
+
+    if (result.status !== "success") {
+      return res.redirect(`/tests/mark/${req.params.testId}?error=${encodeURIComponent(result.message)}`);
+    }
+    res.redirect(`/tests/mark/${req.params.testId}?marksOk=1`);
   }
 );
 

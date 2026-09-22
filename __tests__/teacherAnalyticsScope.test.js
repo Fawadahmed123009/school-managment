@@ -5,6 +5,7 @@
  * - Teacher cannot see another teacher's class/subject data.
  * - Per-class averages are computed correctly.
  * - Session filter scopes correctly.
+ * - Class filter accepts multiple comma-separated sections and whole-grade tokens.
  * - Teacher with no assignments gets empty result.
  *
  * Models are mocked at the data layer so the real service logic executes.
@@ -50,6 +51,8 @@ const SUBJECT_MATH = "507f1f77bcf86cd799439011";
 const SUBJECT_ENG = "507f1f77bcf86cd799439022";
 const CLASS_A = "507f1f77bcf86cd799439033";
 const CLASS_B = "507f1f77bcf86cd799439044";
+const CLASS_G9A = "507f1f77bcf86cd799439055";
+const CLASS_G9B = "507f1f77bcf86cd799439066";
 const TEACHER_A = "teacher-a";
 const TEACHER_B = "teacher-b";
 
@@ -64,6 +67,12 @@ const ASSIGNMENTS_TEACHER_A = [
 
 const ASSIGNMENTS_TEACHER_B = [
   { teacher: TEACHER_B, subject: SUBJECT_ENG, classLevel: CLASS_B },
+];
+
+// Teaches every section of grade 9 — used to exercise the whole-grade filter.
+const ASSIGNMENTS_GRADE_TEACHER = [
+  { teacher: "teacher-grade", subject: SUBJECT_MATH, classLevel: CLASS_G9A },
+  { teacher: "teacher-grade", subject: SUBJECT_MATH, classLevel: CLASS_G9B },
 ];
 
 const TEST_MATH_A = {
@@ -93,6 +102,25 @@ const RESULTS_ENG = [
   { _id: "r3", test: "test-eng-b", student: { _id: "s3", name: "Student 3", studentId: "STU-3", classLevel: makeClassLevel(CLASS_B, "Class B") }, score: 90 },
 ];
 
+const TEST_G9 = {
+  _id: "test-g9",
+  subject: { _id: SUBJECT_MATH, name: "Math" },
+  classLevels: [{ _id: CLASS_G9A, name: "9-A" }, { _id: CLASS_G9B, name: "9-B" }],
+  session: { _id: "session-1", name: "Midterm" },
+  totalMarks: 100,
+  date: new Date("2025-06-15"),
+};
+
+const CLASSES_G9 = [
+  { _id: CLASS_G9A, name: "9-A", gradeLevel: "9", toString: () => CLASS_G9A },
+  { _id: CLASS_G9B, name: "9-B", gradeLevel: "9", toString: () => CLASS_G9B },
+];
+
+const RESULTS_G9 = [
+  { _id: "rg1", test: "test-g9", student: { _id: "s91", name: "A One", studentId: "STU-91", classLevel: makeClassLevel(CLASS_G9A, "9-A") }, score: 70 },
+  { _id: "rg2", test: "test-g9", student: { _id: "s92", name: "B One", studentId: "STU-92", classLevel: makeClassLevel(CLASS_G9B, "9-B") }, score: 50 },
+];
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function mockRes() {
   const res = {};
@@ -115,11 +143,25 @@ function setupAssignmentMock(teacherId, assignments) {
 }
 
 function setupClassLevelFind(classes) {
-  const chain = {
-    sort: jest.fn().mockReturnThis(),
-    lean: jest.fn().mockResolvedValue(classes),
+  // Supports both query shapes used by the service:
+  //   { _id: { $in } } (dropdown load) and { _id: { $in }, gradeLevel } (grade expansion)
+  const makeChain = (query) => {
+    let out = classes;
+    if (query && query._id && query._id.$in) {
+      const ids = query._id.$in.map(String);
+      out = out.filter((c) => ids.includes(String(c._id)));
+    }
+    if (query && query.gradeLevel) {
+      out = out.filter((c) => String(c.gradeLevel) === String(query.gradeLevel));
+    }
+    const chain = {
+      select: jest.fn().mockImplementation(() => makeChain(query)),
+      sort: jest.fn().mockReturnThis(),
+      lean: jest.fn().mockResolvedValue(out),
+    };
+    return chain;
   };
-  mockClassLevelFind.mockReturnValue(chain);
+  mockClassLevelFind.mockImplementation((query) => makeChain(query));
 }
 
 function setupSubjectFind(subjects) {
@@ -242,6 +284,73 @@ describe("getTeacherAnalyticsService — assignment scoping", () => {
     const body = res.json.mock.calls[0][0];
     expect(body.status).toBe("failed");
     expect(body.message).toMatch(/not assigned/i);
+  });
+
+  test("whole-grade filter aggregates every section of that grade", async () => {
+    const res = mockRes();
+    setupAssignmentMock("teacher-grade", ASSIGNMENTS_GRADE_TEACHER);
+    setupClassLevelFind(CLASSES_G9);
+    setupSubjectFind([{ _id: SUBJECT_MATH, name: "Math" }]);
+    setupTestSessionFind([{ _id: "session-1", name: "Midterm" }]);
+    setupTestFind([TEST_G9]);
+    setupTestResultFind(RESULTS_G9);
+
+    await getTeacherAnalyticsService("teacher-grade", { classLevel: "grade:9" }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = res.json.mock.calls[0][0];
+    // Both sections of grade 9 appear in the breakdown
+    const classNames = body.data.perClass.map((c) => c.className).sort();
+    expect(classNames).toEqual(["9-A", "9-B"]);
+    // overall avg = (70 + 50) / 2 = 60%
+    expect(body.data.overallStats.avg).toBe(60);
+    expect(body.data.overallStats.count).toBe(2);
+  });
+
+  test("whole-grade filter rejects a grade the teacher has no class in (403)", async () => {
+    const res = mockRes();
+    setupAssignmentMock(TEACHER_A, ASSIGNMENTS_TEACHER_A);
+    setupClassLevelFind([{ _id: CLASS_A, name: "Class A", gradeLevel: "10" }]);
+
+    await getTeacherAnalyticsService(TEACHER_A, { classLevel: "grade:9" }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    const body = res.json.mock.calls[0][0];
+    expect(body.status).toBe("failed");
+    expect(body.message).toMatch(/grade 9/i);
+  });
+
+  test("multi-select filter combines several sections via comma tokens", async () => {
+    const res = mockRes();
+    setupAssignmentMock("teacher-grade", ASSIGNMENTS_GRADE_TEACHER);
+    setupClassLevelFind(CLASSES_G9);
+    setupSubjectFind([{ _id: SUBJECT_MATH, name: "Math" }]);
+    setupTestSessionFind([{ _id: "session-1", name: "Midterm" }]);
+    setupTestFind([TEST_G9]);
+    setupTestResultFind(RESULTS_G9);
+
+    await getTeacherAnalyticsService("teacher-grade", { classLevel: CLASS_G9A + "," + CLASS_G9B }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const body = res.json.mock.calls[0][0];
+    const classNames = body.data.perClass.map((c) => c.className).sort();
+    expect(classNames).toEqual(["9-A", "9-B"]);
+
+    // A single selected section narrows the breakdown to just that class
+    const res2 = mockRes();
+    await getTeacherAnalyticsService("teacher-grade", { classLevel: CLASS_G9A }, res2);
+    const body2 = res2.json.mock.calls[0][0];
+    expect(body2.data.perClass.map((c) => c.className)).toEqual(["9-A"]);
+  });
+
+  test("multi-select filter rejects the batch if any token is out of scope", async () => {
+    const res = mockRes();
+    setupAssignmentMock(TEACHER_A, ASSIGNMENTS_TEACHER_A);
+
+    await getTeacherAnalyticsService(TEACHER_A, { classLevel: CLASS_A + "," + CLASS_B }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json.mock.calls[0][0].message).toMatch(/not assigned/i);
   });
 
   test("per-session averages are computed correctly", async () => {

@@ -16,6 +16,25 @@
     <input type="file" id="photo-input" accept="image/*" style="display:none" />
     <button type="button" class="btn btn-accent" id="pick-photo-btn">Choose photo</button>
   </div>
+
+  <div class="panel cam-capture-panel" data-target-input="photo-input">
+    <div class="panel-head"><h2>Or take a photo with the camera</h2></div>
+    <div class="panel-body">
+      <video class="cam-video" autoplay playsinline muted style="width:100%; max-width:640px; border-radius:8px; background:#000;"></video>
+      <canvas class="cam-canvas" style="display:none;"></canvas>
+      <img class="cam-preview" alt="Captured photo preview" style="display:none; width:100%; max-width:640px; border-radius:8px;" />
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary cam-start">Start camera</button>
+        <button type="button" class="btn btn-primary cam-capture" disabled>Capture</button>
+        <button type="button" class="btn btn-ghost cam-switch" disabled>Switch camera</button>
+        <button type="button" class="btn btn-primary cam-use" disabled>Use photo</button>
+        <button type="button" class="btn btn-ghost cam-retake" disabled>Retake</button>
+        <button type="button" class="btn btn-ghost cam-stop" disabled>Stop camera</button>
+      </div>
+      <p class="cam-status hint" style="margin-top:8px;"></p>
+      <p class="hint">Every scan is also archived to cloud storage (fee-scans) for reference.</p>
+    </div>
+  </div>
 </div>
 
 <div id="review-step" style="display:none">
@@ -59,5 +78,6 @@
 
 <script type="application/json" id="ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
 <script src="/js/ocr-review.js"></script>
+<script src="/js/ocr-camera.js"></script>
 
 <%- include('../partials/foot') %>

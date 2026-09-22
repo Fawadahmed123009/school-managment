@@ -14,6 +14,8 @@ const {
   getTestSessionByIdController,
   deleteTestSessionController,
   deletePhaseController,
+  updateTestSessionController,
+  addPhaseController,
 } = require("../../../controllers/academic/testSession.controller");
 
 const {
@@ -37,6 +39,8 @@ const {
   getTeacherCascadeWeeksController,
   getTestRosterController,
   submitTestResultsController,
+  updateTestMarksController,
+  getTestMarksController,
   getTestResultSheetController,
   getTestAnalyticsController,
   getEnhancedTestAnalyticsController,
@@ -86,7 +90,9 @@ const isTeacherAssignedOrManager = async (req, res, next) => {
 testRouter.route("/test-sessions").post(isLoggedIn, isAdminOrManager, createTestSessionController);
 testRouter.route("/test-sessions").get(isLoggedIn, isAdminOrManager, getAllTestSessionsController);
 testRouter.route("/test-sessions/:sessionId").get(isLoggedIn, isAdminOrManager, getTestSessionByIdController);
+testRouter.route("/test-sessions/:sessionId").patch(isLoggedIn, isAdminOrManager, updateTestSessionController);
 testRouter.route("/test-sessions/:sessionId").delete(isLoggedIn, isAdminOrManager, deleteTestSessionController);
+testRouter.route("/test-sessions/:sessionId/phases").post(isLoggedIn, isAdminOrManager, addPhaseController);
 testRouter.route("/test-sessions/:sessionId/phases/:phaseId").delete(isLoggedIn, isAdminOrManager, deletePhaseController);
 testRouter.route("/test-sessions/:sessionId/report/:studentId").get(isLoggedIn, isAdminOrManager, getSessionReportCardController);
 
@@ -131,6 +137,11 @@ testRouter.route("/tests/teacher-analytics").get(isLoggedIn, isTeacher, getTeach
 // Test marking routes — manager can mark ANY test; teachers need assignment check
 testRouter.route("/tests/:testId/roster").get(isLoggedIn, isTeacherAssignedOrManager, getTestRosterController);
 testRouter.route("/tests/:testId/results").post(isLoggedIn, isTeacherAssignedOrManager, submitTestResultsController);
+// Edit total/pass marks — same audience as marking (assigned teacher or manager)
+testRouter
+  .route("/tests/:testId/marks")
+  .get(isLoggedIn, isTeacherAssignedOrManager, getTestMarksController)
+  .patch(isLoggedIn, isTeacherAssignedOrManager, updateTestMarksController);
 testRouter.route("/tests/:testId/result-sheet").get(isLoggedIn, isAdminOrManager, getTestResultSheetController);
 
 // DELETE /tests/:testId — admin/manager only; cascades to TestResult documents

@@ -170,6 +170,56 @@
 <% } else if (user.role === 'teacher' && !user.isManager) { %>
   <!-- Teacher-scoped dashboard -->
   <% if (stats.teacher && stats.teacher.totalClasses > 0) { %>
+    <% /* ── Tests awaiting marking (date passed, not fully marked) — FIRST: warning ── */ %>
+    <% var overdue = (stats.teacher && stats.teacher.overdueUnmarked) || []; %>
+    <div class="panel" style="margin-bottom:20px;<%= overdue.length > 0 ? 'border-left:4px solid var(--review);' : '' %>">
+      <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <h2 style="<%= overdue.length > 0 ? 'color:var(--review);' : '' %>">
+          <% if (overdue.length > 0) { %>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:6px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <% } %>
+          Tests awaiting marking
+          <% if (overdue.length > 0) { %>
+            <span class="pill" style="background:rgba(245,158,11,0.12);color:var(--review);font-size:12px;"><%= overdue.length %> overdue</span>
+          <% } %>
+        </h2>
+      </div>
+      <% if (overdue.length > 0) { %>
+      <div class="panel-body" style="padding:0;">
+        <div class="table-wrap">
+          <table class="ledger">
+            <thead>
+              <tr><th>Test</th><th>Subject</th><th>Class</th><th>Date</th><th>Marked</th><th></th></tr>
+            </thead>
+            <tbody>
+              <% overdue.forEach(function(t) { %>
+              <% var daysLate = Math.floor((Date.now() - new Date(t.date).getTime()) / 86400000); %>
+              <tr>
+                <td><strong><%= t.name %></strong></td>
+                <td><span class="pill" style="font-size:11px;"><%= t.subject %></span></td>
+                <td style="font-size:12px;color:var(--ink-soft);"><%= t.classes || '—' %></td>
+                <td style="font-size:12px;">
+                  <%= new Date(t.date).toLocaleDateString() %>
+                  <div style="color:var(--review);font-size:11px;"><%= daysLate %> day<%= daysLate === 1 ? '' : 's' %> overdue</div>
+                </td>
+                <td><span class="pill" style="font-size:11px;background:rgba(245,158,11,0.1);color:var(--review);"><%= t.marked %>/<%= t.expected %></span></td>
+                <td><a href="/tests/mark/<%= t._id %>" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">Mark now</a></td>
+              </tr>
+              <% }); %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <% } else { %>
+      <div class="panel-body">
+        <div class="empty" style="padding:24px;">
+          <div class="display">All caught up</div>
+          <p>No past-dated tests are waiting to be marked.</p>
+        </div>
+      </div>
+      <% } %>
+    </div>
+
     <div class="stats">
       <div class="stat-card accent-blue">
         <div class="stat-icon">
@@ -228,6 +278,30 @@
         </div>
       </div>
     </div>
+
+    <% /* ── This week's tests — marked vs unmarked, per subject ── */ %>
+    <% if (charts.weekTests) { %>
+    <div class="charts-row">
+      <div class="panel chart-panel chart-panel--wide">
+        <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <h2>This week's tests <span class="chart-subtitle"><%= charts.weekTests.subjectName %> · Marked vs unmarked</span></h2>
+          <% if (stats.teacher.subjects && stats.teacher.subjects.length > 1) { %>
+          <form method="GET" action="/dashboard" style="display:flex;gap:8px;align-items:center;margin:0;">
+            <select name="subject" onchange="this.form.submit()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--ink);">
+              <% stats.teacher.subjects.forEach(function(s) { %>
+                <option value="<%= s.id %>" <%= (stats.teacher.selectedSubject === s.id) ? 'selected' : '' %>><%= s.name %></option>
+              <% }); %>
+            </select>
+          </form>
+          <% } %>
+        </div>
+        <div class="panel-body chart-body">
+          <canvas id="weekTestsChart"></canvas>
+          <div class="chart-empty" id="weekTestsEmpty" style="display:none;">No tests scheduled for this subject this week</div>
+        </div>
+      </div>
+    </div>
+    <% } %>
 
     <% /* ── Teacher: At-Risk Students panel ── */ %>
     <% if (atRisk && atRisk.students && atRisk.students.length > 0) { %>

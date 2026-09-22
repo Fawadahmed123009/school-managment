@@ -124,6 +124,60 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       }
 
+      // ── This week's tests: marked vs unmarked per day (teacher) ──
+      // Data shape: charts.weekTests = { subjectName, days: [{ label, date, marked, unmarked }] }
+      var weekCanvas = document.getElementById('weekTestsChart');
+      var weekEmpty = document.getElementById('weekTestsEmpty');
+      if (weekCanvas) {
+        var week = charts.weekTests || { days: [] };
+        var hasAny = (week.days || []).some(function (d) { return d.marked > 0 || d.unmarked > 0; });
+        if (hasAny) {
+          new Chart(weekCanvas, {
+            type: 'bar',
+            data: {
+              labels: (week.days || []).map(function (d) { return d.label; }),
+              datasets: [
+                {
+                  label: 'Marked',
+                  data: (week.days || []).map(function (d) { return d.marked; }),
+                  backgroundColor: '#10b981',
+                  stack: 's',
+                },
+                {
+                  label: 'Unmarked',
+                  data: (week.days || []).map(function (d) { return d.unmarked; }),
+                  backgroundColor: '#ef4444',
+                  stack: 's',
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }
+              },
+              plugins: {
+                legend: { display: true },
+                tooltip: {
+                  callbacks: {
+                    title: function (items) {
+                      var d = (week.days || [])[items[0].dataIndex];
+                      return d ? d.label + ' · ' + d.date : '';
+                    },
+                    label: function (ctx) { return ctx.dataset.label + ': ' + ctx.parsed.y + ' test' + (ctx.parsed.y === 1 ? '' : 's'); }
+                  }
+                }
+              }
+            }
+          });
+        } else {
+          weekCanvas.style.display = 'none';
+          if (weekEmpty) weekEmpty.style.display = 'flex';
+        }
+      }
+
       // ── Fee collection: admin only (#feeCollectionChart) ──
       // Data shape: [{ month, collected, outstanding }]
       var feeCanvas = document.getElementById('feeCollectionChart');

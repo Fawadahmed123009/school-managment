@@ -22,14 +22,37 @@
 <div class="panel">
   <div class="panel-body">
     <form method="GET" action="/teacher/analytics" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap;">
-      <div class="field" style="min-width:160px;">
-        <label for="classLevel">Class</label>
-        <select name="classLevel" id="classLevel">
-          <option value="">All my classes</option>
-          <% classes.forEach(function(c) { %>
-            <option value="<%= c._id %>" <%= filters.classLevel === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+      <div class="field" style="min-width:240px;flex:1 1 240px;">
+        <label>Class <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(tick one or more — leave empty for all)</span></label>
+        <div style="display:flex; gap:10px; margin-bottom:6px;">
+          <button type="button" id="ana-select-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+          <button type="button" id="ana-clear-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
+          <span id="ana-class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
+        </div>
+        <div id="ana-class-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:#fafbfd;">
+          <% var anaGradeGroups = {}; %>
+          <% classes.forEach(function(c) { var g = c.gradeLevel || '\u2014'; (anaGradeGroups[g] = anaGradeGroups[g] || []).push(c); }); %>
+          <% var anaTokens = (filters.classTokens || []).map(String); %>
+          <% var anaGradeSel = {}; anaTokens.forEach(function(t) { if (t.indexOf('grade:') === 0) anaGradeSel[t.slice(6)] = true; }); %>
+          <% Object.keys(anaGradeGroups).forEach(function(g) { var groupClasses = anaGradeGroups[g]; %>
+          <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:8px;">
+            <% if (groupClasses.length > 1) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
+                <input type="checkbox" class="grade-all-cb" />
+                All sections of grade <%= g %>
+              </label>
+            <% } else { %>
+              <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
+            <% } %>
+            <% groupClasses.forEach(function(c) { var ck = anaTokens.indexOf(String(c._id)) !== -1 || anaGradeSel[g] === true; %>
+              <label style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+                <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" <%= ck ? 'checked' : '' %> />
+                <%= c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+              </label>
+            <% }); %>
+          </div>
           <% }); %>
-        </select>
+        </div>
       </div>
       <div class="field" style="min-width:160px;">
         <label for="subject">Subject</label>
@@ -156,5 +179,7 @@
 </div>
 
 <% } %>
+
+<script src="/js/analytics-class-filter.js"></script>
 
 <%- include('../partials/foot') %>

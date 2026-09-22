@@ -563,6 +563,75 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   return responseStatus(res, 201, "success", results);
 };
 
+/**
+ * Read a test's score scale (total/pass marks) so the mark-entry UIs can show
+ * editable fields without shipping the whole roster. Shares the same access
+ * gate as the marks update (assigned teacher or manager).
+ */
+exports.getTestMarksService = async (testId, res) => {
+  const test = await Test.findById(testId).select("name totalMarks passMarks");
+  if (!test) return responseStatus(res, 404, "failed", "Test not found");
+
+  return responseStatus(res, 200, "success", {
+    _id: test._id,
+    name: test.name,
+    totalMarks: test.totalMarks,
+    passMarks: test.passMarks,
+  });
+};
+
+/**
+ * Update a test's total marks / pass marks (from the mark-entry page).
+ * Only the two score-scale fields are mutable here — never the identity,
+ * subject or class scope of the test.
+ *
+ * Validation:
+ *   • totalMarks must be a number ≥ 1, passMarks a number ≥ 0 (same rules as creation)
+ *   • passMarks must not exceed totalMarks
+ *   • if the new total is BELOW totalMarks, every already-entered score must
+ *     still fit the new scale — otherwise the stored results would be invalid.
+ */
+exports.updateTestMarksService = async (testId, data, res) => {
+  const totalMarks = Number(data.totalMarks);
+  const passMarks = Number(data.passMarks);
+
+  if (!Number.isFinite(totalMarks) || totalMarks < 1) {
+    return responseStatus(res, 400, "failed", "Total marks must be a number of at least 1");
+  }
+  if (!Number.isFinite(passMarks) || passMarks < 0) {
+    return responseStatus(res, 400, "failed", "Pass marks must be a number of 0 or more");
+  }
+  if (passMarks > totalMarks) {
+    return responseStatus(res, 400, "failed", "Pass marks cannot exceed total marks");
+  }
+
+  const test = await Test.findById(testId);
+  if (!test) return responseStatus(res, 404, "failed", "Test not found");
+
+  // Shrinking the scale must not orphan scores above the new maximum.
+  if (totalMarks !== test.totalMarks) {
+    const tooHigh = await TestResult.find({ test: testId, score: { $gt: totalMarks } }).populate("student", "name");
+    if (tooHigh.length > 0) {
+      const details = tooHigh
+        .slice(0, 5)
+        .map((r) => `${r.score}${r.student?.name ? " (" + r.student.name + ")" : ""}`)
+        .join(", ");
+      return responseStatus(
+        res,
+        400,
+        "failed",
+        `Cannot lower total marks below ${totalMarks} — ${tooHigh.length} entered score(s) exceed it (${details}${tooHigh.length > 5 ? ", …" : ""}). Remove or correct those scores first.`
+      );
+    }
+  }
+
+  test.totalMarks = totalMarks;
+  test.passMarks = passMarks;
+  await test.save();
+
+  return responseStatus(res, 200, "success", test);
+};
+
 exports.getTestResultSheetService = async (testId, res) => {
   const test = await Test.findById(testId)
     .populate("subject", "name")
@@ -1004,9 +1073,36 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
   const teacherSubjectIds = Object.keys(subjectClassMap);
   const teacherClassLevelIds = [...new Set(assignments.map((a) => a.classLevel.toString()))];
 
-  // 2. Validate filters against assignment scope
-  if (classLevel && !teacherClassLevelIds.includes(classLevel)) {
-    return responseStatus(res, 403, "failed", "You are not assigned to this class");
+  // 2. Resolve the class filter. It is a comma-separated list of tokens, each
+  //    either a single classLevel id or a whole grade expressed as
+  //    "grade:<level>" (e.g. "grade:9") which expands to every one of the
+  //    teacher's classes in that grade. Multiple tokens are unioned, so a
+  //    teacher can combine several sections at once. null = no restriction.
+  let classFilterIds = null;
+  const classTokens = classLevel
+    ? String(classLevel).split(",").map((t) => t.trim()).filter(Boolean)
+    : [];
+  if (classTokens.length > 0) {
+    const idSet = new Set();
+    for (const token of classTokens) {
+      if (token.startsWith("grade:")) {
+        const gradeVal = token.slice("grade:".length);
+        const gradeDocs = await ClassLevel.find({
+          _id: { $in: teacherClassLevelIds },
+          gradeLevel: gradeVal,
+        }).select("_id").lean();
+        const gradeIds = gradeDocs.map((d) => d._id.toString());
+        if (gradeIds.length === 0) {
+          return responseStatus(res, 403, "failed", "You are not assigned to any class in grade " + gradeVal);
+        }
+        gradeIds.forEach((id) => idSet.add(id));
+      } else if (teacherClassLevelIds.includes(token)) {
+        idSet.add(token);
+      } else {
+        return responseStatus(res, 403, "failed", "You are not assigned to this class");
+      }
+    }
+    classFilterIds = [...idSet];
   }
   if (subject && !teacherSubjectIds.includes(subject)) {
     return responseStatus(res, 403, "failed", "You are not assigned to this subject");
@@ -1014,7 +1110,7 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
 
   // 3. Build test query scoped to teacher's subjects and classes
   const testQuery = { subject: { $in: teacherSubjectIds } };
-  if (classLevel) testQuery.classLevels = classLevel;
+  if (classFilterIds) testQuery.classLevels = { $in: classFilterIds };
   if (subject) testQuery.subject = subject;
   if (sessionId) testQuery.session = sessionId;
   if (testId) testQuery._id = testId;
@@ -1064,12 +1160,15 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
     .lean();
 
   // 7. Per-class averages
+  // Narrowed to the selected class/grade when a class filter is applied,
+  // otherwise the teacher's full set of classes.
+  const scopeClassIds = classFilterIds || teacherClassLevelIds;
   const perClassMap = {};
   results.forEach((r) => {
     const studentClassId = r.student && r.student.classLevel ? r.student.classLevel.toString() : null;
     if (!studentClassId) return;
-    // Only include if this class is in the teacher's scope
-    if (!teacherClassLevelIds.includes(studentClassId)) return;
+    // Only include if this class is in the active scope
+    if (!scopeClassIds.includes(studentClassId)) return;
     if (!perClassMap[studentClassId]) perClassMap[studentClassId] = [];
     perClassMap[studentClassId].push(r.score);
   });

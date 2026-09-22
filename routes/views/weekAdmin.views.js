@@ -9,7 +9,7 @@ const {
   updateWeekService,
   deleteWeekService,
 } = require("../../services/academic/week.service");
-const { deletePhaseService } = require("../../services/academic/testSession.service");
+const { deletePhaseService, addPhaseService } = require("../../services/academic/testSession.service");
 const TestSession = require("../../models/Academic/testSession.model");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 
@@ -90,6 +90,18 @@ router.post("/sessions/:sessionId/weeks/:weekId/delete", requireAdminOrManager()
   }
   if (result.ok) return res.redirect("/sessions/" + req.params.sessionId + "/weeks?ok=1");
   return res.redirect("/sessions/" + req.params.sessionId + "/weeks?error=" + encodeURIComponent(result.message || "Delete failed"));
+});
+
+// Add a phase to an existing session
+router.post("/sessions/:sessionId/phases/add", requireAdminOrManager(), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await addPhaseService(req.params.sessionId, req.body.name, cap);
+  } catch (err) {
+    return res.redirect("/sessions/" + req.params.sessionId + "/weeks?error=" + encodeURIComponent(err.message || "Failed to add phase"));
+  }
+  if (result.ok) return res.redirect("/sessions/" + req.params.sessionId + "/weeks?ok=1");
+  return res.redirect("/sessions/" + req.params.sessionId + "/weeks?error=" + encodeURIComponent(result.message || "Failed to add phase"));
 });
 
 // Delete phase (and its weeks)

@@ -50,7 +50,7 @@
 </div>
 
 <div class="panel">
-  <div class="panel-head"><h2>Phases</h2></div>
+  <div class="panel-head"><h2>Phases</h2><p class="sub">Add or remove phases for this session. Removing a phase also removes its weeks; linked tests become unassigned (not deleted).</p></div>
   <% if (session.phases.length === 0) { %>
     <div class="empty"><div class="display">No phases</div></div>
   <% } else { %>
@@ -65,7 +65,7 @@
             <td style="text-align:right;">
               <form method="POST" action="/sessions/<%= session._id %>/phases/<%= p._id %>/delete" style="display:inline;" data-confirm="Delete this phase and ALL its weeks? Tests linked to those weeks will become unassigned (not deleted).">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>
+                <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Remove</button>
               </form>
             </td>
           </tr>
@@ -74,6 +74,16 @@
     </table>
     </div>
   <% } %>
+  <div class="panel-body">
+    <form method="POST" action="/sessions/<%= session._id %>/phases/add" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field" style="margin:0;">
+        <label for="phase-name">New phase name</label>
+        <input type="text" name="name" id="phase-name" placeholder="e.g. Phase 4" required />
+      </div>
+      <button type="submit" class="btn btn-primary">+ Add phase</button>
+    </form>
+  </div>
 </div>
 
 <div class="panel">

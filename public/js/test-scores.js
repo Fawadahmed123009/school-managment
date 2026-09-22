@@ -16,6 +16,24 @@
   });
   updateCount();
 
+  // ── Keep score inputs in sync with the editable total-marks field ─────
+  // The teacher can change the test's total marks on this page; before the
+  // save-and-redirect lands, reflect the new ceiling on every score input.
+  const totalMarksInput = document.getElementById('total-marks-input');
+  function currentMax() {
+    const n = Number(totalMarksInput && totalMarksInput.value);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+  if (totalMarksInput) {
+    totalMarksInput.addEventListener('input', function () {
+      const max = currentMax();
+      if (max === null) return;
+      document.querySelectorAll('.score-input').forEach(function (el) {
+        el.max = max;
+      });
+    });
+  }
+
   // ── Sort by roll number (re-orders DOM rows) ──────────────────────────
   const sortRoll = document.getElementById('sort-roll');
   if (sortRoll) {
@@ -51,6 +69,17 @@
       if (records.length === 0) {
         alert('Enter at least one score before saving.');
         return;
+      }
+
+      // Front-end guard so a stale row value above a just-edited total gives a
+      // readable message instead of a round-trip rejection from the API.
+      const max = currentMax();
+      if (max !== null) {
+        const over = records.filter(function (r) { return r.score > max; });
+        if (over.length > 0) {
+          alert('Scores must be between 0 and ' + max + '. Adjust ' + over.length + ' entered value(s) (or save the new total marks first).');
+          return;
+        }
       }
 
       saveBtn.disabled = true;

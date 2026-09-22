@@ -285,13 +285,8 @@
         var opts = [{ value: '', label: 'Choose a test...' }];
         data.data.forEach(function(t) {
           var date = new Date(t.date).toLocaleDateString();
-          var parts = [];
-          parts.push(t.name + ' (' + date + ')');
-          if (t.session && t.session.name) parts.push('[' + t.session.name + ']');
-          if (t.classLevels && t.classLevels.length > 0) {
-            parts.push(t.classLevels.map(function(cl) { return cl.name; }).join(', '));
-          }
-          opts.push({ value: t._id, label: parts.join(' \u2014 ') });
+          // Test name and date only — session/class annotations clutter the list.
+          opts.push({ value: t._id, label: t.name + ' (' + date + ')' });
         });
         setOptions(testSelect, opts);
         testSelect.disabled = false;

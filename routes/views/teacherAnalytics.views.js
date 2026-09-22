@@ -6,9 +6,17 @@ const { requireRole } = require("../../middlewares/authView");
 router.get("/teacher/analytics", requireRole("teacher"), async (req, res) => {
   const { classLevel, subject, sessionId, fromDate, toDate } = req.query;
 
+  // The Class filter is a checkbox group → an array of class/grade tokens.
+  // The API takes them as one comma-separated list.
+  const classTokens = Array.isArray(classLevel)
+    ? classLevel
+    : classLevel
+      ? String(classLevel).split(",")
+      : [];
+
   // Build query params for the API call
   const params = new URLSearchParams();
-  if (classLevel) params.set("classLevel", classLevel);
+  if (classTokens.length) params.set("classLevel", classTokens.join(","));
   if (subject) params.set("subject", subject);
   if (sessionId) params.set("sessionId", sessionId);
   if (fromDate) params.set("fromDate", fromDate);
@@ -29,6 +37,7 @@ router.get("/teacher/analytics", requireRole("teacher"), async (req, res) => {
     loadError: dataRes.status === "success" ? null : dataRes.message,
     filters: {
       classLevel: classLevel || "",
+      classTokens,
       subject: subject || "",
       sessionId: sessionId || "",
       fromDate: fromDate || "",

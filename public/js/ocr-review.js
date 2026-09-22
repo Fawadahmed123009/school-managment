@@ -40,9 +40,21 @@
       return;
     }
 
+    pointToArchivedScan(data.archivedUrl);
+
     currentRows = data.data;
     renderRows();
   });
+
+  // The scan is archived in the cloud (fee-scans/); show the persisted copy
+  // via the auth-gated viewer instead of the throwaway blob URL.
+  function pointToArchivedScan(archivedUrl) {
+    if (!archivedUrl) return; // keep local preview if archiving failed
+    fetch('/fees/ocr/scan?url=' + encodeURIComponent(archivedUrl))
+      .then(r => (r.ok ? r.blob() : Promise.reject()))
+      .then(b => { sourcePreview.src = URL.createObjectURL(b); })
+      .catch(() => { /* keep local blob preview */ });
+  }
 
   function renderRows() {
     if (!students.length) {

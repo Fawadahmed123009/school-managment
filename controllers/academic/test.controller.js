@@ -11,6 +11,8 @@ const {
   getTeacherCascadeWeeksService,
   getTestRosterService,
   submitTestResultsService,
+  updateTestMarksService,
+  getTestMarksService,
   getTestResultSheetService,
   getTestAnalyticsService,
   getEnhancedTestAnalyticsService,
@@ -62,6 +64,24 @@ exports.getTestRosterController = async (req, res) => {
 exports.submitTestResultsController = async (req, res) => {
   try {
     await submitTestResultsService(req.params.testId, req.body.records, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Edit total/pass marks for a test (mark-entry page scale fix)
+exports.updateTestMarksController = async (req, res) => {
+  try {
+    await updateTestMarksService(req.params.testId, req.body, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Read a test's total/pass marks (for the scan & enter marks page)
+exports.getTestMarksController = async (req, res) => {
+  try {
+    await getTestMarksService(req.params.testId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

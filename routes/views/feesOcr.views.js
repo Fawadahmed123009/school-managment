@@ -6,9 +6,14 @@ const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 const { matchStudent } = require("../../utils/fuzzyMatch");
 const Student = require("../../models/Students/students.model");
+const { archiveOcrScan } = require("../../services/fees/ocrScanArchive.service");
+const registerOcrScanViewRouter = require("./ocrScanRoute");
 const fs = require("fs");
 
 const upload = multer({ dest: "uploads/" });
+
+// Auth-gated viewer for archived fee-scan photos (R2 fee-scans/ prefix).
+registerOcrScanViewRouter(router, { pattern: "/fees/ocr/scan", role: "admin" });
 
 /** Fetch every student (id + name + class + roll#) for OCR dropdowns / fuzzy matching. */
 const fetchAllStudents = () =>
@@ -29,6 +34,17 @@ router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), v
     if (!req.file) return res.json({ status: "failed", message: "No image uploaded" });
 
     const fileBuffer = fs.readFileSync(req.file.path);
+
+    // Keep the scan photo in the cloud archive (R2 "fee-scans/" directory).
+    // Best-effort: a storage failure must not block the OCR flow.
+    let archivedUrl = null;
+    try {
+      const archived = await archiveOcrScan("fee", fileBuffer);
+      archivedUrl = archived && archived.url;
+    } catch (archiveErr) {
+      console.error("fee scan archive failed:", archiveErr.message);
+    }
+
     const form = new FormData();
     form.append("image", new Blob([fileBuffer], { type: req.file.mimetype }), req.file.originalname);
 
@@ -49,7 +65,7 @@ router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), v
       return { ...row, ...match };
     });
 
-    res.json({ status: "success", data: enriched });
+    res.json({ status: "success", data: enriched, archivedUrl: archivedUrl || undefined });
   } catch (err) {
     res.json({ status: "failed", message: err.message });
   }

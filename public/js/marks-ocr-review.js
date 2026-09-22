@@ -25,6 +25,7 @@
       return;
     }
     testId = window.selectedTestId;
+    loadArchivedScan(); // fetch in the background while the picker is open
     fileInput.click();
   });
 
@@ -49,9 +50,34 @@
       return;
     }
 
+    // If the pre-fetch didn't run (e.g. camera capture), fetch the archived
+    // copy now; the blob stays as fallback if archiving failed server-side.
+    if (!archivedBlobUrl && data.archivedUrl) {
+      pendingArchivedUrl = data.archivedUrl;
+      loadArchivedScan();
+    }
+
     currentRows = data.data;
     renderRows();
   });
+
+  // Scans are archived in the cloud (marks-scans/); point the review preview
+  // at the persisted copy via the auth-gated viewer.
+  let pendingArchivedUrl = '';
+  let archivedBlobUrl = '';
+
+  function loadArchivedScan() {
+    if (!pendingArchivedUrl) return;
+    const url = '/marks/ocr/scan?url=' + encodeURIComponent(pendingArchivedUrl);
+    fetch(url)
+      .then(r => (r.ok ? r.blob() : Promise.reject()))
+      .then(b => {
+        if (archivedBlobUrl) URL.revokeObjectURL(archivedBlobUrl);
+        archivedBlobUrl = URL.createObjectURL(b);
+        sourcePreview.src = archivedBlobUrl;
+      })
+      .catch(() => { /* keep local blob preview */ });
+  }
 
   function renderRows() {
     if (!students.length) {

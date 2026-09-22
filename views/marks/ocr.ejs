@@ -23,12 +23,26 @@
             <button type="button" id="clear-all-classes" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
             <span id="class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
           </div>
-          <div id="class-checkbox-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
-            <% classes.forEach(function(c) { %>
-              <label style="display:flex;align-items:center;gap:8px;padding:5px 0;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
-                <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
-                <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
-              </label>
+          <div id="class-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+            <% var gradeGroups = {}; %>
+            <% classes.forEach(function(c) { var g = c.gradeLevel || '—'; (gradeGroups[g] = gradeGroups[g] || []).push(c); }); %>
+            <% Object.keys(gradeGroups).forEach(function(g) { var groupClasses = gradeGroups[g]; %>
+            <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:10px;">
+              <% if (groupClasses.length > 1) { %>
+                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
+                  <input type="checkbox" class="grade-all-cb" />
+                  All sections of grade <%= g %>
+                </label>
+              <% } else { %>
+                <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
+              <% } %>
+              <% groupClasses.forEach(function(c) { %>
+                <label style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+                  <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" />
+                  <%= c.gradeLevel ? c.gradeLevel + ' — ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+                </label>
+              <% }); %>
+            </div>
             <% }); %>
           </div>
         </div>
@@ -71,6 +85,24 @@
             <option value="">Select filters first...</option>
           </select>
         </div>
+
+        <!-- Test score scale — appears once a test is chosen, so the teacher can
+             fix total/pass marks before scanning (scores are validated against it). -->
+        <div class="panel" id="test-settings" style="display:none; margin-top:16px;">
+          <div class="panel-head"><h2>Test settings</h2></div>
+          <div class="panel-body" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
+            <div class="field" style="margin:0;">
+              <label for="ocr-total-marks">Total marks</label>
+              <input type="number" id="ocr-total-marks" min="1" style="width:110px;" />
+            </div>
+            <div class="field" style="margin:0;">
+              <label for="ocr-pass-marks">Pass marks</label>
+              <input type="number" id="ocr-pass-marks" min="0" style="width:110px;" />
+            </div>
+            <button type="button" class="btn btn-primary" id="ocr-save-marks">Save marks</button>
+            <span id="ocr-marks-status" style="font-size:13px; align-self:center;"></span>
+          </div>
+        </div>
       <% } %>
     </div>
   </div>
@@ -80,6 +112,25 @@
     <p>Typed names, handwritten scores — both are read automatically. You'll confirm everything before it's saved.</p>
     <input type="file" id="photo-input" accept="image/*" style="display:none" />
     <button type="button" class="btn btn-accent" id="pick-photo-btn">Choose photo</button>
+  </div>
+
+  <div class="panel cam-capture-panel" id="camera-drop" data-target-input="photo-input" style="display:none">
+    <div class="panel-head"><h2>Or take a photo with the camera</h2></div>
+    <div class="panel-body">
+      <video class="cam-video" autoplay playsinline muted style="width:100%; max-width:640px; border-radius:8px; background:#000;"></video>
+      <canvas class="cam-canvas" style="display:none;"></canvas>
+      <img class="cam-preview" alt="Captured photo preview" style="display:none; width:100%; max-width:640px; border-radius:8px;" />
+      <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary cam-start">Start camera</button>
+        <button type="button" class="btn btn-primary cam-capture" disabled>Capture</button>
+        <button type="button" class="btn btn-ghost cam-switch" disabled>Switch camera</button>
+        <button type="button" class="btn btn-primary cam-use" disabled>Use photo</button>
+        <button type="button" class="btn btn-ghost cam-retake" disabled>Retake</button>
+        <button type="button" class="btn btn-ghost cam-stop" disabled>Stop camera</button>
+      </div>
+      <p class="cam-status hint" style="margin-top:8px;"></p>
+      <p class="hint">Every scan is also archived to cloud storage (marks-scans) for reference.</p>
+    </div>
   </div>
 </div>
 
@@ -135,6 +186,7 @@
 
 <script type="application/json" id="marks-ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
 <script src="/js/marks-ocr-review.js"></script>
+<script src="/js/ocr-camera.js"></script>
 
 <script src="/js/test-cascade-filters.js"></script>
 <script src="/js/test-cascade-ocr.js"></script>

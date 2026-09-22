@@ -68,20 +68,10 @@ exports.deleteTestSessionService = async (sessionId, res) => {
 };
 
 /**
- * Remove a single phase from a session and cascade-unlink dependents.
- * Strategy (matches the existing Week-deletion pattern):
- *   - Unlink tests referencing weeks in this phase → week = null
- *   - Unlink tests referencing this phase directly → session/phase/week = null
- *   - Delete Week documents in this phase
- *   - Pull the phase subdocument from the session
+ * Cascade-unlink and delete all dependents of a single phase
+ * (weeks + test links). Shared by deletePhaseService and the session editor.
  */
-exports.deletePhaseService = async (sessionId, phaseId, res) => {
-  const session = await TestSession.findById(sessionId);
-  if (!session) return responseStatus(res, 404, "failed", "Session not found");
-
-  const phaseExists = session.phases.some((p) => p._id.toString() === phaseId);
-  if (!phaseExists) return responseStatus(res, 404, "failed", "Phase not found in this session");
-
+const purgePhaseDependents = async (sessionId, phaseId) => {
   // Collect week IDs for this phase
   const weekIds = await Week.find({ session: sessionId, phase: phaseId }).distinct("_id");
 
@@ -98,6 +88,24 @@ exports.deletePhaseService = async (sessionId, phaseId, res) => {
 
   // Delete weeks in this phase
   await Week.deleteMany({ session: sessionId, phase: phaseId });
+};
+
+/**
+ * Remove a single phase from a session and cascade-unlink dependents.
+ * Strategy (matches the existing Week-deletion pattern):
+ *   - Unlink tests referencing weeks in this phase → week = null
+ *   - Unlink tests referencing this phase directly → session/phase/week = null
+ *   - Delete Week documents in this phase
+ *   - Pull the phase subdocument from the session
+ */
+exports.deletePhaseService = async (sessionId, phaseId, res) => {
+  const session = await TestSession.findById(sessionId);
+  if (!session) return responseStatus(res, 404, "failed", "Session not found");
+
+  const phaseExists = session.phases.some((p) => p._id.toString() === phaseId);
+  if (!phaseExists) return responseStatus(res, 404, "failed", "Phase not found in this session");
+
+  await purgePhaseDependents(sessionId, phaseId);
 
   // Remove the phase subdocument from the session
   await TestSession.findByIdAndUpdate(sessionId, {
@@ -105,4 +113,72 @@ exports.deletePhaseService = async (sessionId, phaseId, res) => {
   });
 
   return responseStatus(res, 200, "success", "Phase and its weeks deleted; linked tests unassigned.");
+};
+
+/**
+ * Edit a session: rename it, replace its classLevels, and edit its phases.
+ * The phase document handles ID reuse automatically:
+ *   - phase WITHOUT _id  → new phase (add)
+ *   - phase WITH _id     → existing phase, fields applied in place (rename/reorder)
+ *   - existing phase absent from the array → cascade-purged (weeks deleted, tests unlinked)
+ * The session must keep at least one phase.
+ */
+exports.updateTestSessionService = async (sessionId, data, res) => {
+  const { name, classLevels, phases } = data;
+
+  const session = await TestSession.findById(sessionId);
+  if (!session) return responseStatus(res, 404, "failed", "Session not found");
+
+  if (!Array.isArray(phases) || phases.length === 0) {
+    return responseStatus(res, 400, "failed", "A session needs at least one phase");
+  }
+
+  const cleaned = phases
+    .map((p, i) => {
+      const phase = {
+        name: (p.name || "").trim(),
+        order: Number.isFinite(Number(p.order)) ? Number(p.order) : i + 1,
+      };
+      // Reuse the existing subdoc _id when provided; omit it for new phases
+      // so Mongoose auto-generates one.
+      if (p._id) phase._id = p._id;
+      return phase;
+    })
+    .filter((p) => p.name);
+  if (cleaned.length === 0) {
+    return responseStatus(res, 400, "failed", "Every phase needs a name");
+  }
+
+  // Purge dependents of phases being removed
+  const keptIds = cleaned.filter((p) => p._id).map((p) => p._id.toString());
+  const removedIds = session.phases
+    .filter((p) => !keptIds.includes(p._id.toString()))
+    .map((p) => p._id.toString());
+  for (const phaseId of removedIds) {
+    await purgePhaseDependents(sessionId, phaseId);
+  }
+
+  if (typeof name === "string" && name.trim()) session.name = name.trim();
+  if (Array.isArray(classLevels)) session.classLevels = classLevels;
+  session.phases = cleaned;
+  await session.save();
+
+  return responseStatus(res, 200, "success", session);
+};
+
+/**
+ * Append a new phase to a session (kept for programmatic/API use).
+ */
+exports.addPhaseService = async (sessionId, phaseName, res) => {
+  const name = (phaseName || "").trim();
+  if (!name) return responseStatus(res, 400, "failed", "Phase name is required");
+
+  const session = await TestSession.findById(sessionId);
+  if (!session) return responseStatus(res, 404, "failed", "Session not found");
+
+  const nextOrder = session.phases.reduce((max, p) => Math.max(max, p.order || 0), 0) + 1;
+  session.phases.push({ name, order: nextOrder });
+  await session.save();
+
+  return responseStatus(res, 201, "success", session);
 };
