@@ -64,7 +64,12 @@
     <% } %>
   </td>
   <td>
-          
+    <div class="attend-toggle">
+      <button type="button" class="attend-btn present<%= r.status === 'present' ? ' active' : '' %>" data-status="present" title="Present">P</button>
+      <button type="button" class="attend-btn absent<%= r.status === 'absent' ? ' active' : '' %>" data-status="absent" title="Absent">A</button>
+      <button type="button" class="attend-btn late<%= r.status === 'late' ? ' active' : '' %>" data-status="late" title="Late">L</button>
+    </div>
+  </td>
         <% }); %>
       </tbody>
     </table>
