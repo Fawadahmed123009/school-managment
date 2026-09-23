@@ -1,0 +1,53 @@
+<!--
+  Shared multi-select Class filter for the admin analytics page, presented
+  as a dropdown to match the other filter controls. The trigger is styled
+  like a native <select>; the panel holds the same checkbox list as the
+  teacher-analytics filter (classes grouped by grade, "All sections of
+  grade X" helper per multi-section grade, Select all / Clear). The first
+  panel row, "All classes", clears every tick (no classLevelId tokens are
+  submitted → no restriction). Renders as a formless fragment — it must sit
+  inside the surrounding GET form. Only one instance is ever rendered per
+  page, so the element ids below are safe.
+-->
+<label>Class</label>
+<div style="position:relative;">
+  <button type="button" id="ana-class-trigger" style="width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:#fff;color:var(--ink);text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer;text-align:left;">
+    <span id="ana-class-summary">All classes</span>
+    <span aria-hidden="true" style="color:var(--ink-soft);font-size:11px;">▾</span>
+  </button>
+  <div id="ana-class-panel" hidden style="position:absolute;top:calc(100% + 4px);left:0;min-width:100%;max-width:360px;z-index:50;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(15,23,42,.12);padding:12px 14px;text-align:left;">
+    <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink);border-bottom:1px dashed var(--border);margin-bottom:6px;cursor:pointer;">
+      <input type="checkbox" id="ana-all-classes" />
+      All classes
+    </label>
+    <div style="display:flex; gap:10px; margin-bottom:6px;">
+      <button type="button" id="ana-select-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
+      <button type="button" id="ana-clear-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
+      <span id="ana-class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
+    </div>
+    <div id="ana-class-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:#fafbfd;">
+      <% var anaGradeGroups = {}; %>
+      <% classes.forEach(function(c) { var g = c.gradeLevel || '\u2014'; (anaGradeGroups[g] = anaGradeGroups[g] || []).push(c); }); %>
+      <% var anaTokens = (filters.classTokens || []).map(String); %>
+      <% var anaGradeSel = {}; anaTokens.forEach(function(t) { if (t.indexOf('grade:') === 0) anaGradeSel[t.slice(6)] = true; }); %>
+      <% Object.keys(anaGradeGroups).forEach(function(g) { var groupClasses = anaGradeGroups[g]; %>
+      <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:8px;">
+        <% if (groupClasses.length > 1) { %>
+          <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
+            <input type="checkbox" class="grade-all-cb" />
+            All sections of grade <%= g %>
+          </label>
+        <% } else { %>
+          <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
+        <% } %>
+        <% groupClasses.forEach(function(c) { var ck = anaTokens.indexOf(String(c._id)) !== -1 || anaGradeSel[g] === true; %>
+          <label style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+            <input type="checkbox" name="classLevelId" value="<%= c._id %>" class="class-cb" <%= ck ? 'checked' : '' %> />
+            <%= c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
+          </label>
+        <% }); %>
+      </div>
+      <% }); %>
+    </div>
+  </div>
+</div>

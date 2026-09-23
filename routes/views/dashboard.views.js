@@ -432,6 +432,85 @@ router.get("/dashboard", async (req, res) => {
         };
       }
     }
+
+    // ── Admin/Manager: marking follow-up across ALL teachers ──
+    // Mirrors the teacher-scoped logic above: a test is pending for a teacher
+    // when it is past-dated and fewer than the expected (non-withdrawn) students
+    // of the teacher's assigned classes for that subject have a TestResult.
+    if (req.user.role === "admin" || req.user.isManager) {
+      const [allAssignments, allTests, allStudents, allResults, teacherDocs] = await Promise.all([
+        Assignment.find().populate("subject", "name").populate("classLevel", "name").lean(),
+        Test.find({ date: { $lt: new Date() } })
+          .select("name subject classLevels date")
+          .populate("subject", "name")
+          .populate("classLevels", "name")
+          .sort({ date: 1 })
+          .lean(),
+        Student.find({ isWithdrawn: { $ne: true } }).select("_id classLevel").lean(),
+        TestResult.find().select("test student").lean(),
+        Teacher.find().select("name").lean(),
+      ]);
+
+      const teacherNames = {};
+      teacherDocs.forEach((t) => { teacherNames[t._id.toString()] = t.name; });
+      const studentsByClass = {};
+      allStudents.forEach((s) => {
+        if (!s.classLevel) return;
+        const k = String(s.classLevel);
+        (studentsByClass[k] || (studentsByClass[k] = [])).push(s._id.toString());
+      });
+      const markedByTest = {};
+      allResults.forEach((r) => {
+        const k = String(r.test);
+        (markedByTest[k] || (markedByTest[k] = new Set())).add(String(r.student));
+      });
+
+      // teacher → subject → classes the teacher is responsible for marking.
+      const teacherSubjectMap = {}; // teacherId(str) → { subjKey: { id, name, classLevelIds:Set } }
+      const classNameById = {}; // classLevelId(str) → class name
+      allAssignments.forEach((a) => {
+        const tid = a.teacher && String(a.teacher._id ? a.teacher._id : a.teacher);
+        const sid = a.subject && a.subject._id && String(a.subject._id);
+        const cid = a.classLevel && a.classLevel._id && String(a.classLevel._id);
+        if (!tid || !sid || !cid) return;
+        if (a.classLevel && a.classLevel.name) classNameById[cid] = a.classLevel.name;
+        const subjMap = teacherSubjectMap[tid] || (teacherSubjectMap[tid] = {});
+        if (!subjMap[sid]) subjMap[sid] = { id: sid, name: a.subject.name || "Unknown", classLevelIds: new Set() };
+        subjMap[sid].classLevelIds.add(cid);
+      });
+
+      const allOverdueUnmarked = [];
+      Object.entries(teacherSubjectMap).forEach(([tid, subjMap]) => {
+        Object.values(subjMap).forEach((subj) => {
+          allTests.forEach((t) => {
+            const subjKey = String(t.subject && t.subject._id ? t.subject._id : t.subject);
+            if (subjKey !== subj.id) return;
+            const inScopeClasses = (t.classLevels || [])
+              .map((c) => String(c._id || c))
+              .filter((id) => subj.classLevelIds.has(id));
+            if (inScopeClasses.length === 0) return;
+            const expectedIds = inScopeClasses.flatMap((c) => studentsByClass[c] || []);
+            if (expectedIds.length === 0) return;
+            const markedSet = markedByTest[String(t._id)] || new Set();
+            const marked = expectedIds.reduce((n, id) => n + (markedSet.has(id) ? 1 : 0), 0);
+            if (marked >= expectedIds.length) return;
+            allOverdueUnmarked.push({
+              _id: t._id,
+              name: t.name,
+              teacher: teacherNames[tid] || "Unknown",
+              subject: subj.name,
+              classes: inScopeClasses.map((id) => classNameById[id]).filter(Boolean).join(", "),
+              date: t.date,
+              expected: expectedIds.length,
+              marked,
+            });
+          });
+        });
+      });
+      // Most overdue first, then group remaining tests per teacher.
+      allOverdueUnmarked.sort((a, b) => new Date(a.date) - new Date(b.date) || a.teacher.localeCompare(b.teacher));
+      stats.marking = allOverdueUnmarked;
+    }
   } catch (err) {
     logger.warn("Dashboard stats error", { error: err.message, userId: req.user?._id });
     // graceful degradation — dashboard still renders with zeros

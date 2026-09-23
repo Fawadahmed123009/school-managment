@@ -113,32 +113,14 @@ function addBlankColumns(rows, count) {
 }
 
 // ── Photo fetching (PDF/docx need real bytes, not a URL) ───────────────────────
-// Detects the real image type from the downloaded bytes themselves — NOT from
-// the URL's file extension or any header we're told to trust. This is
-// deliberate: trusting an untrusted extension/label caused the earlier docx
-// ".undefined" embedded-image corruption bug. Sniffing the actual magic bytes
-// means a wrong/missing extension can never produce a broken embed again.
-function detectImageType(buffer) {
-  if (!buffer || buffer.length < 4) return null;
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return "png";
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
-  if (buffer.slice(0, 3).toString("ascii") === "GIF") return "gif";
-  return null; // unknown/unsupported — caller must skip embedding, never guess
-}
+// Resolution (remote URL vs. local /uploads path + magic-byte type sniffing)
+// is shared with the PDF reports via utils/studentPhoto.js — see E-1. Before
+// this was shared, a local relative photoUrl (R2 not configured) made the
+// plain fetch() below throw on the malformed URL and silently drop the photo.
+const { loadStudentPhoto } = require("../../utils/studentPhoto");
 
 async function fetchImageBuffer(url) {
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const type = detectImageType(buffer);
-    if (!type) return null; // couldn't verify it's a real, supported image
-    return { buffer, type };
-  } catch {
-    return null; // network failure, timeout, bad URL — never crash the export
-  }
+  return loadStudentPhoto(url); // { buffer, type } or null — never throws
 }
 
 // Fetches photos for a list of students with limited concurrency, so a
@@ -166,7 +148,17 @@ exports.generateExcel = async (scope, scopeValues, selectedFields, blankCount) =
   let rows = buildRows(students, selectedFields);
   rows = addBlankColumns(rows, blankCount);
 
-  const worksheet = XLSX.utils.json_to_sheet(rows);
+  // json_to_sheet([]) emits nothing at all — not even the header row — so an
+  // export that matches zero students produced a completely blank sheet.
+  // When there are no data rows, hand json_to_sheet an explicit `header` list
+  // (same labels and order buildRows would use) so the header still renders.
+  let worksheet;
+  if (rows.length === 0) {
+    const headerLabels = ALL_FIELDS.filter((f) => selectedFields.includes(f.key)).map((f) => f.label);
+    worksheet = XLSX.utils.json_to_sheet([], { header: headerLabels });
+  } else {
+    worksheet = XLSX.utils.json_to_sheet(rows);
+  }
 
   // Rename blank columns to empty headers
   const blankHeaders = [];

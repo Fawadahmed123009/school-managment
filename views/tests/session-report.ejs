@@ -46,7 +46,7 @@
                 <td><%= t.test %></td>
                 <td><%= t.subject %></td>
                 <td class="num mono"><%= t.score %>/<%= t.totalMarks %></td>
-                <td class="num mono"><%= t.percent %>%</td>
+                <td class="num mono"><%= t.percent !== null ? t.percent + '%' : '—' %></td>
               </tr>
             <% }); %>
           </tbody>

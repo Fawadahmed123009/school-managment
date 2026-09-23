@@ -26,46 +26,77 @@ document.addEventListener('DOMContentLoaded', function () {
   ];
 
   if (trendMode === 'class') {
-    // ── Class average trend with min/max band ────────────────
-    if (trendTableRows.length === 0) return;
+    // ── Class trend: one average-% line per class/section ────
+    // trendLines = [{ className, points:[{ testName, date, avgPercent, minPercent, maxPercent }] }]
+    if (trendLines.length === 0) return;
 
-    var labels = trendTableRows.map(function (d) {
+    // Shared x-axis: every distinct test (name + date) across all class lines.
+    var allDates = {};
+    trendLines.forEach(function (line) {
+      line.points.forEach(function (p) {
+        var key = new Date(p.date).getTime() + '|' + p.testName;
+        if (!allDates[key]) allDates[key] = { date: p.date, testName: p.testName };
+      });
+    });
+    var sortedDates = Object.keys(allDates).sort(function (a, b) {
+      return new Date(allDates[a].date) - new Date(allDates[b].date);
+    });
+    var labels = sortedDates.map(function (k) {
+      var d = allDates[k];
       return d.testName + ' (' + new Date(d.date).toLocaleDateString() + ')';
     });
 
-    var datasets = [{
-      label: 'Average %',
-      data: trendTableRows.map(function (d) { return d.avgPercent; }),
-      borderColor: '#3b82f6',
-      backgroundColor: 'rgba(59, 130, 246, 0.08)',
-      fill: false,
-      tension: 0.35,
-      pointRadius: 5,
-      pointHoverRadius: 7,
-      borderWidth: 2.5,
-    }];
-
-    // Add min/max lines as secondary datasets
-    datasets.push({
-      label: 'Min %',
-      data: trendTableRows.map(function (d) { return d.minPercent; }),
-      borderColor: 'rgba(239, 68, 68, 0.5)',
-      borderDash: [4, 4],
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: false,
-      tension: 0.35,
-    });
-    datasets.push({
-      label: 'Max %',
-      data: trendTableRows.map(function (d) { return d.maxPercent; }),
-      borderColor: 'rgba(16, 185, 129, 0.5)',
-      borderDash: [4, 4],
-      borderWidth: 1.5,
-      pointRadius: 0,
-      fill: '-1',
-      backgroundColor: 'rgba(59, 130, 246, 0.06)',
-      tension: 0.35,
+    var datasets = [];
+    trendLines.forEach(function (line, i) {
+      // Map this class's points onto the global label axis.
+      var avgMap = {}, minMap = {}, maxMap = {};
+      line.points.forEach(function (p) {
+        var key = new Date(p.date).getTime() + '|' + p.testName;
+        var idx = sortedDates.indexOf(key);
+        if (idx < 0) return;
+        avgMap[idx] = p.avgPercent;
+        minMap[idx] = p.minPercent;
+        maxMap[idx] = p.maxPercent;
+      });
+      var pick = function (m) {
+        return sortedDates.map(function (_, idx) { return m[idx] !== undefined ? m[idx] : null; });
+      };
+      var color = palette[i % palette.length];
+      datasets.push({
+        label: line.className,
+        data: pick(avgMap),
+        borderColor: color,
+        backgroundColor: color + '14',
+        fill: false,
+        tension: 0.35,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderWidth: 2.5,
+        spanGaps: false,
+      });
+      // With a single class, keep the richer min/max band view.
+      if (trendLines.length === 1) {
+        datasets.push({
+          label: 'Min %',
+          data: pick(minMap),
+          borderColor: 'rgba(239, 68, 68, 0.5)',
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.35,
+        });
+        datasets.push({
+          label: 'Max %',
+          data: pick(maxMap),
+          borderColor: 'rgba(16, 185, 129, 0.5)',
+          borderDash: [4, 4],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: false,
+          tension: 0.35,
+        });
+      }
     });
 
     new Chart(canvas, {
@@ -79,7 +110,7 @@ document.addEventListener('DOMContentLoaded', function () {
             beginAtZero: true,
             max: 100,
             ticks: { callback: function (v) { return v + '%'; } },
-            title: { display: true, text: 'Percentage' },
+            title: { display: true, text: 'Average percentage' },
           },
           x: { grid: { display: false } },
         },
@@ -88,6 +119,7 @@ document.addEventListener('DOMContentLoaded', function () {
           tooltip: {
             callbacks: {
               label: function (ctx) {
+                if (ctx.parsed.y === null) return ctx.dataset.label + ': —';
                 return ctx.dataset.label + ': ' + ctx.parsed.y + '%';
               }
             }

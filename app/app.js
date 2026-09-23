@@ -88,7 +88,18 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // ── Cookie parser ─────────────────────────────────────────────
-app.use(cookieParser());
+// COOKIE_SECRET makes the `session` cookie tamper-evident: cookie-parser then
+// exposes verified values on req.signedCookies and drops any cookie whose
+// signature doesn't match (leaving it out of signedCookies entirely).
+// This layers on top of the DB identity resolution in authView — a forged or
+// edited cookie is rejected before identity is ever looked up.
+const COOKIE_SECRET = process.env.COOKIE_SECRET;
+if (!COOKIE_SECRET && process.env.NODE_ENV !== "test") {
+  logger.warn(
+    "COOKIE_SECRET is not set — signed session cookies are disabled. Set COOKIE_SECRET in .env."
+  );
+}
+app.use(cookieParser(COOKIE_SECRET));
 
 // ── NoSQL injection protection ────────────────────────────────
 app.use(mongoSanitize());
@@ -115,12 +126,26 @@ routeSync(app, "parents");
 // ---------- Server-rendered portal ───────────────────────────
 const { publicRouter: pdfPublicRouter, generateRouter: pdfGenerateRouter } = require("../routes/views/pdfReport.views");
 
+// ── Scheduled PDF cleanup ──────────────────────────────────────
+// Generated reports are served unauthenticated by UUID and are documented as
+// short-lived (~1h). cleanupOldPdfs() enforces that: run it on a timer so the
+// tmp/pdfs directory doesn't accumulate stale, publicly-reachable documents.
+// .unref() keeps the timer from holding the process open (and it is skipped
+// under the jest runner so unit tests don't spawn stray intervals).
+if (process.env.NODE_ENV !== "test") {
+  const pdfReportService = require("../services/academic/pdfReport.service");
+  const PDF_SWEEP_INTERVAL_MS = 20 * 60 * 1000; // every 20 minutes
+  setInterval(() => pdfReportService.cleanupOldPdfs(), PDF_SWEEP_INTERVAL_MS).unref();
+}
+
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "../views"));
 app.use(express.static(path.join(__dirname, "../public")));
-// Serve uploaded files only to authenticated users (session cookie check)
+// Serve uploaded files only to authenticated users (signed session cookie check)
 app.use("/uploads", (req, res, next) => {
-  const raw = req.cookies && req.cookies.session;
+  // Only the verified (signature-checked) cookie is trusted; a tampered or
+  // unsigned cookie is absent from req.signedCookies → treated as no session.
+  const raw = req.signedCookies && req.signedCookies.session;
   if (!raw) return res.status(401).send("Unauthorized");
   try {
     const session = JSON.parse(raw);

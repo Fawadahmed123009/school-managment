@@ -3,6 +3,12 @@ const router = express.Router();
 const { apiFetch } = require("../../utils/apiClient");
 const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 
+// Sort sentinels: tests missing a session/phase/week sink to the bottom of
+// their own group instead of mixing in with the categorised ones.
+const SESSIONS_UNRANKED = 1e9;
+const PHASES_UNRANKED = 1e9;
+const WEEKS_UNRANKED = 8.64e15; // epoch-ms far in the future
+
 router.get("/tests/manage", requireAdminOrManager(), async (req, res) => {
   const [testsRes, sessionsRes, subjectsRes, classesRes] = await Promise.all([
     apiFetch("/tests", req.token),
@@ -11,13 +17,47 @@ router.get("/tests/manage", requireAdminOrManager(), async (req, res) => {
     apiFetch("/class-levels", req.token),
   ]);
 
+  const tests = testsRes.status === "success" ? testsRes.data : [];
+  const sessions = sessionsRes.status === "success" ? sessionsRes.data : [];
+
+  // `phase` on a test is a bare subdocument id (no ref), so its name and order
+  // have to be resolved from the owning session's phases array.
+  const phaseNames = {};
+  const phaseOrder = {};
+  sessions.forEach((s) => {
+    (s.phases || []).forEach((p) => {
+      phaseNames[p._id] = p.name;
+      phaseOrder[p._id] = Number.isFinite(p.order) ? p.order : 0;
+    });
+  });
+
+  // Group the ledger Session → Phase → Week → newest, so the list reads
+  // categorically instead of as a flat date-sorted dump.
+  const sessionRank = {};
+  sessions.forEach((s, i) => {
+    sessionRank[s._id] = i;
+  });
+  const rankSession = (t) =>
+    t.session && sessionRank[t.session._id] !== undefined ? sessionRank[t.session._id] : SESSIONS_UNRANKED;
+  const rankPhase = (t) =>
+    t.phase && phaseOrder[t.phase] !== undefined ? phaseOrder[t.phase] : PHASES_UNRANKED;
+  const rankWeek = (t) => (t.week && t.week.startDate ? new Date(t.week.startDate).getTime() : WEEKS_UNRANKED);
+
+  tests.sort((a, b) => {
+    if (rankSession(a) !== rankSession(b)) return rankSession(a) - rankSession(b);
+    if (rankPhase(a) !== rankPhase(b)) return rankPhase(a) - rankPhase(b);
+    if (rankWeek(a) !== rankWeek(b)) return rankWeek(a) - rankWeek(b);
+    return new Date(b.date) - new Date(a.date);
+  });
+
   res.render("tests/manage", {
     page: "tests-manage",
     user: req.user,
     ok: req.query.ok === "1",
     createError: req.query.error || null,
-    tests: testsRes.status === "success" ? testsRes.data : [],
-    sessions: sessionsRes.status === "success" ? sessionsRes.data : [],
+    tests,
+    sessions,
+    phaseNames,
     subjects: subjectsRes.status === "success" ? subjectsRes.data : [],
     classes: classesRes.status === "success" ? classesRes.data : [],
     loadError: testsRes.status === "success" ? null : testsRes.message,

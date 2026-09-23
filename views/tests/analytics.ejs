@@ -29,48 +29,50 @@
       <form method="GET" action="/tests/analytics">
         <input type="hidden" name="viewMode" value="trend" />
         <input type="hidden" name="mode" value="<%= trendMode || 'student' %>" />
-        <div class="field-row">
-          <% if (trendMode === 'class') { %>
+        <% if (trendMode === 'class') { %>
+          <div class="field-row">
+            <div class="field" style="flex:1 1 240px;">
+              <%- include('./partials/class-filter') %>
+            </div>
             <div class="field">
-              <label for="classLevelId">Class</label>
-              <select name="classLevelId" id="classLevelId">
-                <option value="">All classes</option>
-                <% classes.forEach(function(c) { %>
-                  <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
+              <label for="subjectId">Subject</label>
+              <select name="subjectId" id="subjectId">
+                <option value="">Select a subject…</option>
+                <% subjects.forEach(function(s) { %>
+                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
                 <% }); %>
               </select>
             </div>
-          <% } %>
-          <% if (!trendMode || trendMode === 'student') { %>
-            <div class="field">
-              <label for="classLevelId">Filter by class</label>
-              <select name="classLevelId" id="classLevelId">
-                <option value="">All classes</option>
-                <% classes.forEach(function(c) { %>
-                  <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
-                <% }); %>
-              </select>
+          </div>
+        <% } else { %>
+          <!-- Class filter sits on its own row directly above the Student
+               picker so it reads as a filter for the student list. -->
+          <div class="field-row">
+            <div class="field" style="flex:1 1 240px;">
+              <%- include('./partials/class-filter') %>
             </div>
+          </div>
+          <div class="field-row">
             <div class="field">
-              <label for="studentId">Student</label>
+              <label for="studentId">Student <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(narrowed by the class above)</span></label>
               <select name="studentId" id="studentId">
                 <option value="">Select a student…</option>
                 <% students.forEach(function(s) { %>
-                  <option value="<%= s._id %>" <%= filters.studentId === String(s._id) ? 'selected' : '' %>><%= s.name %> (<%= s.studentId %>)<% if (s.classLevel) { %> — <%= s.classLevel.name %><% } %></option>
+                  <option value="<%= s._id %>" data-cls="<%= s.classLevel && s.classLevel._id ? s.classLevel._id : '' %>" <%= filters.studentId === String(s._id) ? 'selected' : '' %>><%= s.name %> (<%= s.studentId %>)<% if (s.classLevel) { %> — <%= s.classLevel.name %><% } %></option>
                 <% }); %>
               </select>
             </div>
-          <% } %>
-          <div class="field">
-            <label for="subjectId">Subject</label>
-            <select name="subjectId" id="subjectId">
-              <option value=""><%= trendMode === 'class' ? 'Select a subject…' : 'All subjects' %></option>
-              <% subjects.forEach(function(s) { %>
-                <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
-              <% }); %>
-            </select>
+            <div class="field">
+              <label for="subjectId">Subject</label>
+              <select name="subjectId" id="subjectId">
+                <option value="">All subjects</option>
+                <% subjects.forEach(function(s) { %>
+                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+                <% }); %>
+              </select>
+            </div>
           </div>
-        </div>
+        <% } %>
         <button type="submit" class="btn btn-primary">Apply filters</button>
       </form>
     </div>
@@ -96,7 +98,7 @@
         <table class="ledger">
           <thead>
             <% if (trendMode === 'class') { %>
-              <tr><th>Test</th><th>Date</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th><th class="num">Students</th></tr>
+              <tr><th>Class</th><th>Test</th><th>Date</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th><th class="num">Students</th></tr>
             <% } else { %>
               <tr><th>Test</th><th>Date</th><th>Subject</th><th class="num">Score</th><th class="num">Total</th><th class="num">%</th></tr>
             <% } %>
@@ -105,6 +107,7 @@
             <% if (trendMode === 'class') { %>
               <% trendTableRows.forEach(function(r) { %>
                 <tr>
+                  <td><%= r.className %></td>
                   <td><strong><%= r.testName %></strong></td>
                   <td><%= new Date(r.date).toLocaleDateString() %></td>
                   <td class="num mono"><%= r.avgPercent %>%</td>
@@ -159,21 +162,14 @@
               <%
                 var label = t.name;
                 if (t.subject) label += ' — ' + t.subject.name;
-                if (t.classLevels && t.classLevels.length) label += ' (' + t.classLevels.map(function(cl){ return cl.name; }).join(', ') + ')';
                 if (t.date) label += ' · ' + new Date(t.date).toLocaleDateString();
               %>
               <option value="<%= t._id %>" <%= filters.testId === String(t._id) ? 'selected' : '' %>><%= label %></option>
             <% }); %>
           </select>
         </div>
-        <div class="field">
-          <label for="classLevelId">Class</label>
-          <select name="classLevelId" id="classLevelId">
-            <option value="">All classes</option>
-            <% classes.forEach(function(c) { %>
-              <option value="<%= c._id %>" <%= filters.classLevelId === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
-            <% }); %>
-          </select>
+        <div class="field" style="flex:1 1 240px;">
+          <%- include('./partials/class-filter') %>
         </div>
         <div class="field">
           <label for="subjectId">Subject</label>
@@ -352,5 +348,7 @@
 <% } %>
 
 <% } %>
+
+<script src="/js/analytics-class-filter.js"></script>
 
 <%- include('../partials/foot') %>

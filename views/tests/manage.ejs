@@ -89,17 +89,52 @@
   <% if (tests.length === 0) { %>
     <div class="empty"><div class="display">No tests yet</div></div>
   <% } else { %>
+    <%
+      // Category keys are written on every row so the cascade dropdowns below
+      // can be built purely from the tests that actually exist.
+      const NONE_KEY = 'none';
+      const catKey = (value) => (value ? String(value) : NONE_KEY);
+      const categoryOptions = [
+        { id: 'filter-session', label: 'Session', all: 'All sessions' },
+        { id: 'filter-phase', label: 'Phase', all: 'All phases' },
+        { id: 'filter-week', label: 'Week', all: 'All weeks' },
+      ];
+    %>
+    <div class="panel-body" style="padding-bottom:8px;">
+      <div class="field-row" style="align-items:flex-end;margin-bottom:0;">
+        <% categoryOptions.forEach(function(c) { %>
+          <div class="field" style="flex:0 1 220px;min-width:170px;">
+            <label for="<%= c.id %>"><%= c.label %></label>
+            <select id="<%= c.id %>">
+              <option value=""><%= c.all %></option>
+            </select>
+          </div>
+        <% }); %>
+        <div class="field" style="flex:0 0 auto;min-width:0;">
+          <button type="button" id="filter-reset" class="btn btn-ghost" style="display:none;">Clear filters</button>
+        </div>
+      </div>
+      <p class="hint" id="filter-count" style="color:var(--ink-soft);font-size:13px;margin:6px 0 0;"></p>
+    </div>
     <div class="table-wrap">
     <table class="ledger">
-      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Week</th><th>Session</th><th class="num">Total</th><th></th></tr></thead>
-      <tbody>
+      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Session</th><th>Phase</th><th>Week</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody id="tests-tbody">
         <% tests.forEach(function(t) { %>
-          <tr>
+          <tr
+            data-session="<%= catKey(t.session && t.session._id) %>"
+            data-session-name="<%= t.session ? t.session.name : 'Standalone' %>"
+            data-phase="<%= catKey(t.phase) %>"
+            data-phase-name="<%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : 'No phase' %>"
+            data-week="<%= catKey(t.week && t.week._id) %>"
+            data-week-name="<%= t.week ? t.week.name : 'No week' %>"
+          >
             <td><strong><%= t.name %></strong></td>
             <td><%= t.subject ? t.subject.name : '—' %></td>
             <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
-            <td><%= t.week ? t.week.name : '—' %></td>
             <td><%= t.session ? t.session.name : 'Standalone' %></td>
+            <td><%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : '—' %></td>
+            <td><%= t.week ? t.week.name : '—' %></td>
             <td class="num mono"><%= t.totalMarks %></td>
             <td style="display:flex;gap:6px;justify-content:flex-end;">
               <a href="/tests/<%= t._id %>/result-sheet" class="btn btn-ghost" style="padding:4px 10px;">Results</a>
@@ -113,11 +148,13 @@
       </tbody>
     </table>
     </div>
+    <div class="empty" id="filter-empty" style="display:none;"><div class="display">No tests in this category</div>Try a broader session, phase or week selection.</div>
   <% } %>
 </div>
 
 <script type="application/json" id="cpicker-manage-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
 <script src="/js/class-picker.js"></script>
 <script src="/js/test-manage.js"></script>
+<script src="/js/test-manage-filter.js"></script>
 
 <%- include('../partials/foot') %>

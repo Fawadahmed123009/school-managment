@@ -14,6 +14,9 @@ const cookieOptions = {
   sameSite: "lax",
   secure: isProduction,
   maxAge: 24 * 60 * 60 * 1000, // 1 day (matches JWT expiry)
+  // Sign the cookie (COOKIE_SECRET via cookieParser) so it is tamper-evident.
+  // Requires cookieParser to be constructed with the same secret (see app.js).
+  signed: true,
 };
 
 // ── Role-specific login pages ─────────────

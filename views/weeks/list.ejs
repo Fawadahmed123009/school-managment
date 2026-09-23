@@ -10,7 +10,7 @@
   <a href="/sessions/manage" class="btn btn-ghost">Back to sessions</a>
 </div>
 
-<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (ok) { %><div class="flash ok"><%= okMsg || 'Saved.' %></div><% } %>
 <% if (createError) { %><div class="flash error"><%= createError %></div><% } %>
 <% if (loadError) { %><div class="flash error">Couldn't load weeks: <%= loadError %></div><% } %>
 
@@ -104,6 +104,11 @@
             <td class="num mono"><%= w.testCount || 0 %></td>
             <td>
               <a href="/sessions/<%= session._id %>/weeks/<%= w._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
+              <% if ((w.testCount || 0) > 0) { %>
+                <a href="/sessions/<%= session._id %>/weeks/<%= w._id %>/clone" class="btn btn-ghost" style="padding:4px 10px;">Clone to new week</a>
+              <% } else { %>
+                <span class="btn btn-ghost" style="padding:4px 10px;opacity:.4;cursor:not-allowed;" title="No tests to clone">Clone to new week</span>
+              <% } %>
               <form method="POST" action="/sessions/<%= session._id %>/weeks/<%= w._id %>/delete" style="display:inline;" data-confirm="Delete this week? Tests linked to it will become unassigned (not deleted).">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button type="submit" class="btn btn-ghost" style="padding:4px 10px;color:var(--error);">Delete</button>

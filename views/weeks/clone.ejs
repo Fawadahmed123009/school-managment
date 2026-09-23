@@ -1,0 +1,72 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Clone week — <%= sourceWeek.name %></h1>
+  </div>
+  <a href="/sessions/<%= session._id %>/weeks" class="btn btn-ghost">Back to weeks</a>
+</div>
+
+<% if (cloneError) { %><div class="flash error"><%= cloneError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>New week details</h2>
+    <p class="sub">A brand-new week will be created under the same session/phase, and the <strong><%= tests.length %></strong> test(s) from “<%= sourceWeek.name %>” will be copied into it with their dates shifted by the same number of days the new start date is offset from the original.</p>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/sessions/<%= session._id %>/weeks/<%= sourceWeek._id %>/clone/preview">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="name">New week name</label>
+          <input type="text" name="name" id="name" value="<%= newName %>" required />
+        </div>
+        <div class="field">
+          <label>Source week</label>
+          <input type="text" value="<%= sourceWeek.name %> (<%= new Date(sourceWeek.startDate).toLocaleDateString() %> – <%= new Date(sourceWeek.endDate).toLocaleDateString() %>)" disabled />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="startDate">New start date</label>
+          <input type="date" name="startDate" id="startDate" value="<%= defaultStart.toISOString().split('T')[0] %>" required />
+        </div>
+        <div class="field">
+          <label for="endDate">New end date</label>
+          <input type="date" name="endDate" id="endDate" value="<%= defaultEnd.toISOString().split('T')[0] %>" required />
+        </div>
+      </div>
+      <div class="field-row" style="gap:8px;">
+        <button type="submit" class="btn btn-primary">Preview clone</button>
+        <a href="/sessions/<%= session._id %>/weeks" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Tests in “<%= sourceWeek.name %>” (<%= tests.length %>)</h2></div>
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead><tr><th>Name</th><th>Subject</th><th>Class(es)</th><th>Date</th><th class="num">Total</th><th class="num">Pass</th></tr></thead>
+      <tbody>
+        <% tests.forEach(function(t) { %>
+          <tr>
+            <td><strong><%= t.name %></strong></td>
+            <td><%= t.subject ? t.subject.name : '—' %></td>
+            <td><%= (t.classLevels || []).map(function(c){ return c.name; }).join(', ') || '—' %></td>
+            <td><%= new Date(t.date).toLocaleDateString() %></td>
+            <td class="num mono"><%= t.totalMarks %></td>
+            <td class="num mono"><%= t.passMarks %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

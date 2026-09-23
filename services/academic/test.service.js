@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Test = require("../../models/Academic/test.model");
 const TestResult = require("../../models/Academic/testResult.model");
@@ -672,11 +673,42 @@ exports.getTestAnalyticsService = async (filters, res) => {
     date: r.test.date,
     score: r.score,
     totalMarks: r.test.totalMarks,
-    percent: Math.round((r.score / r.test.totalMarks) * 10000) / 100,
+    // D-2: guard the percent division — legacy tests with totalMarks 0 would
+    // otherwise yield NaN%/Infinity%. Same pattern used across this codebase.
+    percent: r.test.totalMarks ? Math.round((r.score / r.test.totalMarks) * 10000) / 100 : null,
   }));
 
   return responseStatus(res, 200, "success", summary);
 };
+
+// ── Admin class-filter resolver ─────────────────────────────────────────────
+// Resolves a comma-separated list of class tokens — each either a ClassLevel
+// id or a whole grade as "grade:<level>" (e.g. "grade:9") — into distinct
+// ClassLevel documents. Tokens are unioned; invalid ids and grades with no
+// matching class are ignored. An empty resolution returns [] so callers can
+// fall back to "no restriction" rather than accidentally matching nothing.
+async function resolveClassTokens(param) {
+  if (!param) return [];
+  const tokens = String(param)
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const idSet = new Set();
+  for (const token of tokens) {
+    if (token.startsWith("grade:")) {
+      const docs = await ClassLevel.find({ gradeLevel: token.slice("grade:".length) })
+        .select("_id")
+        .lean();
+      docs.forEach((d) => idSet.add(String(d._id)));
+    } else if (mongoose.isValidObjectId(token)) {
+      idSet.add(token);
+    }
+  }
+  if (idSet.size === 0) return [];
+  return ClassLevel.find({ _id: { $in: [...idSet] } })
+    .sort({ gradeLevel: 1, group: 1, section: 1 })
+    .lean();
+}
 
 // ── Enhanced analytics: per-test stats, comparison, distribution ────────────
 // Computes average, max, min, standard deviation for a selected test, scoped
@@ -686,10 +718,15 @@ exports.getTestAnalyticsService = async (filters, res) => {
 exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, sortBy } = filters;
 
+  // The class filter is a multi-select: a comma-separated list of ClassLevel
+  // ids and/or "grade:<level>" tokens. Empty/invalid → no restriction.
+  const selectedClasses = await resolveClassTokens(classLevelId);
+  const selectedClassIds = selectedClasses.map((c) => String(c._id));
+
   // ── Load filter-option dropdowns ──
   const testQuery = {};
   if (subjectId) testQuery.subject = subjectId;
-  if (classLevelId) testQuery.classLevels = classLevelId;
+  if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
 
   const [classes, subjects, tests] = await Promise.all([
     ClassLevel.find().sort({ gradeLevel: 1, group: 1, section: 1 }).lean(),
@@ -726,7 +763,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
 
   // ── Build student filter pipeline ──
   const studentMatch = {};
-  if (classLevelId) studentMatch.classLevel = classLevelId;
+  if (selectedClassIds.length) studentMatch.classLevel = { $in: selectedClassIds };
   if (nameSearch) studentMatch.name = { $regex: nameSearch, $options: "i" };
   if (rollNumberSearch) {
     studentMatch.rollNumber = { $regex: String(rollNumberSearch).trim(), $options: "i" };
@@ -871,6 +908,10 @@ function makeEmptyStats(test) {
 // Helper: build histogram buckets for mark distribution
 function buildDistribution(scores, totalMarks) {
   if (!scores || scores.length === 0) return [];
+  // D-2: a legacy test with totalMarks 0 (or missing) makes the bucket maths
+  // divide by zero — idx becomes NaN/Infinity and buckets[idx] is undefined,
+  // throwing a TypeError. Bail out to an empty distribution instead.
+  if (!totalMarks) return [];
   // Create buckets: 0-10%, 10-20%, ..., 90-100% of totalMarks
   const bucketCount = 10;
   const bucketSize = totalMarks / bucketCount;
@@ -902,16 +943,21 @@ exports.buildDistribution = buildDistribution;
 exports.getTestTrendService = async (filters, res) => {
   const { mode, studentId, subjectId, classLevelId } = filters;
 
+  // Multi-select class filter: comma-separated ClassLevel ids and/or
+  // "grade:<level>" tokens (same contract as the enhanced analytics).
+  const selectedClasses = await resolveClassTokens(classLevelId);
+  const selectedClassIds = selectedClasses.map((c) => String(c._id));
+
   // Shared dropdown data
   const [classes, subjects] = await Promise.all([
     ClassLevel.find().sort({ gradeLevel: 1, group: 1, section: 1 }).lean(),
     Subject.find().sort("name").lean(),
   ]);
 
-  // Load students list for Mode A picker
-  const studentQuery = {};
-  if (classLevelId) studentQuery.classLevel = classLevelId;
-  const students = await Student.find(studentQuery)
+  // Students list for the Mode A picker. Returned UNSCOPED (with each
+  // student's class id) so the class dropdown can live-filter it on the
+  // client without a round-trip; the trend itself is computed per student.
+  const students = await Student.find({})
     .select("name studentId rollNumber classLevel")
     .populate("classLevel", "name")
     .sort("name")
@@ -974,7 +1020,12 @@ exports.getTestTrendService = async (filters, res) => {
     });
   }
 
-  // Mode B — class average trend
+  // Mode B — class average trend, one line per selected class/section.
+  // Picking a whole grade expands to all its sections, so e.g. grade 9's
+  // Computer vs Biology vs Arts sections each get their own average-% line
+  // for easy comparison. When nothing is selected a single blended
+  // "All classes" line is returned (the original behaviour). Each line's
+  // stats are scoped to that class's own students, not the whole test.
   if (mode === "class") {
     if (!subjectId) {
       return responseStatus(res, 200, "success", {
@@ -982,9 +1033,9 @@ exports.getTestTrendService = async (filters, res) => {
       });
     }
 
-    // Find all tests for this subject, optionally scoped to a class
+    // Tests for this subject, restricted to the selected classes when any.
     const testQuery = { subject: subjectId };
-    if (classLevelId) testQuery.classLevels = classLevelId;
+    if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
 
     const tests = await Test.find(testQuery)
       .populate("subject", "name")
@@ -997,38 +1048,94 @@ exports.getTestTrendService = async (filters, res) => {
       });
     }
 
-    // For each test, compute class average/min/max percentage
-    const trendPoints = [];
-    for (const test of tests) {
-      const results = await TestResult.find({ test: test._id }).lean();
-      if (results.length === 0) continue;
+    // Fetch every result for these tests with each student's class, then
+    // bucket percentages by "classId|testId" (and a per-test "all" bucket).
+    const testIds = tests.map((t) => t._id);
+    const results = await TestResult.find({ test: { $in: testIds } })
+      .populate("student", "classLevel")
+      .lean();
 
-      const percents = results
-        .map((r) => test.totalMarks ? Math.round((r.score / test.totalMarks) * 10000) / 100 : null)
-        .filter((p) => p !== null);
+    const testById = {};
+    tests.forEach((t) => { testById[String(t._id)] = t; });
 
-      if (percents.length === 0) continue;
+    const bucket = {};   // "classId|testId" -> [percent,...]
+    const allBucket = {}; // testId -> [percent,...]
+    results.forEach((r) => {
+      const tid = String(r.test);
+      const t = testById[tid];
+      if (!t || !t.totalMarks) return;
+      const pct = Math.round((r.score / t.totalMarks) * 10000) / 100;
+      const clId = r.student && r.student.classLevel
+        ? String(r.student.classLevel._id || r.student.classLevel)
+        : "_none";
+      const key = clId + "|" + tid;
+      (bucket[key] = bucket[key] || []).push(pct);
+      (allBucket[tid] = allBucket[tid] || []).push(pct);
+    });
 
-      const avg = Math.round((percents.reduce((s, p) => s + p, 0) / percents.length) * 100) / 100;
-      const min = Math.round(Math.min(...percents) * 100) / 100;
-      const max = Math.round(Math.max(...percents) * 100) / 100;
+    const stat = (arr) => {
+      if (!arr || arr.length === 0) return null;
+      return {
+        avgPercent: Math.round((arr.reduce((s, p) => s + p, 0) / arr.length) * 100) / 100,
+        minPercent: Math.round(Math.min(...arr) * 100) / 100,
+        maxPercent: Math.round(Math.max(...arr) * 100) / 100,
+        count: arr.length,
+      };
+    };
+    const classLabel = (c) =>
+      `${c.gradeLevel ? c.gradeLevel + " \u2014 " : ""}${c.name}${c.group ? " (" + c.group + ")" : ""}`;
 
-      trendPoints.push({
-        testName: test.name,
-        date: test.date,
-        avgPercent: avg,
-        minPercent: min,
-        maxPercent: max,
-        count: percents.length,
+    // Which series to plot:
+    //   • classes explicitly ticked → one line per selected class/section;
+    //   • nothing ticked → one line per EVERY class that has results for this
+    //     subject (the full list of classes), so the comparison is populated by
+    //     default; a single blended "All classes" line only as a last-resort
+    //     fallback when results carry no class attribution at all.
+    let seriesClasses;
+    if (selectedClassIds.length) {
+      seriesClasses = selectedClasses;
+    } else {
+      const present = new Set();
+      Object.keys(bucket).forEach((k) => {
+        const cid = k.split("|")[0];
+        if (cid && cid !== "_none") present.add(cid);
       });
+      seriesClasses = classes.filter((c) => present.has(String(c._id)));
+      if (seriesClasses.length === 0) {
+        seriesClasses = [{ _id: null, name: "All classes" }];
+      }
     }
 
-    trendPoints.sort((a, b) => new Date(a.date) - new Date(b.date));
+    const lines = seriesClasses.map((c) => {
+      const points = [];
+      tests.forEach((t) => {
+        const arr = c._id
+          ? bucket[String(c._id) + "|" + String(t._id)] || []
+          : allBucket[String(t._id)] || [];
+        const s = stat(arr);
+        if (!s) return;
+        points.push({
+          testName: t.name,
+          date: t.date,
+          avgPercent: s.avgPercent,
+          minPercent: s.minPercent,
+          maxPercent: s.maxPercent,
+          count: s.count,
+        });
+      });
+      return { className: classLabel(c), points };
+    }).filter((l) => l.points.length > 0);
+
+    // Flat rows for the table, tagging each point with its class.
+    const tableRows = [];
+    lines.forEach((l) => {
+      l.points.forEach((p) => tableRows.push({ className: l.className, ...p }));
+    });
 
     return responseStatus(res, 200, "success", {
       mode: "class", classes, subjects, students,
-      trend: trendPoints,
-      tableRows: trendPoints,
+      trend: lines,
+      tableRows,
     });
   }
 
@@ -1285,32 +1392,50 @@ exports.getSessionReportCardService = async (sessionId, studentId, res) => {
   const resultByTest = {};
   results.forEach((r) => { resultByTest[r.test.toString()] = r.score; });
 
+  // Build report rows for a set of tests. D-2: guard the percent division so a
+  // legacy totalMarks = 0 test yields a null percent instead of NaN%/Infinity%.
+  const buildRows = (testList) =>
+    testList
+      .filter((t) => resultByTest[t._id.toString()] !== undefined)
+      .map((t) => {
+        const score = resultByTest[t._id.toString()];
+        return {
+          test: t.name,
+          subject: t.subject ? t.subject.name : "Unknown",
+          score,
+          totalMarks: t.totalMarks,
+          percent: t.totalMarks ? Math.round((score / t.totalMarks) * 10000) / 100 : null,
+        };
+      });
+
+  // Average only over rows with a computable percent (skips null/guarded rows).
+  const averageOf = (rows) => {
+    const valid = rows.filter((r) => r.percent !== null);
+    return valid.length > 0
+      ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100
+      : null;
+  };
+
   const phaseBlocks = session.phases
     .sort((a, b) => a.order - b.order)
     .map((phase) => {
-      const phaseTests = tests.filter((t) => t.phase && t.phase.toString() === phase._id.toString());
-
-      const rows = phaseTests
-        .filter((t) => resultByTest[t._id.toString()] !== undefined)
-        .map((t) => ({
-          test: t.name,
-          subject: t.subject ? t.subject.name : "Unknown",
-          score: resultByTest[t._id.toString()],
-          totalMarks: t.totalMarks,
-          percent: Math.round((resultByTest[t._id.toString()] / t.totalMarks) * 10000) / 100,
-        }));
-
-      const phaseAverage = rows.length > 0
-        ? Math.round((rows.reduce((sum, r) => sum + r.percent, 0) / rows.length) * 100) / 100
-        : null;
-
-      return {
-        phase: phase.name,
-        order: phase.order,
-        tests: rows,
-        average: phaseAverage,
-      };
+      const rows = buildRows(tests.filter((t) => t.phase && t.phase.toString() === phase._id.toString()));
+      return { phase: phase.name, order: phase.order, tests: rows, average: averageOf(rows) };
     });
+
+  // D-1: session-scoped tests that carry no phase were previously dropped from
+  // the report card entirely (rows are bucketed strictly by phase-id match).
+  // Surface them in an explicit block so those scores are never silently
+  // missing from a parent-facing document.
+  const ungroupedRows = buildRows(tests.filter((t) => !t.phase));
+  if (ungroupedRows.length > 0) {
+    phaseBlocks.push({
+      phase: "Not grouped into a phase",
+      order: null,
+      tests: ungroupedRows,
+      average: averageOf(ungroupedRows),
+    });
+  }
 
   const phasesWithScores = phaseBlocks.filter((p) => p.average !== null);
   const overallAverage = phasesWithScores.length > 0

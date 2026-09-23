@@ -15,6 +15,7 @@
 <% if (errorMsg) { %><div class="flash error"><%= errorMsg %></div><% } %>
 
 <form method="POST" action="/reports/generate" id="pdfForm">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
   <div class="panel">
     <div class="panel-head"><h2>1. Choose report type</h2></div>
     <div class="panel-body">

@@ -1,0 +1,62 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Confirm clone</h1>
+  </div>
+  <a href="/sessions/<%= session._id %>/weeks/<%= preview.sourceWeek._id %>/clone" class="btn btn-ghost">Back</a>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>Review — <%= preview.tests.length %> test(s) will be cloned</h2>
+  </div>
+  <div class="panel-body" style="padding:0;">
+    <div style="padding:16px 24px; background:#f0f9ff; border-bottom:1px solid var(--border); font-size:13px; color:#0c4a6e;">
+      Nothing is created until you click <strong>“Confirm and clone”</strong>. A new week <strong>“<%= preview.newWeek.name %>”</strong>
+      (<%= preview.newWeek.startDate.toLocaleDateString() %> – <%= preview.newWeek.endDate.toLocaleDateString() %>) will be created under
+      session <strong><%= session.name %></strong> / phase <strong><%= phaseName %></strong>. Each test’s date is shifted <strong><%= preview.shiftDays >= 0 ? '+' : '' %><%= preview.shiftDays %> day(s)</strong>.
+      Cloned tests start empty — no scores or submissions.
+    </div>
+
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th>Test name</th>
+            <th>Subject</th>
+            <th>Class(es)</th>
+            <th>Original date</th>
+            <th></th>
+            <th>New date</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% preview.tests.forEach(function(t) { %>
+            <tr>
+              <td><strong><%= t.name %></strong></td>
+              <td><%= t.subjectName %></td>
+              <td><%= t.classLevelNames %></td>
+              <td><%= t.originalDate.toLocaleDateString() %></td>
+              <td style="text-align:center; color:var(--muted); font-size:18px;">&rarr;</td>
+              <td><span class="pill ocr"><%= t.newDate.toLocaleDateString() %></span></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <form method="POST" action="/sessions/<%= session._id %>/weeks/<%= preview.sourceWeek._id %>/clone/confirm" data-confirm="Create the new week and clone these tests?" style="padding:16px 24px; border-top:1px solid var(--border); display:flex; gap:12px; align-items:center;">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="details" value="<%= detailsJson %>" />
+      <button type="submit" class="btn btn-primary" id="confirm-btn">Confirm and clone</button>
+      <a href="/sessions/<%= session._id %>/weeks/<%= preview.sourceWeek._id %>/clone" class="btn btn-ghost">Go back</a>
+      <span class="muted" style="font-size:13px; margin-left:8px;"><%= preview.tests.length %> test(s) + 1 new week will be created.</span>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

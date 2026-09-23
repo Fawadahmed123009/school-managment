@@ -9,9 +9,15 @@
  *                                              only their assigned subjects
  *
  * Attendance % reuses the existing convention: (present + late) / totalMarked,
- * over ALL available records (auto-capped at ~90 days by the TTL index on the
- * Attendance collection).  Score % per subject: average of (score / totalMarks)
+ * over ALL available attendance records for the student (the Attendance
+ * collection retains full history — the old ~90-day TTL index was deliberately
+ * removed earlier in this project, so there is no auto-cap).
+ * Score % per subject: average of (score / totalMarks)
  * across every test in that subject, regardless of session.
+ *
+ * Student eligibility (which students are considered at all) is IDENTICAL for
+ * both entry-points: withdrawn and inactive students are excluded from the
+ * admin and teacher panels alike, so the two views agree on the population.
  */
 
 const Attendance = require("../../models/Academic/attendance.model");
@@ -194,9 +200,13 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
   ]);
 
   // 3. Students in teacher's classes
+  //    Exclude the same population as the admin panel: withdrawn AND inactive
+  //    students (previously this path only excluded withdrawn, so the two
+  //    panels disagreed on which students were in scope).
   const students = await Student.find({
     classLevel: { $in: classLevelIds },
     isWithdrawn: { $ne: true },
+    status: { $ne: "inactive" },
   })
     .select("_id name studentId rollNumber classLevel")
     .populate("classLevel", "name gradeLevel group section")

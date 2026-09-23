@@ -506,6 +506,9 @@ describe("getAtRiskStudentsTeacher — assignment scoping", () => {
     const findArg = mockStudentFind.mock.calls[0][0];
     expect(findArg.classLevel).toEqual({ $in: [CLASS_A] });
     expect(findArg.isWithdrawn).toEqual({ $ne: true });
+    // F-4: teacher scope now also excludes inactive students, matching the
+    // admin panel so both views agree on the population.
+    expect(findArg.status).toEqual({ $ne: "inactive" });
   });
 });
 

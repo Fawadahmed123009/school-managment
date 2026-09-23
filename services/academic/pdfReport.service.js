@@ -14,51 +14,11 @@ const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
 // Ensure PDF output directory exists
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
-// ─── Photo helpers (download + embed remote/local student photos) ──────────────
-
-function detectImageType(buffer) {
-  if (!buffer || buffer.length < 4) return null;
-  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return "png";
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
-  if (buffer.slice(0, 3).toString("ascii") === "GIF") return "gif";
-  return null;
-}
-
-async function fetchRemoteImage(url) {
-  try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const type = detectImageType(buffer);
-    if (!type) return null;
-    return { buffer, type };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve a student photoUrl to { buffer, type } or null.
- * Handles remote URLs (https://…) and local paths (/uploads/…).
- * Never throws — returns null on any failure so the report still generates.
- */
-async function resolveStudentPhoto(photoUrl) {
-  if (!photoUrl) return null;
-  // Finding 3.2: use async file read instead of blocking sync call
-  if (photoUrl.startsWith("/")) {
-    try {
-      const filePath = path.join(process.cwd(), photoUrl);
-      const buffer = await fs.promises.readFile(filePath);
-      const type = detectImageType(buffer);
-      if (!type) return null;
-      return { buffer, type };
-    } catch {
-      return null;
-    }
-  }
-  return fetchRemoteImage(photoUrl);
-}
+// ─── Photo helpers ─────────────────────────────────────────────────────────────
+// Shared resolver (handles remote URLs AND local /uploads paths) lives in
+// utils/studentPhoto.js so exports and reports behave identically on
+// local-storage deployments. See E-1.
+const { loadStudentPhoto: resolveStudentPhoto } = require("../../utils/studentPhoto");
 
 // ─── Shared PDF drawing helpers ────────────────────────────────────────────────
 
@@ -209,9 +169,14 @@ async function gatherResultSheet(testId) {
   return { test, results };
 }
 
-async function gatherAnalytics({ studentId, subjectId, fromDate, toDate }) {
+async function gatherAnalytics({ studentId, subjectId, fromDate, toDate }, scope) {
   const testQuery = {};
-  if (subjectId) testQuery.subject = subjectId;
+  if (subjectId) {
+    testQuery.subject = subjectId;
+  } else if (scope) {
+    // No explicit subject but a teacher scope: restrict to the teacher's own subjects.
+    testQuery.subject = { $in: scope.teacherSubjectIds };
+  }
   if (fromDate || toDate) {
     testQuery.date = {};
     if (fromDate) testQuery.date.$gte = new Date(fromDate);
@@ -225,9 +190,25 @@ async function gatherAnalytics({ studentId, subjectId, fromDate, toDate }) {
   const resultQuery = { test: { $in: testIds } };
   if (studentId) resultQuery.student = studentId;
 
-  const results = await TestResult.find(resultQuery)
-    .populate("student", "name studentId rollNumber whatsappNumber photoUrl")
+  const resultsRaw = await TestResult.find(resultQuery)
+    .populate("student", "name studentId rollNumber whatsappNumber photoUrl classLevel")
     .populate({ path: "test", populate: { path: "subject", select: "name" } });
+
+  // Teacher scope: keep only results whose (test subject × student classLevel)
+  // pair is an actual assignment. This is the intersection the controller could
+  // not enforce purely from the requested filters (e.g. subject given but no
+  // student, or neither given).
+  const results = scope
+    ? resultsRaw.filter((r) => {
+        const subId = r.test && r.test.subject ? (r.test.subject._id || r.test.subject).toString() : null;
+        const clsId = r.student && r.student.classLevel ? r.student.classLevel.toString() : null;
+        if (!subId || !clsId) return false;
+        const classSet = scope.subjectClassMap[subId];
+        return !!(classSet && classSet.has(clsId));
+      })
+    : resultsRaw;
+
+  if (results.length === 0) return { rows: [], studentName: null };
 
   const rows = results.map((r) => {
     const percent = r.test.totalMarks
@@ -277,34 +258,42 @@ async function gatherSessionReport(sessionId, studentId) {
     resultByTest[r.test.toString()] = r.score;
   });
 
+  // Shared row builder — guards the percent division against totalMarks = 0.
+  const buildRows = (testList) =>
+    testList
+      .filter((t) => resultByTest[t._id.toString()] !== undefined)
+      .map((t) => {
+        const score = resultByTest[t._id.toString()];
+        return {
+          test: t.name,
+          subject: t.subject ? t.subject.name : "Unknown",
+          score,
+          totalMarks: t.totalMarks,
+          percent: t.totalMarks ? Math.round((score / t.totalMarks) * 10000) / 100 : null,
+        };
+      });
+  const averageOf = (rows) => {
+    const valid = rows.filter((r) => r.percent !== null);
+    return valid.length > 0
+      ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100
+      : null;
+  };
+
   const phaseBlocks = session.phases
     .sort((a, b) => a.order - b.order)
     .map((phase) => {
       const phaseTests = tests.filter((t) => t.phase && t.phase.toString() === phase._id.toString());
-      const rows = phaseTests
-        .filter((t) => resultByTest[t._id.toString()] !== undefined)
-        .map((t) => {
-          const score = resultByTest[t._id.toString()];
-          const percent = t.totalMarks
-            ? Math.round((score / t.totalMarks) * 10000) / 100
-            : null;
-          return {
-            test: t.name,
-            subject: t.subject ? t.subject.name : "Unknown",
-            score,
-            totalMarks: t.totalMarks,
-            percent,
-          };
-        });
-
-      const validRows = rows.filter((r) => r.percent !== null);
-      const phaseAverage =
-        validRows.length > 0
-          ? Math.round((validRows.reduce((sum, r) => sum + r.percent, 0) / validRows.length) * 100) / 100
-          : null;
-
-      return { phase: phase.name, order: phase.order, tests: rows, average: phaseAverage };
+      const rows = buildRows(phaseTests);
+      return { phase: phase.name, order: phase.order, tests: rows, average: averageOf(rows) };
     });
+
+  // D-1: session tests with no phase would otherwise be dropped from the
+  // report card entirely. Give them an explicit block so their scores are
+  // never silently missing from the parent-facing PDF.
+  const ungroupedRows = buildRows(tests.filter((t) => !t.phase));
+  if (ungroupedRows.length > 0) {
+    phaseBlocks.push({ phase: "Not grouped into a phase", order: null, tests: ungroupedRows, average: averageOf(ungroupedRows) });
+  }
 
   const phasesWithScores = phaseBlocks.filter((p) => p.average !== null);
   const overallAverage =
@@ -370,7 +359,11 @@ function generateResultSheetPDF(data, schoolName) {
     const colWidths = [150, 60, 90, 70, 60, 70];
     const rows = results.map((r) => {
       const pct = test.totalMarks ? Math.round((r.score / test.totalMarks) * 10000) / 100 : null;
-      return [r.student.name, r.student.rollNumber || "—", r.student.studentId, `${r.score}/${test.totalMarks}`, pct !== null ? `${pct}%` : "—", r.score >= test.passMarks ? "Pass" : "Fail"];
+      // A student can be deleted out-of-band while their TestResult rows
+      // remain, leaving r.student null after populate. Render a graceful "—"
+      // row instead of throwing a 500.
+      const stu = r.student || {};
+      return [stu.name || "—", stu.rollNumber || "—", stu.studentId || "—", `${r.score}/${test.totalMarks}`, pct !== null ? `${pct}%` : "—", r.score >= test.passMarks ? "Pass" : "Fail"];
     });
     drawTable(doc, y, { headers, rows, colWidths });
   } else {
@@ -529,7 +522,7 @@ function generateSessionReportPDF(data, schoolName, photoResult) {
     if (phaseBlock.tests.length > 0) {
       const headers = ["Test", "Subject", "Score", "%"];
       const colWidths = [180, 150, 80, 80];
-      const rows = phaseBlock.tests.map((t) => [t.test, t.subject, `${t.score}/${t.totalMarks}`, `${t.percent}%`]);
+      const rows = phaseBlock.tests.map((t) => [t.test, t.subject, `${t.score}/${t.totalMarks}`, t.percent !== null ? `${t.percent}%` : "—"]);
       y = drawTable(doc, y, { headers, rows, colWidths });
     } else {
       doc.fillColor("#999").fontSize(9).font("Helvetica-Oblique");
@@ -561,8 +554,8 @@ exports.generateResultSheetPDF = async (testId, schoolName) => {
   return generateResultSheetPDF(data, schoolName);
 };
 
-exports.generateAnalyticsPDF = async (filters, schoolName) => {
-  const data = await gatherAnalytics(filters);
+exports.generateAnalyticsPDF = async (filters, schoolName, scope) => {
+  const data = await gatherAnalytics(filters, scope);
   const photoResult = data.studentPhotoUrl ? await resolveStudentPhoto(data.studentPhotoUrl) : null;
   return generateAnalyticsPDF(data, schoolName, filters, photoResult);
 };
