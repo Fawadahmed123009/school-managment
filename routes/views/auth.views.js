@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const { body, validationResult } = require("express-validator");
 const { apiFetch } = require("../../utils/apiClient");
+const { buildSessionUser } = require("../../utils/sessionCookie");
 
 // ── Cookie security options ───────────────
 // NOTE: `secure` follows NODE_ENV — production MUST set NODE_ENV=production for
@@ -96,9 +97,12 @@ router.post(
       const user = data.data.user || data.data.admin || data.data.teacher || data.data.student || data.data.parent;
       const token = data.data.token;
 
+      // H2: serialize ONLY a minimal identity hint into the cookie, never the
+      // full user document. See utils/sessionCookie.js for why; authView
+      // re-derives every security-relevant field from the DB regardless.
       res.cookie(
         "session",
-        JSON.stringify({ token, user: { ...user, role: user.role || role } }),
+        JSON.stringify({ token, user: buildSessionUser(user, role) }),
         cookieOptions
       );
 
