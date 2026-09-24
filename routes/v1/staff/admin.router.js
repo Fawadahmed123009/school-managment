@@ -28,7 +28,10 @@ adminRouter
 //  login
 adminRouter.route("/admin/login").post(loginAdminController);
 // get all admin
-adminRouter.route("/admins").get(isLoggedIn, isAdminOrManager, getAdminsController);
+// C1 follow-up: the admin roster (names/emails/roles) is full-admin only —
+// it is reconnaissance for the same admin-account escalation path that the
+// register/update/delete routes above close.
+adminRouter.route("/admins").get(isLoggedIn, isAdmin, getAdminsController);
 //get current admin profile
 adminRouter.route("/admin/profile").get(isLoggedIn, isAdminOrManager, getAdminProfileController);
 // update/delete admin

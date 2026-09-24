@@ -3,7 +3,7 @@
  *
  * A manager (teacher with isAttendanceManager=true) has admin-like access to
  * most routes, but must NEVER create, edit, or delete admin accounts.
- * These tests lock /admin/register, PUT /admin/:adminId and
+ * These tests lock GET /admins, /admin/register, PUT /admin/:adminId and
  * DELETE /admin/:adminId to the strict `isAdmin` middleware (not
  * `isAdminOrManager`).
  */
@@ -37,6 +37,14 @@ function blockFor(routeRegex) {
 }
 
 describe("C1 — admin.router.js route configuration", () => {
+  it("GET /admins (admin roster) uses isAdmin, not isAdminOrManager", () => {
+    // Roster reads (names/emails/roles) are reconnaissance for the very
+    // escalation path the write routes above close.
+    const block = blockFor(/\.route\("\/admins"\)\.get\([^)]*\);/);
+    expect(block).toMatch(/\.get\(isLoggedIn,\s*isAdmin,\s*getAdminsController\)/);
+    expect(block).not.toMatch(/isAdminOrManager/);
+  });
+
   it("POST /admin/register uses isAdmin, not isAdminOrManager", () => {
     const block = blockFor(/\.route\("\/admin\/register"\)[\s\S]*?;/);
     expect(block).toMatch(/\bisAdmin\b/);
