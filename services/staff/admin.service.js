@@ -2,6 +2,7 @@
 const {
   hashPassword,
   isPassMatched,
+  validatePassword,
 } = require("../../handlers/passHash.handler");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Admin = require("../../models/Staff/admin.model");
@@ -18,6 +19,12 @@ const generateToken = require("../../utils/tokenGenerator");
  */
 exports.registerAdminService = async (data, res) => {
   const { name, email, password } = data;
+
+  // Enforce the shared password policy on every admin account we create
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    return responseStatus(res, 400, "failed", passwordError);
+  }
 
   // Check if admin with the same email already exists
   const isAdminExist = await Admin.findOne({ email });
@@ -127,6 +134,12 @@ exports.updateAdminService = async (id, data, res) => {
   }
 
   if (password) {
+    // Enforce the shared password policy before storing a new admin credential
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      return responseStatus(res, 400, "failed", passwordError);
+    }
+
     // If password is provided, update it
     const updateResult = await Admin.findByIdAndUpdate(
       id,
