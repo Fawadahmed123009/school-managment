@@ -10,6 +10,7 @@ const teacherSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
+      unique: true, // H1: per-collection email uniqueness (email_unique)
       index: true,
     },
     password: {

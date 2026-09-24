@@ -12,6 +12,7 @@ const studentSchema = new mongoose.Schema(
       type: String,
       trim: true,
       required: true,
+      unique: true, // H1: per-collection email uniqueness (email_unique)
       index: true,
     },
     password: {
