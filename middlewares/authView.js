@@ -1,4 +1,5 @@
 const verifyToken = require("../utils/verifyToken");
+const { denySuspendedView } = require("../handlers/suspendedGate.handler");
 
 // Resolve a user's authoritative role/manager flag from the DATABASE, keyed off
 // the *verified* JWT id. Two layers protect identity here:
@@ -8,10 +9,12 @@ const verifyToken = require("../utils/verifyToken");
 //      signature breaking — a tampered cookie is treated exactly like no
 //      session (redirect to /login), not a soft warning.
 //   2. Even with a valid signature, the `session.user` object is only trusted
-//      for non-security display fields (name etc.). The authoritative role and
-//      isManager flag are resolved from the DB below, keyed off the verified
-//      JWT id — so identity can never be escalated from cookie contents alone.
-// Returns { role, isManager } or null when the id matches no known user.
+//      for non-security display fields (name etc.). The authoritative role,
+//      manager flag and suspension state are resolved from the DB below, keyed
+//      off the verified JWT id — so identity can never be escalated from cookie
+//      contents alone, and suspending a teacher takes effect on their very next
+//      request instead of whenever their session next happens to be recreated.
+// Returns { role, isManager, isSuspended } or null when the id matches no known user.
 async function resolveIdentityFromDb(id) {
   if (!id) return null;
   const Admin = require("../models/Staff/admin.model");
@@ -20,16 +23,24 @@ async function resolveIdentityFromDb(id) {
   const Parent = require("../models/Parents/parents.model");
 
   const admin = await Admin.findById(id).select("role").lean();
-  if (admin) return { role: admin.role || "admin", isManager: false };
+  if (admin) return { role: admin.role || "admin", isManager: false, isSuspended: false };
 
-  const teacher = await Teacher.findById(id).select("role isAttendanceManager").lean();
-  if (teacher) return { role: teacher.role || "teacher", isManager: !!teacher.isAttendanceManager };
+  const teacher = await Teacher.findById(id)
+    .select("role isAttendanceManager isSuspended")
+    .lean();
+  if (teacher) {
+    return {
+      role: teacher.role || "teacher",
+      isManager: !!teacher.isAttendanceManager,
+      isSuspended: !!teacher.isSuspended,
+    };
+  }
 
   const student = await Student.findById(id).select("role").lean();
-  if (student) return { role: student.role || "student", isManager: false };
+  if (student) return { role: student.role || "student", isManager: false, isSuspended: false };
 
   const parent = await Parent.findById(id).select("role").lean();
-  if (parent) return { role: parent.role || "parent", isManager: false };
+  if (parent) return { role: parent.role || "parent", isManager: false, isSuspended: false };
 
   return null;
 }
@@ -65,6 +76,7 @@ const authView = async (req, res, next) => {
     id: verified.id,
     role: identity.role,
     isManager: identity.isManager,
+    isSuspended: identity.isSuspended,
   };
   req.token = session.token;
 
@@ -73,7 +85,10 @@ const authView = async (req, res, next) => {
   next();
 };
 
-const requireRole = (...roles) => (req, res, next) => {
+const requireRole = (...roles) => async (req, res, next) => {
+  // C2: a suspended teacher may sign in but may not perform any task.
+  if (denySuspendedView(req, res)) return;
+
   if (!req.user || !roles.includes(req.user.role)) {
     return res.status(403).render("error", {
       title: "Access denied",
@@ -89,6 +104,9 @@ const requireRole = (...roles) => (req, res, next) => {
  * Manager = admin minus fee/financial routes.
  */
 const requireAdminOrManager = () => async (req, res, next) => {
+  // C2: suspension kills manager access too (re-read from the DB per request).
+  if (denySuspendedView(req, res)) return;
+
   // Admin always passes
   if (req.user && req.user.role === "admin") return next();
 

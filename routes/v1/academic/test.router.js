@@ -7,6 +7,7 @@ const isTeacher = require("../../../middlewares/isTeacher");
 const isAssignedToSubject = require("../../../middlewares/isAssignedToSubject");
 const Teacher = require("../../../models/Staff/teachers.model");
 const responseStatus = require("../../../handlers/responseStatus.handler");
+const { denySuspendedApi } = require("../../../handlers/suspendedGate.handler");
 
 const {
   createTestSessionController,
@@ -56,7 +57,11 @@ const isAdminOrTeacher = async (req, res, next) => {
   try {
     const userId = req.userAuth.id;
     const teacher = await Teacher.findById(userId);
-    if (teacher) return next(); // is a teacher
+    if (teacher) {
+      // C2: suspension is re-read on every request, not just at login.
+      if (denySuspendedApi(res, teacher)) return;
+      return next(); // is a teacher
+    }
     // Not a teacher → check if admin
     const Admin = require("../../../models/Staff/admin.model");
     const admin = await Admin.findById(userId);
@@ -74,6 +79,10 @@ const isTeacherAssignedOrManager = async (req, res, next) => {
   try {
     const userId = req.userAuth.id;
     const teacher = await Teacher.findById(userId);
+    // C2: checked before both branches — a suspended manager must not keep the
+    // mark-any-test bypass, and a suspended teacher must not reach the
+    // assignment check at all.
+    if (denySuspendedApi(res, teacher)) return;
     // Manager bypass: skip assignment check
     if (teacher && teacher.isAttendanceManager) return next();
     // Regular teacher: require subject assignment

@@ -20,6 +20,7 @@
  */
 
 const responseStatus = require("../handlers/responseStatus.handler");
+const { denySuspendedApi } = require("../handlers/suspendedGate.handler");
 const Test = require("../models/Academic/test.model");
 const Exam = require("../models/Academic/exams.model");
 const Assignment = require("../models/Academic/assignment.model");
@@ -164,6 +165,11 @@ const isAssignedToTestView = async (req, res, next) => {
     if (!teacherId) {
       return res.redirect("/login");
     }
+
+    // C2: suspension is re-read here as well, so the manager bypass below can
+    // never be reached by a suspended teacher (req.user.isSuspended is
+    // DB-derived, set by middlewares/authView.js on every request).
+    if (denySuspendedApi(res, { isSuspended: req.user.isSuspended })) return;
 
     // Manager bypass: managers can mark ANY test without subject-assignment check
     const Teacher = require("../models/Staff/teachers.model");

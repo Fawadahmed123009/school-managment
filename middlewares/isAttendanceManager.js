@@ -1,11 +1,14 @@
 const responseStatus = require("../handlers/responseStatus.handler");
 const Teacher = require("../models/Staff/teachers.model");
+const { denySuspendedApi } = require("../handlers/suspendedGate.handler");
 
 const isAttendanceManager = async (req, res, next) => {
   try {
     const teacherId = req.userAuth.id;
     const teacher = await Teacher.findById(teacherId);
     if (teacher && teacher.isAttendanceManager) {
+      // C2: suspension is re-checked on every request.
+      if (denySuspendedApi(res, teacher)) return;
       return next();
     }
     return responseStatus(res, 403, "failed", "Access Denied. Attendance manager only.");
