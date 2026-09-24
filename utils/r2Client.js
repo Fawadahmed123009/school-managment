@@ -20,17 +20,25 @@ try {
 const path = require("path");
 const fs = require("fs");
 
-const R2_CONFIGURED =
-  S3Client &&
-  process.env.R2_ACCOUNT_ID &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY &&
-  process.env.R2_BUCKET_NAME;
+// R2 availability is evaluated lazily (at call time), NOT snapshotted at
+// module load. A caller that requires this helper before `dotenv.config()`
+// — e.g. scripts/backupMongo.js used to — would otherwise pin every
+// R2_* var to undefined and silently skip all cloud work (backups stayed
+// local-only with only a "R2 not configured" note in the log).
+function r2Configured() {
+  return !!(
+    S3Client &&
+    process.env.R2_ACCOUNT_ID &&
+    process.env.R2_ACCESS_KEY_ID &&
+    process.env.R2_SECRET_ACCESS_KEY &&
+    process.env.R2_BUCKET_NAME
+  );
+}
 
 let s3Client;
 
 function getClient() {
-  if (!R2_CONFIGURED) return null;
+  if (!r2Configured()) return null;
   if (!s3Client) {
     s3Client = new S3Client({
       region: "auto",
@@ -45,13 +53,17 @@ function getClient() {
 }
 
 /**
- * Upload a file buffer to R2.
+ * Upload a file to R2.
  * @param {string} key       — object key, e.g. "photos/student-123.jpg"
- * @param {Buffer} buffer    — file contents
+ * @param {Buffer|import("stream").Readable} body — file contents; a readable
+ *                             stream is supported for large archives, but then
+ *                             pass `contentLength` so the SDK does not have to
+ *                             buffer the whole body in memory.
  * @param {string} contentType — MIME type
+ * @param {number} [contentLength] — byte size of `body` (required for streams)
  * @returns {string} public URL of the uploaded object
  */
-async function uploadToR2(key, buffer, contentType) {
+async function uploadToR2(key, body, contentType, contentLength) {
   const client = getClient();
   if (!client) {
     throw new Error("R2 is not configured. Set R2_* env vars.");
@@ -61,8 +73,9 @@ async function uploadToR2(key, buffer, contentType) {
     new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: key,
-      Body: buffer,
+      Body: body,
       ContentType: contentType,
+      ...(contentLength != null ? { ContentLength: contentLength } : {}),
     })
   );
 
@@ -118,5 +131,5 @@ module.exports = {
   getPublicUrl,
   deleteFromR2,
   saveLocally,
-  isR2Configured: () => !!R2_CONFIGURED,
+  isR2Configured: () => r2Configured(),
 };
