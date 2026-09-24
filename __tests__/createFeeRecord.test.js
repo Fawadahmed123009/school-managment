@@ -27,6 +27,12 @@ jest.mock("../services/fees/feeHead.service", () => ({
   findOrCreateFeeHeadByName: (...a) => mockFindOrCreate(...a),
 }));
 
+// C2: fee mutations now write an audit row; stub it here (the audit itself is
+// covered by __tests__/feeSoftDeleteAudit.test.js).
+jest.mock("../models/Fees/feeAudit.model", () => ({
+  create: jest.fn().mockResolvedValue({}),
+}));
+
 const { createFeeService } = require("../services/fees/fees.service");
 
 const ADMIN_ID = "admin-abc";

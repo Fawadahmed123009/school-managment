@@ -14,6 +14,7 @@ const {
   getStudentFeesController,
   updateFeeController,
   deleteFeeController,
+  getFeeAuditController,
   resolveOcrReviewController,
 } = require("../../../controllers/fees/fees.controller");
 
@@ -37,8 +38,11 @@ feesRouter.route("/fees/bulk").post(isLoggedIn, isAdmin, bulkCreateFeesControlle
 feesRouter.route("/fees/bulk-assign").post(isLoggedIn, isAdmin, bulkAssignFeesController);
 feesRouter.route("/fees/generate-monthly").post(isLoggedIn, isAdmin, generateMonthlyFeesController);
 feesRouter.route("/fees/ocr/resolve/:feeId").post(isLoggedIn, isAdmin, resolveOcrReviewController);
+// Fee audit trail (C2) — append-only record of who created/edited/deleted what.
+feesRouter.route("/fees/audit").get(isLoggedIn, isAdmin, getFeeAuditController);
 feesRouter.route("/fees/student/:studentId").get(isLoggedIn, isAdmin, getStudentFeesController);
 feesRouter.route("/fees/:feeId").put(isLoggedIn, isAdmin, updateFeeController);
+// C2: this is a soft delete (record flagged + audited), never a hard removal.
 feesRouter.route("/fees/:feeId").delete(isLoggedIn, isAdmin, deleteFeeController);
 
 feesRouter

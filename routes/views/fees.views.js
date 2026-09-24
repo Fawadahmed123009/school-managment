@@ -234,7 +234,7 @@ router.post("/fees/create", requireRole("admin"), async (req, res) => {
 router.post("/fees/:feeId/update", requireRole("admin"), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
-    await updateFeeService(req.params.feeId, { status: "paid", datePaid: new Date().toISOString() }, cap);
+    await updateFeeService(req.params.feeId, { status: "paid", datePaid: new Date().toISOString() }, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to update fee record")}`);
   }
@@ -243,10 +243,12 @@ router.post("/fees/:feeId/update", requireRole("admin"), async (req, res) => {
 });
 
 // ---- Delete an individual fee record ----
+// C2: soft delete — the record is flagged and hidden, and an audit row naming
+// this admin is written (the service refuses the delete if it cannot be).
 router.post("/fees/:feeId/delete", requireRole("admin"), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
-    await deleteFeeService(req.params.feeId, cap);
+    await deleteFeeService(req.params.feeId, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to delete fee record")}`);
   }

@@ -8,6 +8,7 @@ const {
   getStudentFeesService,
   updateFeeService,
   deleteFeeService,
+  getFeeAuditService,
   resolveOcrReviewService,
 } = require("../../services/fees/fees.service");
 
@@ -46,7 +47,7 @@ exports.getStudentFeesController = async (req, res) => {
 
 exports.updateFeeController = async (req, res) => {
   try {
-    await updateFeeService(req.params.feeId, req.body, res);
+    await updateFeeService(req.params.feeId, req.body, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -54,7 +55,17 @@ exports.updateFeeController = async (req, res) => {
 
 exports.deleteFeeController = async (req, res) => {
   try {
-    await deleteFeeService(req.params.feeId, res);
+    // C2: soft delete + audit row, so the actor must travel with the request.
+    await deleteFeeService(req.params.feeId, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// GET /api/v1/fees/audit — fee audit trail (who changed/removed what, when).
+exports.getFeeAuditController = async (req, res) => {
+  try {
+    await getFeeAuditService(req.query, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

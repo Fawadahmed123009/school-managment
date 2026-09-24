@@ -1,6 +1,7 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Fees = require("../../models/Fees/fees.model");
 const FeeHead = require("../../models/Fees/feeHead.model");
+const FeeAudit = require("../../models/Fees/feeAudit.model");
 const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
 const { findOrCreateFeeHeadByName } = require("./feeHead.service");
@@ -11,6 +12,30 @@ function currentBillingMonth() {
   const yyyy = now.getFullYear();
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   return `${yyyy}-${mm}`;
+}
+
+// ── Fee audit trail (C2) ────────────────────────────────────────────
+// Fail-closed on purpose: if an audited mutation cannot record who did it,
+// the mutation is refused instead of happening silently. These are the only
+// writers of fee-audit rows.
+async function writeFeeAudit(entry) {
+  if (!entry.actor) {
+    throw new Error("Fee audit requires an actor — refusing unattributed fee change");
+  }
+  await FeeAudit.create(entry);
+}
+
+/** Field-by-field diff of a fee document, for the audit `changes` payload. */
+function diffFee(before, after) {
+  const changes = {};
+  for (const key of ["amount", "status", "datePaid", "billingMonth", "notes", "feeType"]) {
+    const from = before ? before[key] : undefined;
+    const to = after ? after[key] : undefined;
+    if (String(from ?? "") !== String(to ?? "")) {
+      changes[key] = { from: from ?? null, to: to ?? null };
+    }
+  }
+  return changes;
 }
 
 exports.createFeeService = async (data, adminId, res) => {
@@ -27,6 +52,16 @@ exports.createFeeService = async (data, adminId, res) => {
     }
   }
   const fee = await Fees.create({ ...data, billingMonth: data.billingMonth || currentBillingMonth(), recordedBy: adminId });
+  await writeFeeAudit({
+    action: "create",
+    fee: fee._id,
+    student: fee.student,
+    actor: adminId,
+    amount: fee.amount,
+    feeType: fee.feeType,
+    status: fee.status,
+    note: "Fee record created",
+  });
   return responseStatus(res, 201, "success", fee);
 };
 
@@ -69,6 +104,7 @@ exports.bulkCreateFeesService = async (rows, adminId, res) => {
     if (pendingFees.length === 1) {
       // Exact match — update existing record to paid
       const fee = pendingFees[0];
+      const before = fee.toObject(); // full pre-image for the audit diff
       fee.status = "paid";
       fee.datePaid = today;
       fee.notes = (fee.notes ? fee.notes + "; " : "") +
@@ -76,6 +112,17 @@ exports.bulkCreateFeesService = async (rows, adminId, res) => {
       fee.source = fee.source || "ocr";
       await fee.save();
       updated.push(fee);
+      await writeFeeAudit({
+        action: "update",
+        fee: fee._id,
+        student: fee.student,
+        actor: adminId,
+        amount: fee.amount,
+        feeType: fee.feeType,
+        status: fee.status,
+        changes: diffFee(before, fee.toObject()),
+        note: "Marked paid via OCR confirmation",
+      });
     } else if (pendingFees.length === 0) {
       // No match — create new paid record
       const [newFee] = await Fees.create([{
@@ -87,6 +134,16 @@ exports.bulkCreateFeesService = async (rows, adminId, res) => {
         recordedBy: adminId,
       }]);
       created.push(newFee);
+      await writeFeeAudit({
+        action: "bulk_create",
+        fee: newFee._id,
+        student: newFee.student,
+        actor: adminId,
+        amount: newFee.amount,
+        feeType: newFee.feeType,
+        status: newFee.status,
+        note: "Paid record created from OCR confirmation",
+      });
     } else {
       // Ambiguous — more than one pending fee with same amount, flag for review
       const populated = await Fees.populate(pendingFees, {
@@ -134,12 +191,24 @@ exports.resolveOcrReviewService = async (feeId, adminId, res) => {
   }
 
   const today = new Date();
+  const before = fee.toObject(); // full pre-image for the audit diff
   fee.status = "paid";
   fee.datePaid = today;
   fee.notes = (fee.notes ? fee.notes + "; " : "") +
     `Marked paid via OCR admin review on ${today.toISOString().slice(0, 10)}`;
   fee.source = fee.source || "ocr";
   await fee.save();
+  await writeFeeAudit({
+    action: "ocr_resolve",
+    fee: fee._id,
+    student: fee.student,
+    actor: adminId,
+    amount: fee.amount,
+    feeType: fee.feeType,
+    status: fee.status,
+    changes: diffFee(before, fee.toObject()),
+    note: "Ambiguous OCR match resolved by admin",
+  });
 
   return responseStatus(res, 200, "success", fee);
 };
@@ -171,7 +240,13 @@ exports.getStudentFeesService = async (studentId, res) => {
   return responseStatus(res, 200, "success", fees);
 };
 
-exports.updateFeeService = async (feeId, data, res) => {
+/**
+ * Update an existing fee record.
+ * @param {string} feeId
+ * @param {Object} data  – only ALLOWED_FIELDS are ever applied
+ * @param {string} actorId – admin performing the change (audit requirement)
+ */
+exports.updateFeeService = async (feeId, data, actorId, res) => {
   const ALLOWED_FIELDS = [
     "amount",
     "status",
@@ -183,15 +258,107 @@ exports.updateFeeService = async (feeId, data, res) => {
   for (const key of ALLOWED_FIELDS) {
     if (data[key] !== undefined) filtered[key] = data[key];
   }
+  // Read the pre-image first (soft-deleted records are invisible here, so a
+  // stale id can no longer be edited), then write the audit diff.
+  const before = await Fees.findById(feeId).lean();
+  if (!before) return responseStatus(res, 404, "failed", "Fee record not found");
+
   const fee = await Fees.findByIdAndUpdate(feeId, filtered, { new: true });
   if (!fee) return responseStatus(res, 404, "failed", "Fee record not found");
+
+  const changes = diffFee(before, fee.toObject());
+  if (Object.keys(changes).length > 0) {
+    await writeFeeAudit({
+      action: "update",
+      fee: fee._id,
+      student: fee.student,
+      actor: actorId,
+      amount: fee.amount,
+      feeType: fee.feeType,
+      status: fee.status,
+      changes,
+      note: "Fee record edited",
+    });
+  }
   return responseStatus(res, 200, "success", fee);
 };
 
-exports.deleteFeeService = async (feeId, res) => {
-  const fee = await Fees.findByIdAndDelete(feeId);
+/**
+ * Soft-delete a fee record (C2).
+ *
+ * The document stays in the database flagged `isDeleted` (hidden from every
+ * normal read by the schema scoping in models/Fees/fees.model.js) and the
+ * action is recorded in the fee audit log with a snapshot of what was
+ * removed — so a payment record can never vanish without a trace.
+ * @param {string} feeId
+ * @param {string} actorId – admin performing the deletion (audit requirement)
+ */
+exports.deleteFeeService = async (feeId, actorId, res) => {
+  const before = await Fees.findById(feeId).lean();
+  if (!before) return responseStatus(res, 404, "failed", "Fee record not found");
+
+  const deletedAt = new Date();
+  const fee = await Fees.findOneAndUpdate(
+    { _id: feeId },
+    { isDeleted: true, deletedAt, deletedBy: actorId },
+    { new: true }
+  );
   if (!fee) return responseStatus(res, 404, "failed", "Fee record not found");
+
+  // Audit after the flag write, but fail closed: if the row cannot be written,
+  // the deletion is rolled back rather than left untracked.
+  try {
+    await writeFeeAudit({
+      action: "delete",
+      fee: fee._id,
+      student: fee.student,
+      actor: actorId,
+      amount: fee.amount,
+      feeType: fee.feeType,
+      status: fee.status,
+      changes: {
+        amount: before.amount,
+        status: before.status,
+        billingMonth: before.billingMonth || null,
+        datePaid: before.datePaid || null,
+        notes: before.notes || null,
+        recordedBy: before.recordedBy || null,
+      },
+      note: "Fee record soft-deleted (recoverable by admin)",
+    });
+  } catch (err) {
+    await Fees.updateOne(
+      { _id: feeId, isDeleted: true },
+      { $unset: { deletedAt: "", deletedBy: "" }, isDeleted: false }
+    );
+    throw new Error(`Fee record was NOT deleted (audit log write failed): ${err.message}`);
+  }
+
   return responseStatus(res, 200, "success", "Fee record deleted");
+};
+
+/**
+ * Fee audit trail, newest first (admin-only read, exposed via GET /fees/audit).
+ */
+exports.getFeeAuditService = async (query, res) => {
+  const { actor, action, fee, student, ...rest } = query || {};
+  const filters = {};
+  if (actor) filters.actor = actor;
+  if (action) filters.action = action;
+  if (fee) filters.fee = fee;
+  if (student) filters.student = student;
+
+  const result = await paginate(FeeAudit, filters, {
+    page: rest.page,
+    limit: rest.limit,
+    sort: "-createdAt",
+    populate: [
+      { path: "actor", select: "name email" },
+      { path: "student", select: "name rollNumber" },
+      { path: "fee", select: "amount status billingMonth isDeleted" },
+    ],
+  });
+  return responseStatus(res, 200, "success", result);
 };
 
 /**
@@ -317,6 +484,17 @@ exports.bulkAssignFeesService = async (params, adminId, res) => {
   }
 
   const created = await Fees.insertMany(newRows, { ordered: false });
+  // One aggregate audit row for the batch: bulk assignment is a single
+  // decision by one admin, and every created fee already carries recordedBy.
+  await writeFeeAudit({
+    action: "bulk_assign",
+    actor: adminId,
+    amount: resolvedAmount,
+    feeType: head.name,
+    status: "pending",
+    changes: { created: created.length, skipped: students.length - created.length },
+    note: `Bulk-assigned "${head.name}" to ${targetType === "class" ? "selected classe(s)" : "all active students"}`,
+  });
   return responseStatus(res, 201, "success", {
     message: `Created ${created.length} fee record(s) for "${head.name}" at Rs ${resolvedAmount} each.`,
     created: created.length,
@@ -432,6 +610,17 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
   if (newRows.length > 0) {
     const created = await Fees.insertMany(newRows, { ordered: false });
     generatedCount = created.length;
+    if (generatedCount > 0) {
+      await writeFeeAudit({
+        action: "generate_monthly",
+        actor: adminId,
+        amount: defaultAmount,
+        feeType: tuitionHead.name,
+        status: "pending",
+        changes: { generated: generatedCount, billingMonth },
+        note: `Monthly ${tuitionHead.name} fees generated for ${billingMonth}`,
+      });
+    }
   }
 
   const alreadyGenerated = alreadyHaveSet.size;
