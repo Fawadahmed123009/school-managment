@@ -16,12 +16,15 @@ const {
 const adminRouter = express.Router();
 // middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
+const isAdmin = require("../../../middlewares/isAdmin");
 const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 
 // register
+// C1: admin-account management is full-admin only — managers must never
+// create, edit, or delete admin accounts.
 adminRouter
   .route("/admin/register")
-  .post(isLoggedIn, isAdminOrManager, registerAdminController);
+  .post(isLoggedIn, isAdmin, registerAdminController);
 //  login
 adminRouter.route("/admin/login").post(loginAdminController);
 // get all admin
@@ -29,10 +32,11 @@ adminRouter.route("/admins").get(isLoggedIn, isAdminOrManager, getAdminsControll
 //get current admin profile
 adminRouter.route("/admin/profile").get(isLoggedIn, isAdminOrManager, getAdminProfileController);
 // update/delete admin
+// C1: admin-account management is full-admin only (no manager access).
 adminRouter
   .route("/admin/:adminId")
-  .put(isLoggedIn, isAdminOrManager, updateAdminController)
-  .delete(isLoggedIn, isAdminOrManager, deleteAdminController);
+  .put(isLoggedIn, isAdmin, updateAdminController)
+  .delete(isLoggedIn, isAdmin, deleteAdminController);
 // admin suspend a teacher
 adminRouter
   .route("/admins/suspend/teacher/:teacherId")
