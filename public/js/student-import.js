@@ -34,7 +34,7 @@
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${data.message}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
 
@@ -45,17 +45,18 @@
   function renderRows() {
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
+      const esc = window.escapeHtml;
       const options = classes.map(c =>
-        `<option value="${c._id}" ${row.matchedClassId === c._id ? 'selected' : ''}>${c.name}</option>`
+        `<option value="${esc(c._id)}" ${row.matchedClassId === c._id ? 'selected' : ''}>${esc(c.name)}</option>`
       ).join('');
       const matchLabel = row.matchedClassId
         ? ''
-        : `<div style="color:var(--error); font-size:12px; margin-bottom:4px;">No match for "${row.rawClassText || '(blank)'}" — pick manually</div>`;
+        : `<div style="color:var(--error); font-size:12px; margin-bottom:4px;">No match for "${esc(row.rawClassText || '(blank)')}" — pick manually</div>`;
       return `
         <tr data-row="${i}">
-          <td>${row.name}</td>
-          <td class="mono">${row.admissionNumber || '—'}</td>
-          <td><input type="text" class="roll-input" data-row="${i}" value="${row.rollNumber ?? ''}" style="width:100px;" /></td>
+          <td>${esc(row.name)}</td>
+          <td class="mono">${esc(row.admissionNumber || '—')}</td>
+          <td><input type="text" class="roll-input" data-row="${i}" value="${esc(row.rollNumber ?? '')}" style="width:100px;" /></td>
           <td>
             ${matchLabel}
             <select class="class-select" data-row="${i}">
@@ -178,7 +179,7 @@
       `${created.length} student(s) created. ${skipped.length} skipped.`;
 
     document.getElementById('created-body').innerHTML = created.map(s => `
-      <tr><td>${s.name}</td><td>${s.email}</td><td class="mono">${s.tempPassword}</td></tr>
+      <tr><td>${window.escapeHtml(s.name)}</td><td>${window.escapeHtml(s.email)}</td><td class="mono">${window.escapeHtml(s.tempPassword)}</td></tr>
     `).join('');
   });
 })();

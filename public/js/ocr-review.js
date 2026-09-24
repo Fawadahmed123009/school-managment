@@ -36,7 +36,7 @@
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${data.message}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
 
@@ -66,23 +66,24 @@
     saveBtn.disabled = false;
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
+      const esc = window.escapeHtml;
       const options = students.map(s => {
         const cls = s.classLevel ? s.classLevel.name : '';
         const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
         const parts = [cls, roll].filter(Boolean).join(' · ');
         const label = parts ? `${s.name} — ${parts}` : s.name;
-        return `<option value="${s._id}" ${row.studentId === s._id ? 'selected' : ''}>${label}</option>`;
+        return `<option value="${esc(s._id)}" ${row.studentId === s._id ? 'selected' : ''}>${esc(label)}</option>`;
       }).join('');
       return `
         <tr data-row="${i}">
-          <td><span class="dot ${row.confidence}"></span> ${row.confidence}</td>
+          <td><span class="dot ${esc(row.confidence)}"></span> ${esc(row.confidence)}</td>
           <td>
             <select class="student-select" data-row="${i}">
-              <option value="">${row.name || '(unreadable)'} — select student</option>
+              <option value="">${esc(row.name || '(unreadable)')} — select student</option>
               ${options}
             </select>
           </td>
-          <td class="num"><input type="number" class="amount-input" data-row="${i}" value="${row.amount ?? ''}" /></td>
+          <td class="num"><input type="number" class="amount-input" data-row="${i}" value="${esc(row.amount ?? '')}" /></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
       `;
@@ -188,16 +189,17 @@
     html += `<p style="margin-bottom:12px; color:var(--text-secondary, #666)">${msg}</p>`;
 
     result.needsReview.forEach((item, idx) => {
+      const esc = window.escapeHtml;
       html += `<div style="margin-bottom:16px; padding:12px; background:var(--bg-secondary, #f9f9f9); border-radius:6px;">`;
-      html += `<p><strong>${item.studentName}</strong> — Rs ${item.amount.toLocaleString()}</p>`;
+      html += `<p><strong>${esc(item.studentName)}</strong> — Rs ${Number(item.amount).toLocaleString()}</p>`;
       html += `<p style="font-size:0.9em; color:var(--text-secondary, #888); margin-bottom:8px">Multiple pending fees found. Pick the one this payment matches:</p>`;
       item.candidates.forEach((c) => {
         const date = c.createdAt ? new Date(c.createdAt).toLocaleDateString() : 'unknown date';
         const label = c.feeType || 'fee';
         html += `<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">`;
-        html += `<button type="button" class="btn btn-primary resolve-btn" data-fee-id="${c._id}" style="font-size:0.85em; padding:4px 12px;">Pick this</button>`;
-        html += `<span>${label} — Rs ${c.amount} — created ${date}</span>`;
-        if (c.notes) html += `<span style="color:var(--text-secondary, #888); font-size:0.85em">(${c.notes})</span>`;
+        html += `<button type="button" class="btn btn-primary resolve-btn" data-fee-id="${esc(c._id)}" style="font-size:0.85em; padding:4px 12px;">Pick this</button>`;
+        html += `<span>${esc(label)} — Rs ${esc(c.amount)} — created ${esc(date)}</span>`;
+        if (c.notes) html += `<span style="color:var(--text-secondary, #888); font-size:0.85em">(${esc(c.notes)})</span>`;
         html += `</div>`;
       });
       html += `</div>`;

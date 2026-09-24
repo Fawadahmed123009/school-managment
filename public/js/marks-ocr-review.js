@@ -46,7 +46,7 @@
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${data.message}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
 
@@ -89,6 +89,7 @@
     saveBtn.disabled = false;
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
+      const esc = window.escapeHtml;
       const matchedStudent = students.find(s => s._id === row.studentId);
       const rollDisplay = matchedStudent && matchedStudent.rollNumber ? matchedStudent.rollNumber : '';
       const options = students.map(s => {
@@ -96,19 +97,19 @@
         const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
         const parts = [cls, roll].filter(Boolean).join(' · ');
         const label = parts ? `${s.name} — ${parts}` : s.name;
-        return `<option value="${s._id}" ${row.studentId === s._id ? 'selected' : ''}>${label}</option>`;
+        return `<option value="${esc(s._id)}" ${row.studentId === s._id ? 'selected' : ''}>${esc(label)}</option>`;
       }).join('');
       return `
-        <tr data-row="${i}" data-roll="${rollDisplay}">
-          <td><span class="dot ${row.confidence}"></span> ${row.confidence}</td>
+        <tr data-row="${i}" data-roll="${esc(rollDisplay)}">
+          <td><span class="dot ${esc(row.confidence)}"></span> ${esc(row.confidence)}</td>
           <td>
             <select class="student-select" data-row="${i}">
-              <option value="">${row.name || '(unreadable)'} — select student</option>
+              <option value="">${esc(row.name || '(unreadable)')} — select student</option>
               ${options}
             </select>
           </td>
-          <td><span class="mono" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + rollDisplay : ''}</span></td>
-          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${row.score ?? ''}" /></td>
+          <td><span class="mono" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
+          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" /></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
       `;
@@ -127,7 +128,7 @@
         const roll = chosen && chosen.rollNumber ? chosen.rollNumber : '';
         tr.dataset.roll = roll;
         const rollCell = tr.querySelectorAll('td')[2];
-        if (rollCell) rollCell.innerHTML = roll ? `<span class="mono" style="color:var(--ink-soft);font-size:12px;">#${roll}</span>` : '';
+        if (rollCell) rollCell.innerHTML = roll ? `<span class="mono" style="color:var(--ink-soft);font-size:12px;">#${window.escapeHtml(roll)}</span>` : '';
       });
     });
     document.querySelectorAll('.skip-btn').forEach(btn => {
