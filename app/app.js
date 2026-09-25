@@ -3,7 +3,6 @@ const express = require("express");
 const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
-const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
 const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
@@ -15,7 +14,16 @@ const logger = require("../config/logger");
 const app = express();
 
 // ── Trust proxy (needed for rate-limit behind reverse proxy) ──
-app.set("trust proxy", 1);
+// H3: hop count is deployment-configurable via TRUST_PROXY_HOPS (default 1 —
+// one conforming front proxy, e.g. cPanel/Apache or Cloudflare, which APPENDS
+// X-Forwarded-For so the LAST entry is what the proxy saw on the real socket).
+// Set TRUST_PROXY_HOPS=0 when Node is exposed directly: express-rate-limit
+// buckets must then come from the raw socket address, otherwise a client can
+// spoof XFF and rotate the limiter key at will.
+{
+  const hops = parseInt(process.env.TRUST_PROXY_HOPS, 10);
+  app.set("trust proxy", Number.isNaN(hops) ? 1 : hops);
+}
 
 // ── Security headers ──────────────────────────────────────────
 app.use(
@@ -62,27 +70,6 @@ const corsMiddleware = cors({
 // Apply CORS only to API routes, not to browser form submissions
 app.use("/api", corsMiddleware);
 
-// ── Rate limiting (global) ────────────────────────────────────
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
- max: 1000, // limit each IP to 1000 requests per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Don't count static assets toward the limit
-  skip: (req) => req.path.startsWith("/css/") || req.path.startsWith("/js/") || req.path.startsWith("/images/") || req.path.endsWith(".ico"),
-  message: { status: "failed", message: "Too many requests, please try again later." },
-});
-app.use(globalLimiter);
-
-// ── Stricter rate limit on login routes ───────────────────────
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30,                   // 20 login attempts per window
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { status: "failed", message: "Too many login attempts, please try again after 15 minutes." },
-});
-
 // ── Body parsing ──────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -104,11 +91,27 @@ app.use(cookieParser(COOKIE_SECRET));
 // ── NoSQL injection protection ────────────────────────────────
 app.use(mongoSanitize());
 
+// ── Rate limiting (H3) ────────────────────────────────────────
+// Mounted AFTER body parsing so the login limiter can key per {ip + account}
+// (see middlewares/rateLimiters.js for the key derivation and the lockout/XFF
+// bypass issues it closes). captureSocketIp must run first — it records the
+// raw socket peer before anything interprets X-Forwarded-For.
+const {
+  captureSocketIp,
+  globalLimiter,
+  loginLimiter,
+} = require("../middlewares/rateLimiters");
+app.use(captureSocketIp);
+app.use(globalLimiter);
+
 // ── Request logging ───────────────────────────────────────────
+// After the limiters so throttle/reject decisions are access-logged.
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
-// ---------- JSON API (rate-limited for login endpoints) -------
-// Apply login rate limit to auth API routes before general route loading
+// Stricter per-{ip, account} budget on every credential surface:
+//   • JSON API logins     • the browser form POST /login (the primary login
+//     surface — the view's internal API fetch is a *second*, separately
+//     limited request, so both hops are covered).
 const authApiRoutes = [
   "/api/v1/admin/login",
   "/api/v1/teacher/login",
@@ -116,6 +119,7 @@ const authApiRoutes = [
   "/api/v1/parents/login",
 ];
 app.use(authApiRoutes, loginLimiter);
+app.use("/login", loginLimiter);
 
 routeSync(app, "staff");
 routeSync(app, "academic");
