@@ -3,6 +3,7 @@ const Fees = require("../../models/Fees/fees.model");
 const FeeHead = require("../../models/Fees/feeHead.model");
 const FeeAudit = require("../../models/Fees/feeAudit.model");
 const Student = require("../../models/Students/students.model");
+const mongoose = require("mongoose");
 const { paginate } = require("../../utils/paginate");
 const { findOrCreateFeeHeadByName } = require("./feeHead.service");
 
@@ -14,15 +15,58 @@ function currentBillingMonth() {
   return `${yyyy}-${mm}`;
 }
 
+// ── H6: multi-document atomicity ───────────────────────────────────
+// Every fee flow below writes MORE THAN ONE document (fee rows + audit
+// rows across a loop). On the replica set (Atlas) those writes run inside
+// a MongoDB transaction: a mid-loop failure aborts and rolls the whole
+// batch back, so fee state and its audit trail can never diverge.
+//
+// TransactionOptions mirror the defaults + one retry on transient
+// UnknownTransactionCommitResult (per the MongoDB retry guide). Standalone
+// deployments (and mocked unit tests) can't start a session — the helper
+// then degrades to the pre-H6 non-transactional execution, which is also
+// what the compensating-rollback paths in this file were written for.
+async function withTransaction(body) {
+  let session;
+  try {
+    session = mongoose.connection.client.startSession();
+    session.startTransaction({
+      readConcern: { level: "local" },
+      writeConcern: { w: "majority" },
+      readPreference: "primary",
+      maxCommitTimeMS: 60000,
+    });
+  } catch (err) {
+    if (session) { try { session.endSession(); } catch (_) { /* best effort */ } }
+    return body({ session: null });
+  }
+  try {
+    const result = await body({ session });
+    try {
+      await session.commitTransaction();
+    } catch (commitErr) {
+      if (commitErr.codeName !== "UnknownTransactionCommitResult") throw commitErr;
+      // Committed state unknown — retry the commit once (idempotent).
+      await session.commitTransaction();
+    }
+    return result;
+  } catch (err) {
+    try { await session.abortTransaction(); } catch (_) { /* already aborted */ }
+    throw err;
+  } finally {
+    session.endSession();
+  }
+}
+
 // ── Fee audit trail (C2) ────────────────────────────────────────────
 // Fail-closed on purpose: if an audited mutation cannot record who did it,
 // the mutation is refused instead of happening silently. These are the only
 // writers of fee-audit rows.
-async function writeFeeAudit(entry) {
+async function writeFeeAudit(entry, opts = {}) {
   if (!entry.actor) {
     throw new Error("Fee audit requires an actor — refusing unattributed fee change");
   }
-  await FeeAudit.create(entry);
+  await FeeAudit.create([entry], opts);
 }
 
 /** Field-by-field diff of a fee document, for the audit `changes` payload. */
@@ -86,85 +130,96 @@ exports.bulkCreateFeesService = async (rows, adminId, res) => {
     });
   }
 
-  const created = [];
-  const updated = [];
-  const needsReview = [];
-  const today = new Date();
+  // H6: the whole match/update/create + audit sequence runs inside ONE
+  // MongoDB transaction — a mid-loop failure aborts it and rolls every fee
+  // and audit write back, so confirmations can never half-apply. (On a
+  // standalone mongod, withTransaction degrades to the previous
+  // non-transactional execution.)
+  const { created, updated, needsReview } = await withTransaction(async ({ session }) => {
+    const opts = session ? { session } : {};
+    const created = [];
+    const updated = [];
+    const needsReview = [];
+    const today = new Date();
 
-  for (const row of rows) {
-    const { student: studentId, amount } = row;
+    for (const row of rows) {
+      const { student: studentId, amount } = row;
 
-    // Look for existing pending fees for this student with the exact same amount
-    const pendingFees = await Fees.find({
-      student: studentId,
-      status: "pending",
-      amount: amount,
-    }).sort("createdAt");
+      // Look for existing pending fees for this student with the exact same amount
+      const pendingQuery = Fees.find({
+        student: studentId,
+        status: "pending",
+        amount: amount,
+      }).sort("createdAt");
+      const pendingFees = await (session ? pendingQuery.session(session) : pendingQuery);
 
-    if (pendingFees.length === 1) {
-      // Exact match — update existing record to paid
-      const fee = pendingFees[0];
-      const before = fee.toObject(); // full pre-image for the audit diff
-      fee.status = "paid";
-      fee.datePaid = today;
-      fee.notes = (fee.notes ? fee.notes + "; " : "") +
-        `Marked paid via OCR confirmation on ${today.toISOString().slice(0, 10)}`;
-      fee.source = fee.source || "ocr";
-      await fee.save();
-      updated.push(fee);
-      await writeFeeAudit({
-        action: "update",
-        fee: fee._id,
-        student: fee.student,
-        actor: adminId,
-        amount: fee.amount,
-        feeType: fee.feeType,
-        status: fee.status,
-        changes: diffFee(before, fee.toObject()),
-        note: "Marked paid via OCR confirmation",
-      });
-    } else if (pendingFees.length === 0) {
-      // No match — create new paid record
-      const [newFee] = await Fees.create([{
-        ...row,
-        billingMonth: row.billingMonth || currentBillingMonth(),
-        status: "paid",
-        datePaid: today,
-        source: "ocr",
-        recordedBy: adminId,
-      }]);
-      created.push(newFee);
-      await writeFeeAudit({
-        action: "bulk_create",
-        fee: newFee._id,
-        student: newFee.student,
-        actor: adminId,
-        amount: newFee.amount,
-        feeType: newFee.feeType,
-        status: newFee.status,
-        note: "Paid record created from OCR confirmation",
-      });
-    } else {
-      // Ambiguous — more than one pending fee with same amount, flag for review
-      const populated = await Fees.populate(pendingFees, {
-        path: "student",
-        select: "name rollNumber",
-      });
-      needsReview.push({
-        studentId,
-        studentName: populated[0].student?.name || "Unknown",
-        amount,
-        candidates: populated.map((f) => ({
-          _id: f._id,
-          feeType: f.feeType,
-          feeHead: f.feeHead,
-          amount: f.amount,
-          createdAt: f.createdAt,
-          notes: f.notes,
-        })),
-      });
+      if (pendingFees.length === 1) {
+        // Exact match — update existing record to paid
+        const fee = pendingFees[0];
+        const before = fee.toObject(); // full pre-image for the audit diff
+        fee.status = "paid";
+        fee.datePaid = today;
+        fee.notes = (fee.notes ? fee.notes + "; " : "") +
+          `Marked paid via OCR confirmation on ${today.toISOString().slice(0, 10)}`;
+        fee.source = fee.source || "ocr";
+        await fee.save(opts);
+        updated.push(fee);
+        await writeFeeAudit({
+          action: "update",
+          fee: fee._id,
+          student: fee.student,
+          actor: adminId,
+          amount: fee.amount,
+          feeType: fee.feeType,
+          status: fee.status,
+          changes: diffFee(before, fee.toObject()),
+          note: "Marked paid via OCR confirmation",
+        }, opts);
+      } else if (pendingFees.length === 0) {
+        // No match — create new paid record
+        const [newFee] = await Fees.create([{
+          ...row,
+          billingMonth: row.billingMonth || currentBillingMonth(),
+          status: "paid",
+          datePaid: today,
+          source: "ocr",
+          recordedBy: adminId,
+        }], opts);
+        created.push(newFee);
+        await writeFeeAudit({
+          action: "bulk_create",
+          fee: newFee._id,
+          student: newFee.student,
+          actor: adminId,
+          amount: newFee.amount,
+          feeType: newFee.feeType,
+          status: newFee.status,
+          note: "Paid record created from OCR confirmation",
+        }, opts);
+      } else {
+        // Ambiguous — more than one pending fee with same amount, flag for review
+        const populated = await Fees.populate(pendingFees, {
+          path: "student",
+          select: "name rollNumber",
+        });
+        needsReview.push({
+          studentId,
+          studentName: populated[0].student?.name || "Unknown",
+          amount,
+          candidates: populated.map((f) => ({
+            _id: f._id,
+            feeType: f.feeType,
+            feeHead: f.feeHead,
+            amount: f.amount,
+            createdAt: f.createdAt,
+            notes: f.notes,
+          })),
+        });
+      }
     }
-  }
+
+    return { created, updated, needsReview };
+  });
 
   return responseStatus(res, 201, "success", {
     created,
@@ -306,7 +361,9 @@ exports.deleteFeeService = async (feeId, actorId, res) => {
   if (!fee) return responseStatus(res, 404, "failed", "Fee record not found");
 
   // Audit after the flag write, but fail closed: if the row cannot be written,
-  // the deletion is rolled back rather than left untracked.
+  // the deletion is rolled back rather than left untracked. (Both writes are
+  // single-document and atomic per doc; the multi-document batch flows —
+  // bulk confirm / bulk assign / monthly generate — use withTransaction, H6.)
   try {
     await writeFeeAudit({
       action: "delete",
@@ -483,17 +540,24 @@ exports.bulkAssignFeesService = async (params, adminId, res) => {
     });
   }
 
-  const created = await Fees.insertMany(newRows, { ordered: false });
-  // One aggregate audit row for the batch: bulk assignment is a single
-  // decision by one admin, and every created fee already carries recordedBy.
-  await writeFeeAudit({
-    action: "bulk_assign",
-    actor: adminId,
-    amount: resolvedAmount,
-    feeType: head.name,
-    status: "pending",
-    changes: { created: created.length, skipped: students.length - created.length },
-    note: `Bulk-assigned "${head.name}" to ${targetType === "class" ? "selected classe(s)" : "all active students"}`,
+  // H6: the batch insert and its aggregate audit row commit atomically —
+  // if the audit write fails, every fee row of the batch is rolled back
+  // (and vice versa), so an untracked bulk assignment cannot exist.
+  const created = await withTransaction(async ({ session }) => {
+    const opts = session ? { session } : {};
+    const rows = await Fees.insertMany(newRows, { ordered: false, ...opts });
+    // One aggregate audit row for the batch: bulk assignment is a single
+    // decision by one admin, and every created fee already carries recordedBy.
+    await writeFeeAudit({
+      action: "bulk_assign",
+      actor: adminId,
+      amount: resolvedAmount,
+      feeType: head.name,
+      status: "pending",
+      changes: { created: rows.length, skipped: students.length - rows.length },
+      note: `Bulk-assigned "${head.name}" to ${targetType === "class" ? "selected classe(s)" : "all active students"}`,
+    }, opts);
+    return rows;
   });
   return responseStatus(res, 201, "success", {
     message: `Created ${created.length} fee record(s) for "${head.name}" at Rs ${resolvedAmount} each.`,
@@ -608,19 +672,23 @@ exports.generateMonthlyFeesService = async (adminId, res) => {
 
   let generatedCount = 0;
   if (newRows.length > 0) {
-    const created = await Fees.insertMany(newRows, { ordered: false });
-    generatedCount = created.length;
-    if (generatedCount > 0) {
-      await writeFeeAudit({
-        action: "generate_monthly",
-        actor: adminId,
-        amount: defaultAmount,
-        feeType: tuitionHead.name,
-        status: "pending",
-        changes: { generated: generatedCount, billingMonth },
-        note: `Monthly ${tuitionHead.name} fees generated for ${billingMonth}`,
-      });
-    }
+    // H6: fee rows + their audit row commit (or roll back) as one unit.
+    generatedCount = await withTransaction(async ({ session }) => {
+      const opts = session ? { session } : {};
+      const created = await Fees.insertMany(newRows, { ordered: false, ...opts });
+      if (created.length > 0) {
+        await writeFeeAudit({
+          action: "generate_monthly",
+          actor: adminId,
+          amount: defaultAmount,
+          feeType: tuitionHead.name,
+          status: "pending",
+          changes: { generated: created.length, billingMonth },
+          note: `Monthly ${tuitionHead.name} fees generated for ${billingMonth}`,
+        }, opts);
+      }
+      return created.length;
+    });
   }
 
   const alreadyGenerated = alreadyHaveSet.size;

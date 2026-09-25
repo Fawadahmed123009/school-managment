@@ -170,7 +170,9 @@ describe("deleteFeeService — flags and records, never erases", () => {
     await deleteFeeService(FEE_ID, ADMIN_ID, makeRes());
 
     expect(mockFeeAudit.create).toHaveBeenCalledTimes(1);
-    const entry = mockFeeAudit.create.mock.calls[0][0];
+    // H6: writeFeeAudit uses the array form create([entry], opts) so the same
+    // call can carry { session } when the mutation runs in a transaction.
+    const entry = mockFeeAudit.create.mock.calls[0][0][0];
     expect(entry.action).toBe("delete");
     expect(entry.actor).toBe(ADMIN_ID);
     expect(entry.fee).toBe(FEE_ID);
@@ -267,7 +269,7 @@ describe("updateFeeService — audited edits", () => {
 
     expect(res._statusCode).toBe(200);
     expect(mockFeeAudit.create).toHaveBeenCalledTimes(1);
-    const entry = mockFeeAudit.create.mock.calls[0][0];
+    const entry = mockFeeAudit.create.mock.calls[0][0][0]; // see array-form note above
     expect(entry.action).toBe("update");
     expect(entry.actor).toBe(ADMIN_ID);
     expect(entry.changes).toEqual({ amount: { from: 5000, to: 4000 } });
