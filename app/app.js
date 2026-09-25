@@ -275,6 +275,15 @@ app.use((req, res) => {
   });
 });
 
+// ── Async error boundary (H4) ────────────────────────────────
+// Must run LAST, after every middleware/router is mounted: it walks the
+// finished stack and binds each handler's rejected promise to next(err).
+// Without it an async handler that throws (DB hiccup, mongoose timeout)
+// never reaches the error pipeline — the request hangs until the client or
+// proxy times out and the rejection surfaces process-wide.
+const installAsyncErrorBoundary = require("../handlers/asyncErrorBoundary.handler");
+installAsyncErrorBoundary(app);
+
 // ── Global error handler (must be last) ──────────────────────
 app.use(errorHandler);
 

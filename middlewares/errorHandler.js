@@ -7,6 +7,25 @@ const logger = require("../config/logger");
  */
 // eslint-disable-next-line no-unused-vars
 const errorHandler = (err, req, res, _next) => {
+  // H4: an error can now arrive *after* a response started (a late rejection
+  // on a request that already began streaming). Adding status/headers then
+  // would throw ERR_HTTP_HEADERS_SENT and take the worker down — so cut the
+  // connection instead: the client sees a clean failure, not a hung socket.
+  if (res.headersSent || res.writableEnded) {
+    logger.error(`${req.method} ${req.originalUrl} — post-response error: ${err && err.message}`, {
+      method: req.method,
+      url: req.originalUrl,
+      ip: req.ip,
+      stack: err && err.stack,
+    });
+    try {
+      res.destroy();
+    } catch (_) {
+      /* socket already gone */
+    }
+    return;
+  }
+
   // Log the full error to file + console
   logger.error(`${req.method} ${req.originalUrl} — ${err.message}`, {
     method: req.method,
@@ -15,6 +34,20 @@ const errorHandler = (err, req, res, _next) => {
     stack: err.stack,
   });
 
+  try {
+    return sendError(err, req, res);
+  } catch (sendErr) {
+    // Last resort: never let error handling itself become an uncaught
+    // exception (server.js exits the process on one).
+    logger.error(`${req.method} ${req.originalUrl} — error handler failed: ${sendErr.message}`, {
+      stack: sendErr.stack,
+    });
+    return res.status(500).json({ status: "failed", message: "Internal server error" });
+  }
+};
+
+// Status/body mapping for a pending response.
+const sendError = (err, req, res) => {
   // Mongoose validation error
   if (err.name === "ValidationError") {
     const messages = Object.values(err.errors).map((e) => e.message);
