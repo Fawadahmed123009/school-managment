@@ -1,12 +1,14 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../utils/uploadFactory");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 const fs = require("fs");
 
-const upload = multer({ dest: "uploads/" });
+// H5: shared hardened upload — 10 MB cap, one file, spreadsheet type filter
+// (plus the response-scoped temp cleanup). See utils/uploadFactory.js.
+const upload = makeUpload("sheet");
 
 router.get("/students/import", requireAdminOrManager(), async (req, res) => {
   const classesRes = await apiFetch("/class-levels", req.token);
@@ -18,7 +20,7 @@ router.get("/students/import", requireAdminOrManager(), async (req, res) => {
   });
 });
 
-router.post("/students/import/parse", requireAdminOrManager(), upload.single("file"), verifyCsrf, async (req, res) => {
+router.post("/students/import/parse", requireAdminOrManager(), upload.single("file"), cleanupUploadedFiles, verifyCsrf, async (req, res) => {
   try {
     if (!req.file) return res.json({ status: "failed", message: "No file uploaded" });
 
@@ -32,7 +34,6 @@ router.post("/students/import/parse", requireAdminOrManager(), upload.single("fi
       body: form,
     });
     const data = await parseRes.json();
-    fs.unlink(req.file.path, () => {});
 
     res.json(data);
   } catch (err) {

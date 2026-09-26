@@ -74,6 +74,23 @@ const sendError = (err, req, res) => {
     });
   }
 
+  // H5: multer aborts a request that breaks an upload limit (size, file count,
+  // unexpected field) and hands the MulterError here. Without this branch an
+  // oversized upload would read as a 500 "Internal server error" — the client
+  // can't tell "too big" from "server broken", and the OCR/import UIs show a
+  // meaningless failure. Only the byte-size cap is a 413 ("send a smaller
+  // file"); too many files/parts or a stray field is a malformed request, so
+  // the client's fix is structural → 400.
+  if (err.name === "MulterError") {
+    const tooBig = err.code === "LIMIT_FILE_SIZE";
+    return res.status(tooBig ? 413 : 400).json({
+      status: "failed",
+      message: tooBig
+        ? `Upload too large: ${err.message}${err.field ? ` (${err.field})` : ""}`
+        : `Upload rejected: ${err.message}${err.field ? ` (${err.field})` : ""}`,
+    });
+  }
+
   // JWT errors
   if (err.name === "JsonWebTokenError" || err.name === "TokenExpiredError") {
     return res.status(401).json({

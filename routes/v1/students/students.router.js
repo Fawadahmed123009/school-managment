@@ -1,6 +1,7 @@
 const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
+const { makeUpload, cleanupUploadedFiles, PHOTO_MAX_BYTES } = require("../../../utils/uploadFactory");
 const studentsRouter = express.Router();
 // Middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
@@ -27,11 +28,18 @@ const {
 const { getStudentAnalysisController } = require("../../../controllers/students/studentAnalysis.controller");
 const { setStudentPhotoController } = require("../../../controllers/students/studentPhoto.controller");
 
-const upload = multer({ dest: "uploads/" });
+// H5: bulk-import workbooks go through the shared sheet preset (10 MB cap, one
+// file, spreadsheet type filter) and the uploaded workbook is removed when the
+// response ends — including when parsing throws. See utils/uploadFactory.js.
+const upload = makeUpload("sheet");
 
 // Permanent student-photo storage (local disk under uploads/photos/, matching
 // the uploads/ pattern used elsewhere — not cloud storage).
-const photoUpload = multer({
+// H5: built from the shared "image" preset so the size cap and mime filter can
+// no longer drift from every other upload route. NO cleanup middleware here —
+// this one writes the file we keep.
+const photoUpload = makeUpload("image", {
+  maxBytes: PHOTO_MAX_BYTES,
   storage: multer.diskStorage({
     destination: (req, file, cb) => {
       const dir = "uploads/photos";
@@ -48,11 +56,6 @@ const photoUpload = multer({
       cb(null, `${safeId}-${Date.now()}${safeExt}`);
     },
   }),
-  fileFilter: (req, file, cb) => {
-    if (!/^image\//.test(file.mimetype)) return cb(null, false);
-    cb(null, true);
-  },
-  limits: { fileSize: 8 * 1024 * 1024 },
 });
 
 // Create Student by Admin
@@ -96,7 +99,7 @@ studentsRouter
 // Bulk import — parse Excel, stage rows for review
 studentsRouter
   .route("/students/import/parse")
-  .post(isLoggedIn, isAdminOrManager, upload.single("file"), parseStudentExcelController);
+  .post(isLoggedIn, isAdminOrManager, upload.single("file"), cleanupUploadedFiles, parseStudentExcelController);
 // Bulk import — confirm reviewed rows, actually create students
 studentsRouter
   .route("/students/import/confirm")

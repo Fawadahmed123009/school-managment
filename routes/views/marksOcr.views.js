@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../utils/uploadFactory");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
@@ -9,7 +9,9 @@ const Student = require("../../models/Students/students.model");
 const { archiveOcrScan } = require("../../services/fees/ocrScanArchive.service");
 const registerOcrScanViewRouter = require("./ocrScanRoute");
 const fs = require("fs");
-const upload = multer({ dest: "uploads/" });
+// H5: shared hardened upload (8 MB cap, one file, image mime filter) and the
+// response-scoped temp cleanup — see utils/uploadFactory.js.
+const upload = makeUpload("image");
 
 // Auth-gated viewer for archived marks-scan photos (R2 marks-scans/ prefix).
 registerOcrScanViewRouter(router, { pattern: "/marks/ocr/scan", role: "teacher" });
@@ -17,6 +19,10 @@ registerOcrScanViewRouter(router, { pattern: "/marks/ocr/scan", role: "teacher" 
 /** Fetch every student (id + name + class + roll#) for OCR dropdowns / fuzzy matching. */
 const fetchAllStudents = () =>
   Student.find({}).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
+
+/** Candidate pool scoped to an explicit set of student ids (a test's roster). */
+const fetchStudentsByIds = (ids) =>
+  Student.find({ _id: { $in: ids } }).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
 
 router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
   // Fetch only the classes this teacher is assigned to (cascade level 1)
@@ -35,9 +41,23 @@ router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
   });
 });
 
-router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image"), verifyCsrf, async (req, res) => {
+router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image"), cleanupUploadedFiles, verifyCsrf, async (req, res) => {
   try {
     if (!req.file) return res.json({ status: "failed", message: "No image uploaded" });
+
+    // Candidates are scoped to the selected test's roster — the students of
+    // the test's class/section(s) the teacher is assigned to — never the whole
+    // school. This mirrors /tests/mark/:testId, so fuzzy recommendations and
+    // the per-row dropdowns only offer students the teacher may actually mark
+    // (the submit path enforces the same scope).
+    const { testId } = req.body || {};
+    if (!testId) return res.json({ status: "failed", message: "Select a test first." });
+    const rosterRes = await apiFetch(`/tests/${testId}/roster`, req.token);
+    if (rosterRes.status !== "success") {
+      return res.json({ status: "failed", message: rosterRes.message || "Could not load the test roster." });
+    }
+    const students = await fetchStudentsByIds((rosterRes.data.roster || []).map((r) => r.student));
+
     const fileBuffer = fs.readFileSync(req.file.path);
 
     // Keep the scan photo in the cloud archive (R2 "marks-scans/" directory).
@@ -58,14 +78,14 @@ router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image")
       body: form,
     });
     const data = await extractRes.json();
-    fs.unlink(req.file.path, () => {});
     if (data.status !== "success") return res.json(data);
-    const students = await fetchAllStudents();
     const enriched = data.data.map((row) => {
       const match = matchStudent(row.name, students);
       return { ...row, ...match };
     });
-    res.json({ status: "success", data: enriched, archivedUrl: archivedUrl || undefined });
+    // The scoped candidate pool travels back so the review dropdowns list
+    // only these students (the selected test's class/section).
+    res.json({ status: "success", data: enriched, students, archivedUrl: archivedUrl || undefined });
   } catch (err) {
     res.json({ status: "failed", message: err.message });
   }

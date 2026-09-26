@@ -140,6 +140,16 @@ if (process.env.NODE_ENV !== "test") {
   const pdfReportService = require("../services/academic/pdfReport.service");
   const PDF_SWEEP_INTERVAL_MS = 20 * 60 * 1000; // every 20 minutes
   setInterval(() => pdfReportService.cleanupOldPdfs(), PDF_SWEEP_INTERVAL_MS).unref();
+
+  // ── H5: orphaned upload sweep ────────────────────────────────
+  // Upload routes remove their temp file when the response ends, but a worker
+  // killed mid-request (or a socket that dies before 'close') can still leave a
+  // multer blob behind in uploads/. Sweep those periodically so leftovers can
+  // never accumulate into a full disk. Extensionless names only — real stored
+  // assets and the photos/ fee-scans/ marks-scans/ folders are untouched.
+  const { sweepOrphanUploads } = require("../utils/uploadFactory");
+  const UPLOAD_SWEEP_INTERVAL_MS = 30 * 60 * 1000; // every 30 minutes
+  setInterval(() => sweepOrphanUploads(), UPLOAD_SWEEP_INTERVAL_MS).unref();
 }
 
 app.set("view engine", "ejs");

@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../utils/uploadFactory");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
@@ -10,7 +10,9 @@ const { archiveOcrScan } = require("../../services/fees/ocrScanArchive.service")
 const registerOcrScanViewRouter = require("./ocrScanRoute");
 const fs = require("fs");
 
-const upload = multer({ dest: "uploads/" });
+// H5: shared hardened upload (8 MB cap, one file, image mime filter) and the
+// response-scoped temp cleanup — see utils/uploadFactory.js.
+const upload = makeUpload("image");
 
 // Auth-gated viewer for archived fee-scan photos (R2 fee-scans/ prefix).
 registerOcrScanViewRouter(router, { pattern: "/fees/ocr/scan", role: "admin" });
@@ -29,7 +31,7 @@ router.get("/fees/ocr", requireRole("admin"), async (req, res) => {
   });
 });
 
-router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), verifyCsrf, async (req, res) => {
+router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), cleanupUploadedFiles, verifyCsrf, async (req, res) => {
   try {
     if (!req.file) return res.json({ status: "failed", message: "No image uploaded" });
 
@@ -54,7 +56,6 @@ router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), v
       body: form,
     });
     const data = await extractRes.json();
-    fs.unlink(req.file.path, () => {});
 
     if (data.status !== "success") return res.json(data);
 

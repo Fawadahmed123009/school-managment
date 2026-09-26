@@ -1,5 +1,5 @@
 const express = require("express");
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../../utils/uploadFactory");
 const marksRouter = express.Router();
 
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
@@ -14,7 +14,10 @@ const {
 
 const { extractMarksFromImageController } = require("../../../controllers/academic/marksOcr.controller");
 
-const upload = multer({ dest: "uploads/" });
+// H5: marks-scan images go through the shared hardened upload (8 MB cap, one
+// file, image type filter) and the temp copy is removed when the response ends,
+// not only when the OCR path succeeds. See utils/uploadFactory.js.
+const upload = makeUpload("image");
 
 marksRouter.route("/marks").post(isLoggedIn, isTeacher, isAssignedToSubject, createMarkController);
 marksRouter.route("/marks/bulk").post(isLoggedIn, isTeacher, isAssignedToSubject, bulkCreateMarksController);
@@ -23,6 +26,6 @@ marksRouter
   .get(isLoggedIn, isTeacher, getStudentTermReportController);
 marksRouter
   .route("/marks/ocr/extract")
-  .post(isLoggedIn, isTeacher, upload.single("image"), extractMarksFromImageController);
+  .post(isLoggedIn, isTeacher, upload.single("image"), cleanupUploadedFiles, extractMarksFromImageController);
 
 module.exports = marksRouter;

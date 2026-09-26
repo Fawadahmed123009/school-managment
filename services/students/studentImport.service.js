@@ -1,5 +1,5 @@
 const XLSX = require("xlsx");
-const fs = require("fs");
+const { removeUploadedFile } = require("../../utils/uploadFactory");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Student = require("../../models/Students/students.model");
 const ClassLevel = require("../../models/Academic/class.model");
@@ -17,6 +17,17 @@ function buildCandidateClassName(row) {
 }
 
 exports.parseStudentExcelService = async (filePath, res) => {
+  // H5: the uploaded workbook is removed however parsing ends — XLSX.readFile
+  // and the class lookup both throw on real-world files, and every one of those
+  // paths used to strand the upload on disk.
+  try {
+    return await parseStudentExcelRows(filePath, res);
+  } finally {
+    removeUploadedFile(filePath);
+  }
+};
+
+const parseStudentExcelRows = async (filePath, res) => {
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
   const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
@@ -45,8 +56,6 @@ exports.parseStudentExcelService = async (filePath, res) => {
       gender: String(row["Gender"] || "").trim() || undefined,
     };
   }).filter((r) => r.name);
-
-  fs.unlink(filePath, () => {});
 
   return responseStatus(res, 200, "success", staged);
 };

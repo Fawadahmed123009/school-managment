@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../utils/uploadFactory");
 const fs = require("fs");
 const { apiFetch, BASE_URL } = require("../../utils/apiClient");
 const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
@@ -8,7 +8,9 @@ const { verifyCsrf } = require("../../middlewares/csrf");
 
 // Temp upload (view route) — the permanent save happens on the API side via
 // its own diskStorage, mirroring the proven OCR multipart-proxy pattern.
-const upload = multer({ dest: "uploads/" });
+// H5: same hard limits as the API photo route, and the temp copy is removed
+// when the response ends instead of only on the happy path.
+const upload = makeUpload("image");
 
 // Camera capture / photo page
 router.get("/students/:studentId/photo", requireAdminOrManager(), async (req, res) => {
@@ -29,7 +31,7 @@ router.get("/students/:studentId/photo", requireAdminOrManager(), async (req, re
 // Receive a captured/uploaded photo, proxy to the API with native FormData/Blob
 // (NOT the form-data npm package — that silently truncated bodies here).
 // Respond JSON for the in-page camera JS; redirect for the plain-form fallback.
-router.post("/students/:studentId/photo", requireAdminOrManager(), upload.single("photo"), verifyCsrf, async (req, res) => {
+router.post("/students/:studentId/photo", requireAdminOrManager(), upload.single("photo"), cleanupUploadedFiles, verifyCsrf, async (req, res) => {
   const isAjax = req.xhr || (req.headers.accept || "").includes("application/json");
 
   const finish = (result) => {
@@ -53,7 +55,6 @@ router.post("/students/:studentId/photo", requireAdminOrManager(), upload.single
       headers: { Authorization: `Bearer ${req.token}` },
       body: form,
     });
-    fs.unlink(req.file.path, () => {});
 
     const ctype = apiResp.headers.get("content-type") || "";
     if (!ctype.includes("application/json")) {

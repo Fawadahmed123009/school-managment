@@ -1,5 +1,5 @@
 const express = require("express");
-const multer = require("multer");
+const { makeUpload, cleanupUploadedFiles } = require("../../../utils/uploadFactory");
 const feesRouter = express.Router();
 
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
@@ -29,7 +29,10 @@ const {
   getDefaulterListController,
 } = require("../../../controllers/fees/feeHead.controller");
 
-const upload = multer({ dest: "uploads/" });
+// H5: fee-scan images go through the shared hardened upload (8 MB cap, one
+// file, image type filter) and the temp copy is removed when the response ends,
+// not only when the OCR path succeeds. See utils/uploadFactory.js.
+const upload = makeUpload("image");
 
 // ---- Fee records ----
 feesRouter.route("/fees").post(isLoggedIn, isAdmin, createFeeController);
@@ -47,7 +50,7 @@ feesRouter.route("/fees/:feeId").delete(isLoggedIn, isAdmin, deleteFeeController
 
 feesRouter
   .route("/fees/ocr/extract")
-  .post(isLoggedIn, isAdmin, upload.single("image"), extractFeesFromImageController);
+  .post(isLoggedIn, isAdmin, upload.single("image"), cleanupUploadedFiles, extractFeesFromImageController);
 
 // ---- Fee heads ----
 feesRouter.route("/fee-heads").get(isLoggedIn, isAdmin, getAllFeeHeadsController);

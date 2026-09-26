@@ -1,5 +1,6 @@
 const { GoogleGenAI } = require("@google/genai");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const { removeUploadedFile } = require("../../utils/uploadFactory");
 const fs = require("fs");
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -26,6 +27,17 @@ const callGemini = async (params) => {
 };
 
 exports.extractFeesFromImageService = async (filePath, mimeType, res) => {
+  // H5: the temp file handed over by multer belongs to this function's scope,
+  // so its removal is in a `finally` — the read, the Gemini call and the JSON
+  // parse all have failure paths that used to strand the file on disk.
+  try {
+    return await extractFeeRowsFromImage(filePath, mimeType, res);
+  } finally {
+    removeUploadedFile(filePath);
+  }
+};
+
+const extractFeeRowsFromImage = async (filePath, mimeType, res) => {
   const imageData = fs.readFileSync(filePath, { encoding: "base64" });
 
   const prompt = `You are reading a school fee collection sheet. It has printed/typed student names and handwritten fee amounts next to each name. Extract every row as JSON.
@@ -49,7 +61,6 @@ Example output:
       ],
     });
   } catch (err) {
-    fs.unlink(filePath, () => {});
     if (err.status === 503) {
       return responseStatus(res, 503, "failed", "OCR service is busy, please try again in a moment");
     }
@@ -66,8 +77,6 @@ Example output:
   } catch (err) {
     return responseStatus(res, 500, "failed", "Could not parse OCR response as JSON. Raw output: " + responseText.slice(0, 500));
   }
-
-  fs.unlink(filePath, () => {});
 
   return responseStatus(res, 200, "success", rows);
 };
