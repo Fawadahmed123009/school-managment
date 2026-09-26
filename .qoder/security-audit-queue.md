@@ -82,8 +82,53 @@ Update status as each is fixed and committed.
     tests). Live verification: `tmp/_verify_h3_rate_limiters.js` — form
     `/login` + API login carry RateLimit headers, account A throttles at 429
     after 10 failures, account B on same IP unaffected, pages healthy.
-- **H4** — pending (per original audit queue).
-- **H5** — pending (per original audit queue).
+- **H4** — ✅ DONE (2026-09-26): rejected async handlers hung the request and
+  escaped to the process (where `server.js` exits on `uncaughtException`).
+  `handlers/asyncErrorBoundary.handler.js` walks the finished middleware stack at
+  boot and re-points every layer's `handle` at a wrapper that calls
+  `next(err)` on rejection — so async **middlewares** (`authView` and friends,
+  which guard every view page) are covered too, not just route handlers, and no
+  route definition is touched. Behavior-preserving: arity-4 error handlers are
+  skipped, an already-wrapped handler is never double-wrapped, a mounted
+  sub-router object is never replaced (its own stack is walked), the rejection is
+  forwarded exactly once, and a *late* rejection on a response that already
+  started is dropped instead of corrupting it. `errorHandler` hardened to match:
+  post-response errors cut the connection (`res.destroy()`) rather than throwing
+  `ERR_HTTP_HEADERS_SENT`, and error handling can no longer itself throw.
+  - Tests: `__tests__/h4AsyncErrorBoundary.test.js` (17; the pre-fix hang is
+    reproduced in a **child process**, since jest attributes an in-process
+    unhandled rejection to the test itself). Live verification:
+    `tmp/_verify_h4_async_boundary.js` — real app, mongoose deliberately down
+    (`bufferCommands:false`, unreachable DB): authed pages that used to hang for
+    6s answer 500 in ~27ms, worker keeps serving, 0 escaping rejections; the
+    stubbed baseline pair still hangs.
+- **H5** — ✅ DONE (2026-09-26): `multer({ dest: "uploads/" })` with no limits and
+  no `fileFilter` on the fee-OCR, marks-OCR, student-import and photo **view**
+  routes (7 instances; only the API photo route had a cap), i.e. an unbounded
+  write to the disk holding the DB and logs — plus temp files that survived every
+  non-happy path. `utils/uploadFactory.js` is now the only place a multer
+  instance is built: `image` 8 MB / `sheet` 10 MB presets (one file, bounded
+  fields+parts), a type filter that keeps the octet-stream-with-real-extension
+  case browsers actually send, and `cleanupUploadedFiles` mounted right after
+  multer so the temp file is unlinked when the response *ends* — happy path,
+  route `catch`, throw, async rejection (H4) and client abort alike, guarded to
+  paths resolving inside `uploads/`. The fee/marks OCR and Excel-import services
+  unlink in a `finally` instead of inline on the success path; the kept-photo
+  route takes the limits + filter but deliberately not the cleanup. `errorHandler`
+  maps `MulterError` (413 for the byte-size cap with the offending field named,
+  400 for structural breaches) instead of a misleading 500, and a 30-minute
+  `sweepOrphanUploads()` timer (extensionless blobs only) catches uploads stranded
+  by a worker killed mid-request.
+  - Tests: `__tests__/h5UploadLimits.test.js` (39; incl. real-HTTP oversized →
+    413 with the temp dir byte-for-byte unchanged, and an assertion that the
+    destination really is `uploads/` — multer's own defaults are RAM/`os.tmpdir()`,
+    both outside the cleanup guard). Live verification:
+    `tmp/_verify_h5_uploads.js` (20 checks) boots the real app against the real DB
+    and diffs `uploads/` around real uploads: 11 MB workbook and 9 MB images
+    refused on all four surfaces, `.php`/`.txt` parts never written, corrupt
+    workbook and valid workbook both leave nothing behind; with the factory
+    stubbed back to `multer({dest:"uploads/"})` the same probes show the 11 MB
+    body accepted **and still on disk**, as are the corrupt and wrong-type files.
 - **H6** — ✅ DONE (2026-09-25): the multi-step bulk-assign and generate-monthly-
   fees flows (and the OCR bulk-confirm loop, same partial-write shape) are now
   wrapped in MongoDB transactions. `withTransaction` helper in
@@ -110,8 +155,9 @@ Update status as each is fixed and committed.
 
 ## Follow-ups (schedule AFTER H3–H6 — not urgent enough to reorder the queue)
 
-These were flagged during the password-policy / audit work but are deliberately
-queued behind H3–H6:
+H3–H6 are now all committed; the items below remain open:
+
+These were flagged during the password-policy / audit work:
 
 1. **validatePassword not wired on the teacher write path** — teacher create /
    password-update should run the same policy every other write enforces.
@@ -122,6 +168,12 @@ queued behind H3–H6:
 4. **Weak temp-password generation in student import** — the bulk import issues
    low-entropy temporary passwords; strengthen the generator (and the
    student-login credential handoff) once the above paths validate.
+5. **Kept-photo failure paths leave a compressed file in `uploads/photos/`** —
+   out of H5's stated scope (that route already had the size cap + mime filter,
+   and its file is the thing we *mean* to keep), but if the R2 upload or the DB
+   write throws after `compressPhoto`, the local JPEG is never referenced or
+   removed, and the H5 sweep intentionally skips extensioned files and the
+   `photos/` prefix. Needs a `try/catch` around the persist step, not a sweep.
 
 Related note: the current policy minimum is **6 characters**. Whether to raise
 the floor is folded into items 1–4 (it only makes sense to bump the minimum at
