@@ -11,6 +11,7 @@ const {
   getTeacherCascadeWeeksService,
   getTestRosterService,
   submitTestResultsService,
+  getMarksAuditService,
   updateTestMarksService,
   getTestMarksService,
   getTestResultSheetService,
@@ -64,6 +65,15 @@ exports.getTestRosterController = async (req, res) => {
 exports.submitTestResultsController = async (req, res) => {
   try {
     await submitTestResultsService(req.params.testId, req.body.records, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Admin/manager marks audit — per-test stats + marking timeline (read-only)
+exports.getMarksAuditController = async (req, res) => {
+  try {
+    await getMarksAuditService(req.query, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

@@ -11,10 +11,27 @@
     if (enteredCount) enteredCount.textContent = count;
   }
 
+  // ── Live percentage (score / current total marks) ────────────────────
+  // Each row's % cell refreshes as the teacher types, so the ratio is
+  // always visible next to the raw score before anything is saved.
+  function updatePercentages() {
+    const max = currentMax();
+    document.querySelectorAll('#roster-body tr').forEach(function (row) {
+      const input = row.querySelector('.score-input');
+      const cell = row.querySelector('.pct-cell');
+      if (!input || !cell) return;
+      const v = Number(input.value);
+      cell.textContent = (input.value !== '' && max && v <= max)
+        ? (Math.round((v / max) * 1000) / 10) + '%'
+        : '';
+    });
+  }
+
   document.querySelectorAll('.score-input').forEach(function (el) {
-    el.addEventListener('input', updateCount);
+    el.addEventListener('input', function () { updateCount(); updatePercentages(); });
   });
   updateCount();
+  updatePercentages();
 
   // ── Keep score inputs in sync with the editable total-marks field ─────
   // The teacher can change the test's total marks on this page; before the
@@ -31,6 +48,8 @@
       document.querySelectorAll('.score-input').forEach(function (el) {
         el.max = max;
       });
+      // Percentages are relative to the total — refresh with the new ceiling.
+      updatePercentages();
     });
   }
 

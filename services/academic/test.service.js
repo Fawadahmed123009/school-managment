@@ -487,19 +487,39 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
   }
 
-  const students = await Student.find({ classLevel: { $in: assignedClassLevels } }).select("name studentId rollNumber classLevel");
+  const students = await Student.find({ classLevel: { $in: assignedClassLevels } })
+    .select("name studentId rollNumber classLevel fatherName parent")
+    .populate("parent", "name");
 
-  const existing = await TestResult.find({ test: testId });
+  // Marks timeline: updatedAt is when the teacher last saved/edited the score,
+  // createdAt is the original upload — both surface in the roster UI and audit.
+  const existing = await TestResult.find({ test: testId }).populate("markedBy", "name").lean();
   const existingMap = {};
-  existing.forEach((r) => { existingMap[r.student.toString()] = r.score; });
+  existing.forEach((r) => {
+    existingMap[r.student.toString()] = {
+      score: r.score,
+      markedAt: r.updatedAt || r.createdAt || null,
+      firstMarkedAt: r.createdAt || null,
+      markedByName: r.markedBy && r.markedBy.name ? r.markedBy.name : null,
+    };
+  });
 
-  const roster = students.map((s) => ({
-    student: s._id,
-    name: s.name,
-    studentId: s.studentId,
-    rollNumber: s.rollNumber || '',
-    score: existingMap[s._id.toString()] ?? null,
-  }));
+  const roster = students.map((s) => {
+    const prev = existingMap[s._id.toString()];
+    return {
+      student: s._id,
+      name: s.name,
+      studentId: s.studentId,
+      rollNumber: s.rollNumber || '',
+      // Parent name shown alongside the student while entering marks — the
+      // linked Parent record when present, otherwise the student's fatherName.
+      parentName: (s.parent && s.parent.name) || s.fatherName || '',
+      score: prev ? prev.score : null,
+      markedAt: prev ? prev.markedAt : null,
+      firstMarkedAt: prev ? prev.firstMarkedAt : null,
+      markedByName: prev ? prev.markedByName : null,
+    };
+  });
 
   return responseStatus(res, 200, "success", { test, roster });
 };
@@ -562,6 +582,123 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   }
 
   return responseStatus(res, 201, "success", results);
+};
+
+/**
+ * Admin marks audit — one row per test with score statistics AND the marking
+ * timeline: when marks were first uploaded (earliest TestResult createdAt),
+ * when they were last changed (latest updatedAt) and which teacher entered
+ * them. Tests with no results yet are included (markedCount 0) so the admin
+ * can also see what is still unmarked. Optional filters: `search` (test /
+ * subject / class) and `teacher` — a marker's id or name, keeping only the
+ * tests that teacher marked. Read-only, admin/manager only.
+ */
+exports.getMarksAuditService = async (query, res) => {
+  const { search, teacher } = query || {};
+
+  const tests = await Test.find({})
+    .populate("subject", "name")
+    .populate("classLevels", "name gradeLevel group")
+    .sort({ date: -1 })
+    .lean();
+
+  // Group every TestResult by test to derive per-test stats + timeline.
+  const results = await TestResult.find({})
+    .select("test score createdAt updatedAt markedBy")
+    .populate("markedBy", "name")
+    .lean();
+  const byTest = {};
+  results.forEach((r) => {
+    const key = String(r.test);
+    (byTest[key] = byTest[key] || []).push(r);
+  });
+
+  const round2 = (n) => Math.round(n * 100) / 100;
+
+  let rows = tests.map((t) => {
+    const rs = byTest[String(t._id)] || [];
+    const scores = rs.map((r) => r.score).filter((s) => typeof s === "number" && !isNaN(s));
+    // Percentages are computed against the test's CURRENT totalMarks; if the
+    // scale was lowered after marking, a stored score may exceed it — those
+    // rows are excluded from percent stats rather than reported >100%.
+    const percents = t.totalMarks
+      ? scores.filter((s) => s <= t.totalMarks).map((s) => round2((s / t.totalMarks) * 100))
+      : [];
+
+    const stat = (arr, fn) => (arr.length ? round2(fn(arr)) : null);
+    const times = (field) => rs.map((r) => (r[field] ? new Date(r[field]).getTime() : null)).filter(Boolean);
+    const created = times("createdAt");
+    const updated = times("updatedAt");
+
+    // Who last touched the marks: the teacher on the most recently updated row.
+    let lastUpdatedBy = null;
+    if (updated.length) {
+      const lastAt = Math.max(...updated);
+      const lastRow = rs.find((r) => r.updatedAt && new Date(r.updatedAt).getTime() === lastAt);
+      lastUpdatedBy = lastRow && lastRow.markedBy ? lastRow.markedBy.name : null;
+    }
+    const teacherNames = [...new Set(rs.map((r) => (r.markedBy ? r.markedBy.name : null)).filter(Boolean))];
+    // Marker id→name pairs — the audit page's teacher-filter dropdown filters
+    // by id (names can collide), so each row carries its marker ids too.
+    const markerMap = new Map();
+    rs.forEach((r) => {
+      if (r.markedBy && r.markedBy._id) markerMap.set(String(r.markedBy._id), r.markedBy.name || "");
+    });
+
+    return {
+      testId: t._id,
+      name: t.name,
+      subject: t.subject ? t.subject.name : "",
+      classes: (t.classLevels || []).map((c) => c.name).join(", "),
+      totalMarks: t.totalMarks,
+      passMarks: t.passMarks,
+      testDate: t.date,
+      markedCount: rs.length,
+      avgScore: stat(scores, (a) => a.reduce((x, y) => x + y, 0) / a.length),
+      minScore: stat(scores, (a) => Math.min(...a)),
+      maxScore: stat(scores, (a) => Math.max(...a)),
+      avgPercent: stat(percents, (a) => a.reduce((x, y) => x + y, 0) / a.length),
+      minPercent: stat(percents, (a) => Math.min(...a)),
+      maxPercent: stat(percents, (a) => Math.max(...a)),
+      passCount: t.passMarks != null ? scores.filter((s) => s >= t.passMarks).length : null,
+      firstUploadAt: created.length ? new Date(Math.min(...created)) : null,
+      lastUploadAt: created.length ? new Date(Math.max(...created)) : null,
+      lastUpdateAt: updated.length ? new Date(Math.max(...updated)) : null,
+      lastUpdatedBy,
+      teachers: teacherNames,
+      markers: [...markerMap.entries()].map(([id, name]) => ({ id, name })),
+    };
+  });
+
+  if (search && String(search).trim()) {
+    const q = String(search).trim().toLowerCase();
+    rows = rows.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.subject.toLowerCase().includes(q) ||
+        r.classes.toLowerCase().includes(q)
+    );
+  }
+
+  // Teacher filter: exact match on the marker's id OR name (the dropdown
+  // submits ids; name queries make the API usable directly). Tests the
+  // teacher never marked — including unmarked ones — are excluded.
+  if (teacher && String(teacher).trim()) {
+    const tq = String(teacher).trim().toLowerCase();
+    rows = rows.filter(
+      (r) =>
+        r.markers.some((m) => m.id.toLowerCase() === tq || (m.name || "").toLowerCase() === tq)
+    );
+  }
+
+  // Most-recently-touched first; unmarked tests fall back to the test date.
+  rows.sort((a, b) => {
+    const at = a.lastUpdateAt ? new Date(a.lastUpdateAt).getTime() : new Date(a.testDate).getTime();
+    const bt = b.lastUpdateAt ? new Date(b.lastUpdateAt).getTime() : new Date(b.testDate).getTime();
+    return bt - at;
+  });
+
+  return responseStatus(res, 200, "success", rows);
 };
 
 /**

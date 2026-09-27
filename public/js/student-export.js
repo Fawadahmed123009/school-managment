@@ -119,7 +119,35 @@
         }
       });
       toggleBtn.textContent = allChecked ? "Select all" : "Deselect all";
+      updatePhotoSizeAvailability();
     });
+  }
+
+  // ── Photo size availability ────────────────────────────────────────────────
+  // The photo-size option only affects embedded photos, which are rendered for
+  // PDF/Word (Excel uses a hyperlink) and only when the "Photo" field is
+  // selected. Grey out / disable the control otherwise so it isn't misleading.
+  // A disabled control simply doesn't submit, and the server falls back to the
+  // default size — so this is purely cosmetic and never breaks an export.
+  var photoSizeEl = document.getElementById("photoSize");
+  var photoSizeField = document.getElementById("photoSizeField");
+  var formatEl = document.getElementById("format");
+
+  function isPhotoSelected() {
+    var cb = document.querySelector('.field-cb[value="photo"]');
+    return !!(cb && cb.checked);
+  }
+
+  function updatePhotoSizeAvailability() {
+    if (!photoSizeEl) return;
+    var fmt = formatEl ? formatEl.value : "";
+    var available = isPhotoSelected() && (fmt === "pdf" || fmt === "docx");
+    photoSizeEl.disabled = !available;
+    if (photoSizeField) photoSizeField.style.opacity = available ? "" : "0.5";
+  }
+
+  if (formatEl) {
+    formatEl.addEventListener("change", updatePhotoSizeAvailability);
   }
 
   // Highlight checked field labels on change
@@ -129,6 +157,7 @@
       if (!label) return;
       label.style.borderColor = this.checked ? "var(--primary, #1e3a5f)" : "var(--border)";
       label.style.background = this.checked ? "#f0f4f8" : "#fff";
+      updatePhotoSizeAvailability();
     });
     // Initial state
     if (cb.checked) {
@@ -139,4 +168,7 @@
       }
     }
   });
+
+  // Initial availability state on page load
+  updatePhotoSizeAvailability();
 })();

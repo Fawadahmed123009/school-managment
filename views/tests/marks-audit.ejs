@@ -1,0 +1,104 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Admin &middot; marking oversight</p>
+    <h1>Marks audit</h1>
+  </div>
+</div>
+
+<% if (loadError) { %>
+  <div class="flash error"><%= loadError %></div>
+<% } %>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>All tests &mdash; scores &amp; marking timeline</h2>
+    <form method="GET" action="/tests/marks-audit" style="display:flex; gap:8px; align-items:center;">
+      <select name="teacher" onchange="this.form.submit()" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; max-width:190px;">
+        <option value="">All teachers</option>
+        <% markers.forEach(function(m) { %>
+          <option value="<%= m.id %>" <%= String(m.id).toLowerCase() === String(teacher || '').toLowerCase() ? 'selected' : '' %>><%= m.name || m.id %></option>
+        <% }); %>
+      </select>
+      <input type="search" name="search" value="<%= search %>" placeholder="Search test, subject or class…" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
+      <button type="submit" class="btn btn-primary" style="padding:6px 14px;">Search</button>
+      <% if (search || teacher) { %><a href="/tests/marks-audit" class="btn btn-ghost" style="padding:6px 14px;">Clear</a><% } %>
+    </form>
+  </div>
+  <div class="attend-filters" style="padding:0 16px 4px;">
+    <p class="hint" style="margin:0;">Average / min / max are computed over the students already marked. &ldquo;First upload&rdquo; is when marks were
+    first saved; &ldquo;Last update&rdquo; is the most recent change by a teacher. The <em>Marked by</em> filter keeps only the tests that teacher entered.</p>
+  </div>
+  <% if (!rows.length) { %>
+    <div class="empty"><div class="display">No tests found</div></div>
+  <% } else { %>
+  <div class="table-wrap">
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th>Test</th>
+        <th>Subject &amp; classes</th>
+        <th class="num">Total marks</th>
+        <th>Test date</th>
+        <th class="num">Marked</th>
+        <th class="num">Avg</th>
+        <th class="num">Min</th>
+        <th class="num">Max</th>
+        <th class="num">Avg %</th>
+        <th>First upload</th>
+        <th>Last update</th>
+        <th>Updated by</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% rows.forEach(function(r) { %>
+      <tr>
+        <td><strong><%= r.name %></strong></td>
+        <td>
+          <%= r.subject %><br />
+          <span style="font-size:11px;color:var(--ink-soft);"><%= r.classes %></span>
+        </td>
+        <td class="num mono"><%= r.totalMarks %></td>
+        <td><%= r.testDate ? new Date(r.testDate).toLocaleDateString() : '—' %></td>
+        <td class="num">
+          <% if (r.markedCount > 0) { %>
+            <span class="pill ocr"><%= r.markedCount %></span>
+            <% if (r.passCount != null) { %><div style="font-size:11px;color:var(--ink-soft);margin-top:2px;"><%= r.passCount %> passed</div><% } %>
+          <% } else { %>
+            <span class="pill" style="opacity:.6;">not marked</span>
+          <% } %>
+        </td>
+        <td class="num mono"><%= r.avgScore != null ? r.avgScore : '—' %></td>
+        <td class="num mono">
+          <%= r.minScore != null ? r.minScore : '—' %>
+          <% if (r.minPercent != null) { %><div style="font-size:11px;color:var(--ink-soft);font-weight:400;"><%= r.minPercent %>%</div><% } %>
+        </td>
+        <td class="num mono">
+          <%= r.maxScore != null ? r.maxScore : '—' %>
+          <% if (r.maxPercent != null) { %><div style="font-size:11px;color:var(--ink-soft);font-weight:400;"><%= r.maxPercent %>%</div><% } %>
+        </td>
+        <td class="num mono"><%= r.avgPercent != null ? r.avgPercent + '%' : '—' %></td>
+        <td style="font-size:12px;color:var(--ink-soft);"><%= r.firstUploadAt ? new Date(r.firstUploadAt).toLocaleDateString() : '—' %></td>
+        <td style="font-size:12px;color:var(--ink-soft);">
+          <% if (r.lastUpdateAt) { %>
+            <span title="Last mark change: <%= new Date(r.lastUpdateAt).toLocaleString() %>"><%= new Date(r.lastUpdateAt).toLocaleString() %></span>
+          <% } else { %>—<% } %>
+        </td>
+        <td style="font-size:12px;">
+          <% if (r.lastUpdatedBy) { %>
+            <strong><%= r.lastUpdatedBy %></strong>
+            <% if (r.teachers.length > 1) { %><div style="font-size:11px;color:var(--ink-soft);"><%= r.teachers.length %> teachers marked</div><% } %>
+          <% } else { %>—<% } %>
+        </td>
+      </tr>
+      <% }); %>
+    </tbody>
+  </table>
+  </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

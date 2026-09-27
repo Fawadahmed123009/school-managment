@@ -16,13 +16,13 @@ const upload = makeUpload("image");
 // Auth-gated viewer for archived marks-scan photos (R2 marks-scans/ prefix).
 registerOcrScanViewRouter(router, { pattern: "/marks/ocr/scan", role: "teacher" });
 
-/** Fetch every student (id + name + class + roll#) for OCR dropdowns / fuzzy matching. */
+/** Fetch every student (id + name + class + roll# + parent) for OCR dropdowns / fuzzy matching. */
 const fetchAllStudents = () =>
-  Student.find({}).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
+  Student.find({}).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
 
 /** Candidate pool scoped to an explicit set of student ids (a test's roster). */
 const fetchStudentsByIds = (ids) =>
-  Student.find({ _id: { $in: ids } }).select("_id name rollNumber").populate("classLevel", "name").sort("name").lean();
+  Student.find({ _id: { $in: ids } }).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
 
 router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
   // Fetch only the classes this teacher is assigned to (cascade level 1)
@@ -84,8 +84,15 @@ router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image")
       return { ...row, ...match };
     });
     // The scoped candidate pool travels back so the review dropdowns list
-    // only these students (the selected test's class/section).
-    res.json({ status: "success", data: enriched, students, archivedUrl: archivedUrl || undefined });
+    // only these students (the selected test's class/section). totalMarks
+    // powers the live per-row percentage display in the review grid.
+    res.json({
+      status: "success",
+      data: enriched,
+      students,
+      totalMarks: rosterRes.data.test ? rosterRes.data.test.totalMarks : null,
+      archivedUrl: archivedUrl || undefined,
+    });
   } catch (err) {
     res.json({ status: "failed", message: err.message });
   }

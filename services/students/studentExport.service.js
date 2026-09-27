@@ -207,8 +207,23 @@ exports.generateExcel = async (scope, scopeValues, selectedFields, blankCount) =
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 };
 
+// ── Photo size (mm → doc units) ────────────────────────────────────────────────
+// Admin/manager can pick the embedded photo size on the export form. We treat
+// the value as the side of a square thumbnail in millimetres and convert to the
+// unit each renderer needs. Allowed range is 10–60 mm; default is 20 mm.
+const MM_PER_INCH = 25.4;
+const DEFAULT_PHOTO_SIZE_MM = 20;
+function clampPhotoSizeMm(mm) {
+  const v = parseFloat(mm);
+  if (!Number.isFinite(v)) return DEFAULT_PHOTO_SIZE_MM;
+  return Math.min(60, Math.max(10, v));
+}
+const mmToPt = (mm) => (mm * 72) / MM_PER_INCH;   // PDFKit works in points
+const mmToDxa = (mm) => Math.round((mm * 1440) / MM_PER_INCH); // Word works in DXA
+
 // ── PDF export ─────────────────────────────────────────────────────────────────
-exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, schoolName) => {
+exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, schoolName, photoSizeMm) => {
+  const thumbMm = clampPhotoSizeMm(photoSizeMm);
   const students = await queryStudents(scope, scopeValues);
   let rows = buildRows(students, selectedFields);
   rows = addBlankColumns(rows, blankCount);
@@ -266,7 +281,7 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   const usedWidth = colWidths.reduce((a, b) => a + b, 0);
   colWidths[colWidths.length - 1] += tableWidth - usedWidth;
 
-  const THUMB = 72; // passport-photo size in points (72pt = 1 inch)
+  const THUMB = mmToPt(thumbMm); // photo thumbnail size in points (from mm)
   const rowH = includesPhoto ? THUMB + 8 : 16;
   const hdrH = 18;
   const fontSize = 7;
@@ -323,7 +338,8 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
 };
 
 // ── DOCX export ────────────────────────────────────────────────────────────────
-exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, schoolName) => {
+exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, schoolName, photoSizeMm) => {
+  const thumbMm = clampPhotoSizeMm(photoSizeMm);
   const students = await queryStudents(scope, scopeValues);
   let rows = buildRows(students, selectedFields);
   rows = addBlankColumns(rows, blankCount);
@@ -415,7 +431,7 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, sc
   const resolvedKeys = fieldDefs.map((f) => f.label);
   for (let i = 1; i <= (blankCount || 0); i++) resolvedKeys.push(`___blank_${i}`);
 
-  const THUMB_DXA = 1440; // 1440 DXA = 1 inch, passport-photo size
+  const THUMB_DXA = mmToDxa(thumbMm); // photo thumbnail size in DXA (from mm)
   // Finding 4.4: shrink photo thumbnail when many columns to avoid table overflow
   const effectiveThumb = colCount > 8 ? Math.min(THUMB_DXA, Math.max(colWidth, 720)) : THUMB_DXA;
   const photoPx = Math.round(effectiveThumb / 15); // DXA to px (approx 96px per inch)

@@ -31,7 +31,7 @@ router.get("/students/export", requireAdminOrManager(), async (req, res) => {
 // POST /students/export — generate and download the file
 router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req, res) => {
   try {
-    const { format, scope, classes, fields, blankCount } = req.body;
+    const { format, scope, classes, fields, blankCount, photoSize } = req.body;
 
     // Validate format
     if (!["xlsx", "pdf", "docx"].includes(format)) {
@@ -54,6 +54,9 @@ router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req,
     }
 
     const blankCols = parseInt(blankCount, 10) || 0;
+    // Photo size in mm (side of square thumbnail) — only affects PDF/DOCX.
+    // clampPhotoSizeMm() in the service enforces the valid range + default.
+    const photoSizeMm = parseFloat(photoSize);
     const schoolName = res.locals.schoolName || process.env.SCHOOL_NAME || "School Portal";
 
     if (format === "xlsx") {
@@ -64,14 +67,14 @@ router.post("/students/export", requireAdminOrManager(), verifyCsrf, async (req,
     }
 
     if (format === "docx") {
-      const buffer = await generateDOCX(scope, scopeValues, selectedFields, blankCols, schoolName);
+      const buffer = await generateDOCX(scope, scopeValues, selectedFields, blankCols, schoolName, photoSizeMm);
       res.setHeader("Content-Disposition", "attachment; filename=students-export.docx");
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       return res.send(buffer);
     }
 
     // PDF
-    const buffer = await generatePDF(scope, scopeValues, selectedFields, blankCols, schoolName);
+    const buffer = await generatePDF(scope, scopeValues, selectedFields, blankCols, schoolName, photoSizeMm);
     res.setHeader("Content-Disposition", "attachment; filename=students-export.pdf");
     res.setHeader("Content-Type", "application/pdf");
     return res.send(buffer);

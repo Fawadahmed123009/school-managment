@@ -216,6 +216,7 @@ app.use(require("../routes/views/testAdmin.views"));
 app.use(require("../routes/views/testTeacher.views"));
 app.use(require("../routes/views/testResultSheet.views"));
 app.use(require("../routes/views/testAnalytics.views"));
+app.use(require("../routes/views/marksAudit.views"));
 app.use(require("../routes/views/sessionReport.views"));
 app.use(pdfGenerateRouter);
 app.use(require("../routes/views/attendance.views"));

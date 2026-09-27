@@ -40,6 +40,7 @@ const {
   getTeacherCascadeWeeksController,
   getTestRosterController,
   submitTestResultsController,
+  getMarksAuditController,
   updateTestMarksController,
   getTestMarksController,
   getTestResultSheetController,
@@ -140,6 +141,8 @@ testRouter.get("/tests/cascade/tests", isLoggedIn, isTeacher, getTeacherScopedTe
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);
 testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdminOrManager, getEnhancedTestAnalyticsController);
 testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdminOrManager, getTestTrendController);
+// Admin/manager marks audit — per-test stats + marking timeline.
+testRouter.route("/tests/marks-audit").get(isLoggedIn, isAdminOrManager, getMarksAuditController);
 // Teacher-scoped analytics (assignment-gated, read-only)
 testRouter.route("/tests/teacher-analytics").get(isLoggedIn, isTeacher, getTeacherAnalyticsController);
 

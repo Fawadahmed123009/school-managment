@@ -1,5 +1,7 @@
 (function () {
-  const students = (function () {
+  // Initial pool from the page; replaced by the test-scoped candidates the
+  // extract response returns, so dropdowns only list the selected class/section.
+  let students = (function () {
     const el = document.getElementById('marks-ocr-students');
     if (el) { try { return JSON.parse(el.textContent); } catch (e) {} }
     return window.__STUDENTS__ || [];
@@ -17,6 +19,9 @@
 
   let currentRows = [];
   let testId = '';
+  // Ceiling for the live percentage column — set from the extract response
+  // (the test's totalMarks) and kept in sync with the "Test settings" input.
+  let ocrTotalMarks = null;
 
   pickBtn.addEventListener('click', () => {
     // Use window.selectedTestId set by the cascade script in ocr.ejs
@@ -33,22 +38,37 @@
     const file = fileInput.files[0];
     if (!file) return;
 
+    // Camera capture fires this handler without the picker click, so resolve
+    // the chosen test here too — extraction requires one for roster scoping.
+    testId = window.selectedTestId || testId;
+    if (!testId) {
+      alert('Select a test first.');
+      return;
+    }
+
     sourcePreview.src = URL.createObjectURL(file);
 
     const formData = new FormData();
     formData.append('image', file);
+    formData.append('testId', testId);
 
     uploadStep.style.display = 'none';
     reviewStep.style.display = 'block';
-    rowsBody.innerHTML = '<tr><td colspan="5">Extracting…</td></tr>';
+    rowsBody.innerHTML = '<tr><td colspan="6">Extracting…</td></tr>';
 
     const res = await fetch('/marks/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="6">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
+
+    if (data.totalMarks) ocrTotalMarks = Number(data.totalMarks);
+
+    // Scope the candidate pool (dropdowns + recommended matches) to the
+    // students of the selected test's class/section returned by the server.
+    if (Array.isArray(data.students)) students = data.students;
 
     // If the pre-fetch didn't run (e.g. camera capture), fetch the archived
     // copy now; the blob stays as fallback if archiving failed server-side.
@@ -79,9 +99,16 @@
       .catch(() => { /* keep local blob preview */ });
   }
 
+  // Parent name for a student in the candidate pool — the linked Parent
+  // record when present, otherwise the student's fatherName field.
+  function parentLabel(s) {
+    if (!s) return '';
+    return (s.parent && s.parent.name) || s.fatherName || '';
+  }
+
   function renderRows() {
     if (!students.length) {
-      rowsBody.innerHTML = '<tr><td colspan="5" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
+      rowsBody.innerHTML = '<tr><td colspan="6" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
       rowCount.textContent = '0 rows';
       saveBtn.disabled = true;
       return;
@@ -92,10 +119,14 @@
       const esc = window.escapeHtml;
       const matchedStudent = students.find(s => s._id === row.studentId);
       const rollDisplay = matchedStudent && matchedStudent.rollNumber ? matchedStudent.rollNumber : '';
+      const parentDisplay = matchedStudent ? parentLabel(matchedStudent) : '';
       const options = students.map(s => {
         const cls = s.classLevel ? s.classLevel.name : '';
         const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
-        const parts = [cls, roll].filter(Boolean).join(' · ');
+        // Parent name in the option label too — disambiguates same-name
+        // students before a row selection is made (linked parent, else father).
+        const pn = parentLabel(s);
+        const parts = [cls, roll, pn ? 'Parent: ' + pn : ''].filter(Boolean).join(' · ');
         const label = parts ? `${s.name} — ${parts}` : s.name;
         return `<option value="${esc(s._id)}" ${row.studentId === s._id ? 'selected' : ''}>${esc(label)}</option>`;
       }).join('');
@@ -107,20 +138,45 @@
               <option value="">${esc(row.name || '(unreadable)')} — select student</option>
               ${options}
             </select>
+            <div class="parent-cell" data-row="${i}" style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${parentDisplay ? 'Parent: ' + esc(parentDisplay) : ''}</div>
           </td>
           <td><span class="mono" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
-          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" /></td>
+          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" placeholder="Absent → 0" /></td>
+          <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"></span></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
       `;
     }).join('');
     updateTotal();
     attachRowEvents();
+    updatePercentages();
+  }
+
+  // ── Live percentage (score / test total marks) ────────────────────────
+  function currentOcrMax() {
+    // Prefer the in-page "Test settings" field so the % follows edits to the
+    // total; fall back to the totalMarks returned by the extract call.
+    const el = document.getElementById('ocr-total-marks');
+    const n = Number(el && el.value ? el.value : ocrTotalMarks);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
+
+  function updatePercentages() {
+    const max = currentOcrMax();
+    document.querySelectorAll('#rows-body tr').forEach(function (row) {
+      const input = row.querySelector('.score-input');
+      const cell = row.querySelector('.pct-cell');
+      if (!input || !cell) return;
+      const v = Number(input.value);
+      cell.textContent = (input.value !== '' && max && v <= max)
+        ? (Math.round((v / max) * 1000) / 10) + '%'
+        : '';
+    });
   }
 
   function attachRowEvents() {
-    document.querySelectorAll('.score-input').forEach(el => el.addEventListener('input', updateTotal));
-    // Update roll # column when user changes the student dropdown
+    document.querySelectorAll('.score-input').forEach(el => el.addEventListener('input', function () { updateTotal(); updatePercentages(); }));
+    // Update roll # and parent columns when user changes the student dropdown
     document.querySelectorAll('.student-select').forEach(sel => {
       sel.addEventListener('change', function () {
         const tr = this.closest('tr');
@@ -129,6 +185,11 @@
         tr.dataset.roll = roll;
         const rollCell = tr.querySelectorAll('td')[2];
         if (rollCell) rollCell.innerHTML = roll ? `<span class="mono" style="color:var(--ink-soft);font-size:12px;">#${window.escapeHtml(roll)}</span>` : '';
+        const parentCell = tr.querySelector('.parent-cell');
+        if (parentCell) {
+          const pn = chosen ? parentLabel(chosen) : '';
+          parentCell.textContent = pn ? 'Parent: ' + pn : '';
+        }
       });
     });
     document.querySelectorAll('.skip-btn').forEach(btn => {
@@ -166,6 +227,13 @@
     rowTotal.textContent = count;
   }
 
+  // Keep the % column in sync when the teacher edits the test's total marks
+  // in the "Test settings" panel above the reviewer.
+  const ocrTotalMarksInput = document.getElementById('ocr-total-marks');
+  if (ocrTotalMarksInput) {
+    ocrTotalMarksInput.addEventListener('input', updatePercentages);
+  }
+
   rescanBtn.addEventListener('click', () => {
     reviewStep.style.display = 'none';
     uploadStep.style.display = 'block';
@@ -178,24 +246,31 @@
     const scores = document.querySelectorAll('.score-input');
     const records = [];
     let missingStudent = 0;
-    let missingScore = 0;
+    let absentCount = 0;
 
     selects.forEach((sel, i) => {
       const studentId = sel.value;
       const score = scores[i].value;
-      if (studentId && score !== '') {
-        records.push({ student: studentId, score: Number(score) });
+      // A confirmed student with no readable score counts as ABSENT — saved
+      // as 0 instead of being dropped (blank was previously skipped silently).
+      if (studentId) {
+        if (score === '') { absentCount++; records.push({ student: studentId, score: 0 }); }
+        else { records.push({ student: studentId, score: Number(score) }); }
       } else {
-        if (!studentId) missingStudent++;
-        if (score === '') missingScore++;
+        // No student selected — nothing to save for this row unless a score
+        // was extracted for it (that row still needs a student).
+        if (score !== '') missingStudent++;
       }
     });
 
     if (records.length === 0) {
-      const hints = [];
-      if (missingStudent > 0) hints.push(`${missingStudent} row(s) have no student selected`);
-      if (missingScore > 0) hints.push(`${missingScore} row(s) have no score entered`);
-      alert('No rows are ready to save.\n\n' + (hints.join('\n') || 'Select a student and enter a score for at least one row.'));
+      alert('No rows are ready to save.\n\n' + (missingStudent > 0
+        ? `${missingStudent} row(s) have a score but no student selected`
+        : 'Select a student for at least one row.'));
+      return;
+    }
+
+    if (absentCount > 0 && !confirm(`${absentCount} row(s) have no score — they will be saved as Absent (0 marks). Continue?`)) {
       return;
     }
 

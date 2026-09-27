@@ -46,7 +46,6 @@
   <div class="panel">
     <div class="panel-head">
       <h2>Fields to include</h2>
-      <button type="button" id="toggleAllFields" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
     </div>
     <div class="panel-body">
       <div style="display:flex; flex-wrap:wrap; gap:8px;">
@@ -77,6 +76,17 @@
             <option value="pdf">PDF</option>
             <option value="docx">Word (.docx)</option>
           </select>
+        </div>
+        <div class="field" id="photoSizeField">
+          <label for="photoSize">Student photo size</label>
+          <select name="photoSize" id="photoSize">
+            <option value="10">Extra small (10 mm)</option>
+            <option value="15">Small (15 mm)</option>
+            <option value="20" selected>Medium (20 mm)</option>
+            <option value="30">Large (30 mm)</option>
+            <option value="40">Extra large (40 mm)</option>
+          </select>
+          <p class="hint">Adjusts the size of embedded student photos. Applies to PDF and Word exports when the &quot;Photo&quot; field is included.</p>
         </div>
       </div>
     </div>
