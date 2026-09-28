@@ -81,46 +81,46 @@
 
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
-    <form method="GET" action="/fees" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:150px;">
+    <form method="GET" action="/fees" class="filter-bar">
+      <div style="min-width:150px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Roll number</label>
-        <input type="text" name="roll" value="<%= filters.roll %>" placeholder="Search by roll#..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="roll" value="<%= filters.roll %>" placeholder="Search by roll#..." />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
-        <select name="class" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="class">
           <option value="">All classes</option>
           <% classes.forEach(function(c) { %>
             <option value="<%= c._id %>" <%= filters.class == c._id ? 'selected' : '' %>><%= c.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Fee head</label>
-        <select name="feeHead" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="feeHead">
           <option value="">All fee heads</option>
           <% feeHeads.forEach(function(h) { %>
             <option value="<%= h._id %>" <%= filters.feeHead == h._id ? 'selected' : '' %>><%= h.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
-        <input type="text" name="student" value="<%= filters.student %>" placeholder="Search by student name..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="student" value="<%= filters.student %>" placeholder="Search by student name..." />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Parent name</label>
-        <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent..." style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent..." />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
-        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="sortBy">
           <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Newest first</option>
           <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
           <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
         </select>
       </div>
-      <div style="display:flex; gap:6px; align-items:flex-end;">
+      <div class="filter-actions" style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
         <% if (filters.class || filters.roll || filters.parent || filters.student || filters.feeHead || filters.sortBy) { %>
           <a href="/fees" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
@@ -138,7 +138,7 @@
     </div>
   <% } else { %>
     <div class="table-wrap">
-    <table class="ledger">
+    <table class="ledger card-table">
       <thead>
         <tr>
           <th>Student</th>
@@ -155,15 +155,15 @@
       <tbody>
         <% fees.forEach(function(f) { %>
           <tr>
-            <td><strong><%= (f.student && f.student.name) || 'Unknown' %></strong></td>
-            <td><%= (f.student && f.student.rollNumber) || '—' %></td>
-            <td><% if (f.student && f.student.classLevel) { %><%= f.student.classLevel.gradeLevel + ' — ' + f.student.classLevel.name %><% } else { %>—<% } %></td>
-            <td><%= (f.student && f.student.parent && f.student.parent.name) || (f.student && f.student.fatherName) || '—' %></td>
-            <td><%= (f.feeHead && f.feeHead.name) || f.feeType || '—' %></td>
-            <td><span class="pill <%= f.source %>"><%= f.source %></span></td>
-            <td class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
-            <td><span class="pill <%= f.status %>"><%= f.status %></span></td>
-            <td>
+            <td data-label="Student"><strong><%= (f.student && f.student.name) || 'Unknown' %></strong></td>
+            <td data-label="Roll #"><%= (f.student && f.student.rollNumber) || '—' %></td>
+            <td data-label="Class"><% if (f.student && f.student.classLevel) { %><%= f.student.classLevel.gradeLevel + ' — ' + f.student.classLevel.name %><% } else { %>—<% } %></td>
+            <td data-label="Parent"><%= (f.student && f.student.parent && f.student.parent.name) || (f.student && f.student.fatherName) || '—' %></td>
+            <td data-label="Fee head"><%= (f.feeHead && f.feeHead.name) || f.feeType || '—' %></td>
+            <td data-label="Source"><span class="pill <%= f.source %>"><%= f.source %></span></td>
+            <td data-label="Amount" class="num mono">Rs <%= Number(f.amount).toLocaleString() %></td>
+            <td data-label="Status"><span class="pill <%= f.status %>"><%= f.status %></span></td>
+            <td data-label="Actions" class="row-actions">
               <% if (f.status !== 'paid') { %>
                 <form method="POST" action="/fees/<%= f._id %>/update" style="display:inline;">
                   <input type="hidden" name="_csrf" value="<%= csrfToken %>" />

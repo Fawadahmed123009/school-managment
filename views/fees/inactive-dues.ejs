@@ -78,7 +78,7 @@
               <span class="pill review" style="margin-left:8px;">Rs <%= Number(block.total).toLocaleString() %> owed</span>
             </h3>
             <div class="table-wrap">
-            <table class="ledger">
+            <table class="ledger card-table">
               <thead>
                 <tr>
                   <th>Student</th>
@@ -91,11 +91,11 @@
               <tbody>
                 <% block.students.forEach(function(s) { %>
                   <tr>
-                    <td><strong><%= s.name %></strong></td>
-                    <td class="mono"><%= s.rollNumber || '—' %></td>
-                    <td><%= s.fatherName || '—' %></td>
-                    <td class="num mono">Rs <%= Number(s.owed).toLocaleString() %></td>
-                    <td>
+                    <td data-label="Student"><strong><%= s.name %></strong></td>
+                    <td data-label="Roll #" class="mono"><%= s.rollNumber || '—' %></td>
+                    <td data-label="Father"><%= s.fatherName || '—' %></td>
+                    <td data-label="Owed" class="num mono">Rs <%= Number(s.owed).toLocaleString() %></td>
+                    <td data-label="Fee details">
                       <% s.items.forEach(function(item) { %>
                         <div style="font-size:0.82rem; margin-bottom:2px;">
                           <span><%= item.feeHeadName %></span>

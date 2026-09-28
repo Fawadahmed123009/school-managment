@@ -120,33 +120,33 @@
 
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
-    <form method="GET" action="/students" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+    <form method="GET" action="/students" class="filter-bar">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
-        <select name="class" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="class">
           <option value="">All classes</option>
           <% classes.forEach(function(c) { %>
             <option value="<%= c._id %>" <%= filters.class == c._id ? 'selected' : '' %>><%= c.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
-        <input type="text" name="name" value="<%= filters.name %>" placeholder="Search by name…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="name" value="<%= filters.name %>" placeholder="Search by name…" />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Parent name</label>
-        <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="parent" value="<%= filters.parent %>" placeholder="Search by parent…" />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
-        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="sortBy">
           <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Name (A–Z)</option>
           <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
           <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
         </select>
       </div>
-      <div style="display:flex; gap:6px; align-items:flex-end;">
+      <div class="filter-actions" style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
         <% if (filters.class || filters.name || filters.parent || filters.sortBy) { %>
           <a href="/students" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
@@ -161,7 +161,7 @@
     </div>
   <% } else { %>
     <div class="table-wrap">
-    <table class="ledger">
+    <table class="ledger card-table">
       <thead>
         <tr>
           <th>Roll #</th>
@@ -178,21 +178,21 @@
       <tbody>
         <% students.forEach(function(s) { %>
           <tr>
-            <td class="mono"><%= s.rollNumber ?? '—' %></td>
-            <td><strong><%= s.name %></strong></td>
-            <td><%= s.fatherName ?? '—' %></td>
-            <td><% if (s.familyNumber) { %><span class="pill ocr"><%= s.familyNumber %></span><% } else { %><span class="muted">—</span><% } %></td>
-            <td><%= s.gender ?? '—' %></td>
-            <td><%= s.classLevel ? s.classLevel.name : '—' %></td>
-            <td><%= new Date(s.dateAdmitted).toLocaleDateString() %></td>
-            <td>
+            <td data-label="Roll #" class="mono"><%= s.rollNumber ?? '—' %></td>
+            <td data-label="Name"><strong><%= s.name %></strong></td>
+            <td data-label="Father"><%= s.fatherName ?? '—' %></td>
+            <td data-label="Family"><% if (s.familyNumber) { %><span class="pill ocr"><%= s.familyNumber %></span><% } else { %><span class="muted">—</span><% } %></td>
+            <td data-label="Gender"><%= s.gender ?? '—' %></td>
+            <td data-label="Class"><%= s.classLevel ? s.classLevel.name : '—' %></td>
+            <td data-label="Admitted"><%= new Date(s.dateAdmitted).toLocaleDateString() %></td>
+            <td data-label="Status">
               <% if (s.status === 'inactive') { %><span class="pill error">Inactive</span>
               <% } else if (s.isSuspended) { %><span class="pill review">Suspended</span>
               <% } else if (s.isWithdrawn) { %><span class="pill error">Withdrawn</span>
               <% } else if (s.isGraduated) { %><span class="pill paid">Graduated</span>
               <% } else { %><span class="pill ocr">Active</span><% } %>
             </td>
-            <td>
+            <td data-label="Actions" class="row-actions">
               <a href="/students/<%= s._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
               <a href="/students/<%= s._id %>/analysis" class="btn btn-ghost" style="padding:4px 10px;">View</a>
               <a href="/students/<%= s._id %>/photo" class="btn btn-ghost" style="padding:4px 10px;">Photo</a>

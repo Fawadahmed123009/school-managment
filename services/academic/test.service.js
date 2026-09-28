@@ -593,22 +593,45 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
  * them. A stored score of 0 is treated as an absence: it is counted in
  * `absentCount` but excluded from the avg / min / max stats. Tests with no
  * results yet are included (markedCount 0) so the admin
- * can also see what is still unmarked. Optional filters: `search` (test /
- * subject / class) and `teacher` — a marker's id or name, keeping only the
- * tests that teacher marked. Read-only, admin/manager only.
+ * can also see what is still unmarked. Marking status is derived from the
+ * class rosters: a test is `marked` once every ACTIVE student of its classes
+ * has a score row (0 = absent counts as submitted); anything else is
+ * `unmarked`. Only unmarked tests are flagged — `overdue` past
+ * {@link OVERDUE_MS} and `critical` past {@link CRITICAL_MS} since the test
+ * date — so a finished test never shows a reminder. Optional filters:
+ * `search` (test / subject / class), `teacher` — a marker's id or name,
+ * keeping only the tests that teacher marked — `status` (marked / unmarked)
+ * and the category cascade `session` / `phase` / `week` (ids; "none" keeps
+ * only tests missing that category). Rows are ordered by urgency: critical,
+ * then overdue, then the rest most-recently-touched first, fully marked
+ * tests last. Response is paginated (`page` / `limit`, max 100; `limit=all`
+ * returns every row) and carries a `pagination` envelope with the
+ * unpaginated total. Read-only, admin/manager only.
  */
 exports.getMarksAuditService = async (query, res) => {
-  const { search, teacher } = query || {};
+  const { search, teacher, status, session, phase, week, page, limit } = query || {};
 
   const tests = await Test.find({})
     .populate("subject", "name")
     .populate("classLevels", "name gradeLevel group")
+    .populate("session", "name")
+    .populate("week", "name")
     .sort({ date: -1 })
     .lean();
 
+  // A Test stores `phase` as a bare subdocument id (no ref), so its name has
+  // to be resolved from the owning TestSession's phases array.
+  const sessionsForPhases = await TestSession.find({}).select("phases").lean();
+  const phaseNames = {};
+  sessionsForPhases.forEach((s) =>
+    (s.phases || []).forEach((p) => {
+      phaseNames[String(p._id)] = p.name;
+    })
+  );
+
   // Group every TestResult by test to derive per-test stats + timeline.
   const results = await TestResult.find({})
-    .select("test score createdAt updatedAt markedBy")
+    .select("test student score createdAt updatedAt markedBy")
     .populate("markedBy", "name")
     .lean();
   const byTest = {};
@@ -622,9 +645,28 @@ exports.getMarksAuditService = async (query, res) => {
   // classLevel) → teacher. A test spanning several classes may map to several
   // teachers; we surface each one's name + saved WhatsApp number.
   const asRefId = (ref) => (ref && ref._id ? String(ref._id) : ref ? String(ref) : null);
-  const [assignments, teachers] = await Promise.all([
+  const [assignments, teachers, studentCounts] = await Promise.all([
     Assignment.find().select("teacher subject classLevel").lean(),
     TeacherDoc.find().select("name whatsappNumber").lean(),
+    // Roster size per class — how many score rows a test needs to be
+    // "marked". Same active-student convention as the fees and alerts
+    // services (inactive / graduated / withdrawn pupils are skipped).
+    Student.find({
+      classLevel: { $exists: true, $ne: null },
+      status: { $ne: "inactive" },
+      isGraduated: { $ne: true },
+      isWithdrawn: { $ne: true },
+    })
+      .select("classLevel")
+      .lean()
+      .then((rows) => {
+        const counts = {};
+        rows.forEach((s) => {
+          const cid = asRefId(s.classLevel);
+          if (cid) counts[cid] = (counts[cid] || 0) + 1;
+        });
+        return counts;
+      }),
   ]);
   const teacherInfo = {};
   teachers.forEach((t) => {
@@ -640,8 +682,10 @@ exports.getMarksAuditService = async (query, res) => {
     (teacherIdsBySubjectClass[key] || (teacherIdsBySubjectClass[key] = new Set())).add(tid);
   });
 
-  // A test older than this many days (by its own date) is flagged overdue.
+  // A test older than this many days (by its own date) is flagged overdue;
+  // past CRITICAL_MS a still-unmarked test turns red.
   const OVERDUE_MS = 3 * 24 * 60 * 60 * 1000;
+  const CRITICAL_MS = 5 * 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
 
   const round2 = (n) => Math.round(n * 100) / 100;
@@ -683,11 +727,23 @@ exports.getMarksAuditService = async (query, res) => {
       if (r.markedBy && r.markedBy._id) markerMap.set(String(r.markedBy._id), r.markedBy.name || "");
     });
 
-    // Overdue = the test date is more than 3 days in the past. Marking status
-    // is intentionally not part of the flag — admin sees it from the Marked
-    // column (0 / not marked = still outstanding).
+    // Marking completion: every active student of the test's classes must have
+    // a score row (a 0 = absent is still a submitted entry). Distinct pupils
+    // are counted, not raw rows, and overspill (rows for students who left the
+    // class after being marked) must not keep a test stuck as unmarked.
+    const expectedCount = (t.classLevels || []).reduce(
+      (n, c) => n + (studentCounts[asRefId(c)] || 0),
+      0
+    );
+    const markedStudentIds = new Set(rs.map((r) => String(r.student)));
+    const fullyMarked = expectedCount > 0 && markedStudentIds.size >= expectedCount;
+
+    // Urgency flags apply ONLY while marking is outstanding: a completed test
+    // is never overdue, never critical and never needs a reminder.
     const testTime = t.date ? new Date(t.date).getTime() : null;
-    const overdue = testTime != null && nowMs - testTime > OVERDUE_MS;
+    const pastDue = testTime != null && nowMs - testTime > OVERDUE_MS;
+    const overdue = !fullyMarked && pastDue;
+    const critical = !fullyMarked && testTime != null && nowMs - testTime > CRITICAL_MS;
 
     // Teachers responsible for marking (via subject+class assignments), deduped
     // by id and sorted by name so reminder buttons are stable.
@@ -712,10 +768,22 @@ exports.getMarksAuditService = async (query, res) => {
       name: t.name,
       subject: t.subject ? t.subject.name : "",
       classes: (t.classLevels || []).map((c) => c.name).join(", "),
+      // Category keys + labels for the session/phase/week cascade filters.
+      session: t.session ? String(t.session._id) : null,
+      sessionName: t.session ? t.session.name : "",
+      phase: t.phase ? String(t.phase) : null,
+      phaseName: t.phase ? phaseNames[String(t.phase)] || "" : "",
+      week: t.week ? String(t.week._id) : null,
+      weekName: t.week ? t.week.name : "",
       totalMarks: t.totalMarks,
       passMarks: t.passMarks,
       testDate: t.date,
       markedCount: rs.length,
+      // Marking completion (see above): the roster the test is measured
+      // against, and whether every one of those students has a score.
+      expectedCount,
+      fullyMarked,
+      status: fullyMarked ? "marked" : "unmarked",
       // Stats are over present (non-zero) scores only — see absentCount note.
       avgScore: stat(present, (a) => a.reduce((x, y) => x + y, 0) / a.length),
       minScore: stat(present, (a) => Math.min(...a)),
@@ -726,6 +794,7 @@ exports.getMarksAuditService = async (query, res) => {
       passCount: t.passMarks != null ? scores.filter((s) => s >= t.passMarks).length : null,
       absentCount,
       overdue,
+      critical,
       firstUploadAt: created.length ? new Date(Math.min(...created)) : null,
       lastUploadAt: created.length ? new Date(Math.max(...created)) : null,
       lastUpdateAt: updated.length ? new Date(Math.max(...updated)) : null,
@@ -757,14 +826,57 @@ exports.getMarksAuditService = async (query, res) => {
     );
   }
 
-  // Most-recently-touched first; unmarked tests fall back to the test date.
+  // Category cascade: exact id match; "none" keeps tests missing that level.
+  const catMatch = (raw, value) => {
+    if (!value || !String(value).trim()) return true;
+    const v = String(value).trim().toLowerCase();
+    return v === "none" ? !raw : String(raw || "").toLowerCase() === v;
+  };
+  rows = rows.filter(
+    (r) => catMatch(r.session, session) && catMatch(r.phase, phase) && catMatch(r.week, week)
+  );
+
+  // Marking-status filter: "marked" = every student's marks are uploaded,
+  // "unmarked" = anything still outstanding (including partially marked).
+  const statusQ = String(status || "").trim().toLowerCase();
+  if (statusQ === "marked" || statusQ === "unmarked") {
+    rows = rows.filter((r) => r.status === statusQ);
+  }
+
+  // Urgency first: critical (red), then overdue, then everything still
+  // awaiting marking in most-recently-touched order; fully marked tests sink
+  // to the bottom of the list.
+  const urgency = (r) => (r.critical ? 0 : r.overdue ? 1 : r.fullyMarked ? 3 : 2);
+  const touched = (r) =>
+    r.lastUpdateAt ? new Date(r.lastUpdateAt).getTime() : new Date(r.testDate || 0).getTime();
   rows.sort((a, b) => {
-    const at = a.lastUpdateAt ? new Date(a.lastUpdateAt).getTime() : new Date(a.testDate).getTime();
-    const bt = b.lastUpdateAt ? new Date(b.lastUpdateAt).getTime() : new Date(b.testDate).getTime();
-    return bt - at;
+    if (urgency(a) !== urgency(b)) return urgency(a) - urgency(b);
+    return touched(b) - touched(a);
   });
 
-  return responseStatus(res, 200, "success", rows);
+  const total = rows.length;
+  if (String(limit).toLowerCase() === "all") {
+    return responseStatus(res, 200, "success", {
+      rows,
+      pagination: { total, page: 1, limit: total, pages: 1, hasPrev: false, hasNext: false },
+    });
+  }
+  const pg = Math.max(1, parseInt(page, 10) || 1);
+  const lm = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
+  const pages = Math.ceil(total / lm) || 1;
+  const paged = rows.slice((pg - 1) * lm, (pg - 1) * lm + lm);
+
+  return responseStatus(res, 200, "success", {
+    rows: paged,
+    pagination: {
+      total,
+      page: Math.min(pg, pages),
+      limit: lm,
+      pages,
+      hasPrev: pg > 1,
+      hasNext: pg < pages,
+    },
+  });
 };
 
 /**

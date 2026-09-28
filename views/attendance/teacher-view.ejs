@@ -94,7 +94,7 @@
 <!-- Student search sub-filters (toggled by JS; always in DOM) -->
 <div class="panel scope-specificStudent-panel" id="studentSearchPanel" style="display:<%= scope === 'specificStudent' ? '' : 'none' %>;">
   <div class="panel-body">
-    <form method="GET" action="/attendance/my-classes" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <form method="GET" action="/attendance/my-classes" class="filter-bar">
       <input type="hidden" name="scope" value="specificStudent" />
       <input type="hidden" name="rangeType" value="<%= rangeType %>" />
       <% if (rangeType === 'week') { %>
@@ -106,18 +106,18 @@
         <input type="hidden" name="startDate" value="<%= startDate %>" />
         <input type="hidden" name="endDate" value="<%= endDate %>" />
       <% } %>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
-        <select name="classLevel" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="classLevel">
           <option value="">All my classes</option>
           <% classes.forEach(function(c) { %>
             <option value="<%= c._id %>" <%= classLevel === String(c._id) ? 'selected' : '' %>><%= c.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Sort by</label>
-        <select name="sortBy" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="sortBy">
           <option value="" <%= !sortBy ? 'selected' : '' %>>Name (A–Z)</option>
           <option value="rollAsc" <%= sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
           <option value="rollDesc" <%= sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>

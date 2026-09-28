@@ -65,30 +65,30 @@
 
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
-    <form method="GET" action="/assignments" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:180px;">
+    <form method="GET" action="/assignments" class="filter-bar">
+      <div style="min-width:180px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Search</label>
-        <input type="text" name="search" value="<%= filters.search %>" placeholder="Teacher, subject or class…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="search" value="<%= filters.search %>" placeholder="Teacher, subject or class…" />
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Teacher</label>
-        <select name="teacher" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="teacher">
           <option value="">All teachers</option>
           <% teachers.forEach(function(t) { %>
             <option value="<%= t._id %>" <%= filters.teacher === t._id ? 'selected' : '' %>><%= t.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:160px;">
+      <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Subject</label>
-        <select name="subject" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+        <select name="subject">
           <option value="">All subjects</option>
           <% subjects.forEach(function(s) { %>
             <option value="<%= s._id %>" <%= filters.subject === s._id ? 'selected' : '' %>><%= s.name %></option>
           <% }); %>
         </select>
       </div>
-      <div style="display:flex; gap:6px; align-items:flex-end;">
+      <div class="filter-actions" style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
         <% if (filters.search || filters.teacher || filters.subject || filters.classLevel) { %>
           <a href="/assignments" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>

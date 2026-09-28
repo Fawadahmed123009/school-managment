@@ -38,6 +38,7 @@
       <% if (phaseBlock.tests.length === 0) { %>
         <div class="empty"><div class="display">No results in this phase yet</div></div>
       <% } else { %>
+        <div class="table-wrap">
         <table class="ledger">
           <thead><tr><th>Test</th><th>Subject</th><th class="num">Score</th><th class="num">%</th></tr></thead>
           <tbody>
@@ -51,6 +52,7 @@
             <% }); %>
           </tbody>
         </table>
+        </div>
       <% } %>
     </div>
   <% }); %>

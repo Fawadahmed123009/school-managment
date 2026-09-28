@@ -29,14 +29,22 @@ document.addEventListener('DOMContentLoaded', function() {
   if (overlay) {
     overlay.addEventListener('click', closeSidebar);
   }
-  // Close sidebar when a nav link is tapped (mobile)
+  // Close sidebar when a nav link is tapped (drawer mode: < 1024px)
   if (sidebar) {
     sidebar.querySelectorAll('nav a').forEach(function(link) {
       link.addEventListener('click', function() {
-        if (window.innerWidth <= 768) closeSidebar();
+        if (window.innerWidth <= 1024) closeSidebar();
       });
     });
   }
+
+  // If the viewport grows past the drawer breakpoint, reset drawer state so
+  // the overlay can't keep blocking clicks on the desktop layout.
+  window.addEventListener('resize', function() {
+    if (window.innerWidth > 1024 && sidebar && sidebar.classList.contains('open')) {
+      closeSidebar();
+    }
+  });
 
   // ── Collapsible nav sections ──
   var STORAGE_KEY = 'sidebar_sections';

@@ -24,12 +24,12 @@
 
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
-    <form method="GET" action="/staff" style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
-      <div style="display:flex; flex-direction:column; gap:4px; min-width:200px;">
+    <form method="GET" action="/staff" class="filter-bar">
+      <div style="min-width:200px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Teacher name</label>
-        <input type="text" name="search" value="<%= filters.search %>" placeholder="Search by name…" style="padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;" />
+        <input type="text" name="search" value="<%= filters.search %>" placeholder="Search by name…" />
       </div>
-      <div style="display:flex; gap:6px; align-items:flex-end;">
+      <div class="filter-actions" style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
         <% if (filters.search) { %>
           <a href="/staff" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>

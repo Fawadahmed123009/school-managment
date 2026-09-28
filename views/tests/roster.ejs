@@ -55,6 +55,7 @@
           </select>
         </div>
       </div>
+      <div class="table-wrap">
       <table class="ledger">
         <thead><tr><th>Student</th><th class="num">Score</th><th class="num">%</th><th>Marks uploaded</th></tr></thead>
         <tbody id="roster-body">
@@ -77,6 +78,7 @@
           <% }); %>
         </tbody>
       </table>
+      </div>
       <div class="review-foot">
         <div class="total"><span class="l">Entered</span> <span id="entered-count">0</span> / <%= roster.length %></div>
         <button type="button" class="btn btn-primary" id="save-scores-btn">Save scores</button>

@@ -16,7 +16,39 @@
 <div class="panel">
   <div class="panel-head">
     <h2>All tests &mdash; scores &amp; marking timeline</h2>
-    <form method="GET" action="/tests/marks-audit" style="display:flex; gap:8px; align-items:center;">
+    <%
+      // Server-side GET filters (like the teacher dropdown above): each
+      // category select submits the form on change. Options are rendered
+      // server-side from the full row set; the sentinel value "none" keeps
+      // only tests missing that category (mirrors the Manage tests cascade).
+      const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const catOptionTags = (list, selected) => list.map(function (o) {
+        return '<option value="' + escAttr(o.id) + '"' + (String(o.id).toLowerCase() === String(selected || '').toLowerCase() ? ' selected' : '') + '>' + escAttr(o.name || o.id) + '</option>';
+      }).join('');
+      const selectStyle = 'padding:6px 10px; border:1px solid var(--border); border-radius:8px; max-width:170px;';
+      const statusOptions = [
+        { v: '', l: 'All statuses' },
+        { v: 'unmarked', l: 'Unmarked' },
+        { v: 'marked', l: 'Marked' },
+      ];
+      const categorySelects = [
+        { name: 'session', all: 'All sessions', opts: sessions, sel: session },
+        { name: 'phase', all: 'All phases', opts: phases, sel: phase },
+        { name: 'week', all: 'All weeks', opts: weeks, sel: week },
+      ];
+    %>
+    <form method="GET" action="/tests/marks-audit" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <select name="status" onchange="this.form.submit()" style="<%= selectStyle %>">
+        <% statusOptions.forEach(function (s) { %>
+          <option value="<%= s.v %>" <%= String(status || '') === s.v ? 'selected' : '' %>><%= s.l %></option>
+        <% }); %>
+      </select>
+      <% categorySelects.forEach(function (c) { %>
+        <select name="<%= c.name %>" onchange="this.form.submit()" style="<%= selectStyle %>">
+          <option value=""><%= c.all %></option>
+          <%- catOptionTags(c.opts, c.sel) %>
+        </select>
+      <% }); %>
       <select name="teacher" onchange="this.form.submit()" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; max-width:190px;">
         <option value="">All teachers</option>
         <% markers.forEach(function(m) { %>
@@ -25,14 +57,26 @@
       </select>
       <input type="search" name="search" value="<%= search %>" placeholder="Search test, subject or class…" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
       <button type="submit" class="btn btn-primary" style="padding:6px 14px;">Search</button>
-      <% if (search || teacher) { %><a href="/tests/marks-audit" class="btn btn-ghost" style="padding:6px 14px;">Clear</a><% } %>
+      <% if (search || teacher || status || session || phase || week) { %><a href="/tests/marks-audit" class="btn btn-ghost" style="padding:6px 14px;">Clear</a><% } %>
     </form>
   </div>
   <div class="attend-filters" style="padding:0 16px 4px;">
     <p class="hint" style="margin:0;">Average / min / max are computed over the students who were marked with actual marks. Students marked with <strong>0 marks</strong> are
     counted as <em>absent</em> in the &ldquo;Marked&rdquo; column and are excluded from these stats. A test is flagged <em>overdue</em> once 3 days have passed since its test date &mdash;
     use the <strong>WhatsApp</strong> button to remind the assigned teacher (numbers are set in Staff &rarr; Edit).
-    The <em>Marked by</em> filter keeps only the tests that teacher entered.</p>
+    A test counts as <em>marked</em> once <strong>all</strong> its students' marks are uploaded — marked tests lose the overdue flag and sink to the
+    bottom of the list; one that passes <strong>5 days</strong> of its test date still unmarked turns <em>critical</em> (red).
+    The <em>Marked by</em> filter keeps only the tests that teacher entered; the <em>session / phase / week</em> dropdowns narrow the ledger to that category.</p>
+    <% var anyFilter = search || teacher || status || session || phase || week; %>
+    <p class="hint" style="margin:6px 0 0; color:var(--ink-soft); font-size:13px;">
+      <% if (pagination.pages > 1) { %>
+        Page <%= pagination.page %> of <%= pagination.pages %> &middot; showing <%= rows.length %> of <%= pagination.total %> test<%= pagination.total !== 1 ? 's' : '' %><%= anyFilter ? ' matching the filters' : '' %>.
+      <% } else if (anyFilter) { %>
+        Showing <%= rows.length %> of <%= pagination.total %> test<%= pagination.total !== 1 ? 's' : '' %> matching the filters.
+      <% } else { %>
+        <%= pagination.total %> test<%= pagination.total !== 1 ? 's' : '' %> in the ledger.
+      <% } %>
+    </p>
   </div>
   <% if (!rows.length) { %>
     <div class="empty"><div class="display">No tests found</div></div>
@@ -65,19 +109,31 @@
         var reminderMsg = 'Reminder: test "' + r.name + '" (' + r.subject + ') from ' + reminderDate +
           ' is awaiting marking. Please complete the marking. — ' + (schoolName || 'School');
         var reminderEncoded = encodeURIComponent(reminderMsg);
-        var overdueRowStyle = 'background:rgba(245,158,11,0.07);';
+        // Row tinting by urgency: critical red wins over the amber overdue
+        // highlight; marked rows stay neutral (they sink to the bottom).
+        var rowStyle = r.critical
+          ? 'background:rgba(220,38,38,0.09);'
+          : r.overdue ? 'background:rgba(245,158,11,0.07);' : '';
       %>
-      <tr<% if (r.overdue) { %> style="<%= overdueRowStyle %>"<% } %>>
+      <tr<% if (rowStyle) { %> style="<%= rowStyle %>"<% } %>>
         <td>
           <strong><%= r.name %></strong>
-          <% if (r.overdue) { %><div><span class="pill" style="font-size:10px;background:rgba(245,158,11,0.12);color:var(--review);" title="More than 3 days after the test date">⚠ overdue</span></div><% } %>
+          <% var catLine = [r.sessionName, r.phaseName, r.weekName].filter(Boolean).join(' · '); %>
+          <% if (catLine) { %><div style="font-size:11px;color:var(--ink-soft);margin-top:2px;"><%= catLine %></div><% } %>
+          <% if (r.fullyMarked) { %>
+            <div><span class="pill" style="font-size:10px;background:rgba(22,163,74,0.10);color:#16a34a;" title="All students' marks are uploaded">✓ marked</span></div>
+          <% } else if (r.critical) { %>
+            <div><span class="pill" style="font-size:10px;background:rgba(220,38,38,0.12);color:#dc2626;font-weight:600;" title="More than 5 days after the test date and still not fully marked">⛔ critical</span></div>
+          <% } else if (r.overdue) { %>
+            <div><span class="pill" style="font-size:10px;background:rgba(245,158,11,0.12);color:var(--review);" title="More than 3 days after the test date and still not fully marked">⚠ overdue</span></div>
+          <% } %>
         </td>
         <td><%= r.subject %></td>
         <td class="num mono"><%= r.totalMarks %></td>
         <td><%= r.testDate ? new Date(r.testDate).toLocaleDateString() : '—' %></td>
         <td class="num">
           <% if (r.markedCount > 0) { %>
-            <span class="pill ocr"><%= r.markedCount %></span>
+            <span class="pill ocr"><%= r.markedCount %><%= r.expectedCount ? ' / ' + r.expectedCount : '' %></span>
             <% if (r.passCount != null) { %><div style="font-size:11px;color:var(--ink-soft);margin-top:2px;"><%= r.passCount %> passed</div><% } %>
             <% if (r.absentCount > 0) { %><div style="font-size:11px;color:var(--error, #dc2626);margin-top:2px;"><%= r.absentCount %> absent</div><% } %>
           <% } else { %>
@@ -132,6 +188,51 @@
     </tbody>
   </table>
   </div>
+  <%
+    /* Pagination — links preserve the active search / teacher / category
+       filters (and a non-default page size) so changing pages never drops
+       them. */
+    var filterQs = '';
+    var qsPairs = [['search', search], ['teacher', teacher], ['status', status], ['session', session], ['phase', phase], ['week', week]];
+    if (pagination.limit != 25) qsPairs.push(['limit', pagination.limit]);
+    qsPairs.forEach(function (pair) {
+      if (pair[1]) filterQs += '&' + pair[0] + '=' + encodeURIComponent(pair[1]);
+    });
+  %>
+  <% if (pagination.pages > 1) { %>
+    <div class="pagination-bar">
+      <span class="pagination-info">
+        Page <%= pagination.page %> of <%= pagination.pages %> &middot; <%= pagination.total %> test<%= pagination.total !== 1 ? 's' : '' %>
+      </span>
+      <div class="pagination-links">
+        <% if (pagination.hasPrev) { %>
+          <a href="/tests/marks-audit?page=<%= pagination.page - 1 %><%= filterQs %>" class="page-link">&laquo; Prev</a>
+        <% } else { %> <span class="page-link disabled">&laquo; Prev</span> <% } %>
+        <%
+          /* Page numbers with ellipsis for large page counts */
+          var cur = pagination.page;
+          var totalPages = pagination.pages;
+          var pageList = [1];
+          for (var i = Math.max(2, cur - 2); i <= Math.min(totalPages - 1, cur + 2); i++) pageList.push(i);
+          if (totalPages > 1) pageList.push(totalPages);
+          pageList = pageList.filter(function (v, idx, arr) { return arr.indexOf(v) === idx; }).sort(function (a, b) { return a - b; });
+          var prevPage = 0;
+        %>
+        <% pageList.forEach(function (p) { %>
+          <% if (p - prevPage > 1) { %><span class="page-ellipsis">&hellip;</span><% } %>
+          <% if (p === cur) { %>
+            <span class="page-link active"><%= p %></span>
+          <% } else { %>
+            <a href="/tests/marks-audit?page=<%= p %><%= filterQs %>" class="page-link"><%= p %></a>
+          <% } %>
+          <% prevPage = p; %>
+        <% }); %>
+        <% if (pagination.hasNext) { %>
+          <a href="/tests/marks-audit?page=<%= pagination.page + 1 %><%= filterQs %>" class="page-link">Next &raquo;</a>
+        <% } else { %> <span class="page-link disabled">Next &raquo;</span> <% } %>
+      </div>
+    </div>
+  <% } %>
   <% } %>
 </div>
 
