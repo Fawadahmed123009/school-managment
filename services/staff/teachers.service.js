@@ -1,6 +1,7 @@
 const {
   hashPassword,
   isPassMatched,
+  validatePassword,
 } = require("../../handlers/passHash.handler");
 const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
@@ -12,7 +13,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
 
 exports.createTeacherService = async (data, adminId, res) => {
-  const { name, email, password } = data;
+  const { name, email, password, whatsappNumber } = data;
 
   const existTeacher = await Teacher.findOne({ email });
   if (existTeacher)
@@ -34,6 +35,7 @@ exports.createTeacherService = async (data, adminId, res) => {
     name,
     email,
     password: hashedPassword,
+    whatsappNumber: whatsappNumber ? String(whatsappNumber).trim() : "",
     createdBy: admin ? admin._id : adminId,
   });
 
@@ -122,6 +124,71 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
   return { teacher: updatedTeacher, token: generateToken(updatedTeacher._id) };
 };
 
+/**
+ * Teacher self-service: edit own name / email / WhatsApp number / password
+ * from the dashboard Settings panel. Mirrors the parent portal's
+ * change-password flow: a password change requires the current password and
+ * must pass the shared password policy. Name/email changes and a cleared
+ * number are allowed in the same submit.
+ * @route POST /api/v1/teacher/account-settings
+ */
+exports.updateTeacherAccountSettingsService = async (data, teacherId, res) => {
+  const { name, email, whatsappNumber, currentPassword, newPassword, confirmPassword } = data;
+
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
+
+  const updateFields = {};
+
+  const cleanName = (name || "").trim();
+  if (cleanName) updateFields.name = cleanName;
+
+  const cleanEmail = (email || "").trim();
+  if (cleanEmail && cleanEmail !== teacher.email) {
+    const emailTaken = await Teacher.findOne({ email: cleanEmail, _id: { $ne: teacherId } });
+    if (emailTaken)
+      return responseStatus(res, 402, "failed", "Email already in use");
+    updateFields.email = cleanEmail;
+  }
+
+  // The number is optional and may legitimately be cleared, so accept any
+  // provided string (including "") rather than only truthy values.
+  if (whatsappNumber !== undefined) {
+    updateFields.whatsappNumber = String(whatsappNumber).trim();
+  }
+
+  // Password change is opt-in: only when a new password is supplied.
+  if (newPassword) {
+    if (!currentPassword) {
+      return responseStatus(res, 400, "failed", "Current password is required to change your password");
+    }
+    if (newPassword !== confirmPassword) {
+      return responseStatus(res, 400, "failed", "New passwords do not match");
+    }
+    const passwordError = validatePassword(newPassword);
+    if (passwordError) {
+      return responseStatus(res, 400, "failed", passwordError);
+    }
+    const isMatch = await isPassMatched(currentPassword, teacher.password);
+    if (!isMatch) {
+      return responseStatus(res, 401, "failed", "Current password is incorrect");
+    }
+    updateFields.password = await hashPassword(newPassword);
+  }
+
+  if (Object.keys(updateFields).length === 0) {
+    return responseStatus(res, 400, "failed", "Nothing to update");
+  }
+
+  const updatedTeacher = await Teacher.findByIdAndUpdate(
+    teacherId,
+    { $set: updateFields },
+    { new: true }
+  ).select("-password");
+
+  return responseStatus(res, 200, "success", { teacher: updatedTeacher });
+};
+
 exports.adminUpdateTeacherProfileService = async (data, teacherId, res) => {
   const { program, classLevel, academicYear, subject } = data;
 
@@ -163,7 +230,7 @@ exports.toggleAttendanceManagerService = async (teacherId, res) => {
  * @route PUT /api/v1/teacher/:teacherId/credentials
  */
 exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
-  const { name, email, password } = data;
+  const { name, email, password, whatsappNumber } = data;
 
   const teacher = await Teacher.findById(teacherId);
   if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
@@ -177,6 +244,9 @@ exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
   const updateFields = {};
   if (name) updateFields.name = name;
   if (email) updateFields.email = email;
+  // whatsappNumber is optional and may legitimately be cleared, so accept any
+  // provided string (including "") rather than only truthy values.
+  if (whatsappNumber !== undefined) updateFields.whatsappNumber = String(whatsappNumber).trim();
   if (password) updateFields.password = await hashPassword(password);
 
   const updatedTeacher = await Teacher.findByIdAndUpdate(

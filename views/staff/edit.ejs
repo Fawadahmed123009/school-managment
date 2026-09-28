@@ -26,6 +26,10 @@
         <input type="email" id="email" name="email" value="<%= teacher.email %>" required />
       </div>
       <div class="field">
+        <label for="whatsappNumber">WhatsApp number <span style="color:var(--ink-soft); font-size:12px;">(for marking reminders — include country code, e.g. +92 300 1234567)</span></label>
+        <input type="tel" id="whatsappNumber" name="whatsappNumber" value="<%= teacher.whatsappNumber || '' %>" placeholder="+92 300 1234567" />
+      </div>
+      <div class="field">
         <label for="password">New password <span style="color:var(--ink-soft); font-size:12px;">(leave blank to keep current)</span></label>
         <input type="text" id="password" name="password" placeholder="Enter new password or leave blank" />
       </div>

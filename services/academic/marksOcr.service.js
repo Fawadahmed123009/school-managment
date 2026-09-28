@@ -40,16 +40,17 @@ exports.extractMarksFromImageService = async (filePath, mimeType, res) => {
 const extractMarkRowsFromImage = async (filePath, mimeType, res) => {
   const imageData = fs.readFileSync(filePath, { encoding: "base64" });
 
-  const prompt = `You are reading a school exam marks sheet. It has printed/typed student names and handwritten scores next to each name. Extract every row as JSON.
+  const prompt = `You are reading a school exam marks sheet. It has printed/typed student names and handwritten scores next to each name. Rows may also carry a roll number / serial number column. Extract every row as JSON.
 
 Return ONLY a JSON array, no other text, no markdown code fences. Each item must have exactly these fields:
 - "name": the student's name exactly as printed (string)
+- "rollNo": the row's roll/serial number as printed, as a string (use null if the sheet has no roll column)
 - "score": the handwritten score as a number (no units, no "/100")
 
 If a handwritten score is genuinely illegible or missing, set "score" to null instead of guessing.
 
 Example output:
-[{"name": "John Smith", "score": 78}, {"name": "Jane Doe", "score": null}]`;
+[{"name": "John Smith", "rollNo": "12", "score": 78}, {"name": "Jane Doe", "rollNo": null, "score": null}]`;
 
   let response;
   try {

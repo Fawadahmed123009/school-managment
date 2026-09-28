@@ -13,6 +13,14 @@ const teacherSchema = new mongoose.Schema(
       unique: true, // H1: per-collection email uniqueness (email_unique)
       index: true,
     },
+    // WhatsApp / mobile number used for marking-reminder messages. Stored as the
+    // admin entered it; the marks-audit view strips non-digits to build a wa.me
+    // link, so an international format (e.g. +92 300 1234567) is best.
+    whatsappNumber: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     password: {
       type: String,
       required: true,

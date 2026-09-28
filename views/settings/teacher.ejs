@@ -1,0 +1,73 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<%
+  // Prefill from the DB profile; fall back to the session display name.
+  var prof = profile || {};
+  var displayName = prof.name || user.name || '';
+  var displayEmail = prof.email || '';
+  var displayNumber = prof.whatsappNumber || '';
+%>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Account</p>
+    <h1>Settings</h1>
+  </div>
+</div>
+
+<% if (settingsSuccess) { %><div class="flash ok">Your settings were saved successfully.</div><% } %>
+<% if (settingsError) { %><div class="flash error"><%= settingsError %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load your latest details: <%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>My account</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/teacher/settings">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+
+      <div class="field-row">
+        <div class="field">
+          <label for="settingsName">Name</label>
+          <input type="text" name="name" id="settingsName" value="<%= displayName %>" required />
+        </div>
+        <div class="field">
+          <label for="settingsEmail">Email</label>
+          <input type="email" name="email" id="settingsEmail" value="<%= displayEmail %>" required />
+          <p class="hint">You will sign in with this email from now on.</p>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="settingsWhatsapp">WhatsApp / mobile number</label>
+          <input type="text" name="whatsappNumber" id="settingsWhatsapp" value="<%= displayNumber %>" placeholder="+92 300 1234567" />
+          <p class="hint">Used for marking-reminder messages. International format works best. Leave empty to clear.</p>
+        </div>
+      </div>
+
+      <div class="field-row" style="border-top:1px solid var(--border);padding-top:16px;margin-top:6px;">
+        <div class="field">
+          <label for="settingsCurrentPassword">Current password</label>
+          <input type="password" name="currentPassword" id="settingsCurrentPassword" autocomplete="current-password" />
+        </div>
+        <div class="field">
+          <label for="settingsNewPassword">New password</label>
+          <input type="password" name="newPassword" id="settingsNewPassword" autocomplete="new-password" minlength="6" />
+          <p class="hint">Leave the password fields empty to keep your current password. At least 6 characters, with letters and a number.</p>
+        </div>
+        <div class="field">
+          <label for="settingsConfirmPassword">Confirm new password</label>
+          <input type="password" name="confirmPassword" id="settingsConfirmPassword" autocomplete="new-password" minlength="6" />
+        </div>
+      </div>
+
+      <div style="margin-top:12px;">
+        <button type="submit" class="btn btn-primary">Save settings</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

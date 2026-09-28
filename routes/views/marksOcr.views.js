@@ -80,7 +80,9 @@ router.post("/marks/ocr/extract", requireRole("teacher"), upload.single("image")
     const data = await extractRes.json();
     if (data.status !== "success") return res.json(data);
     const enriched = data.data.map((row) => {
-      const match = matchStudent(row.name, students);
+      // Roll + name together give the best recommendation — the roster is
+      // class-scoped, so a roll read from the sheet pins a single student.
+      const match = matchStudent(row.name, students, row.rollNo);
       return { ...row, ...match };
     });
     // The scoped candidate pool travels back so the review dropdowns list

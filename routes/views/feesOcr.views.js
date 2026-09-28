@@ -62,7 +62,9 @@ router.post("/fees/ocr/extract", requireRole("admin"), upload.single("image"), c
     const students = await fetchAllStudents();
 
     const enriched = data.data.map((row) => {
-      const match = matchStudent(row.name, students);
+      // Roll + name together give the best recommendation — school-wide fees
+      // have colliding names, and a roll number disambiguates them.
+      const match = matchStudent(row.name, students, row.rollNo);
       return { ...row, ...match };
     });
 

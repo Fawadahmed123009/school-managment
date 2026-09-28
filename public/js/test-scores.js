@@ -1,7 +1,17 @@
 (function () {
-  const rows = document.querySelectorAll('#roster-body tr');
   const enteredCount = document.getElementById('entered-count');
   const saveBtn = document.getElementById('save-scores-btn');
+
+  // ── Editable total marks (must be declared BEFORE any currentMax() use) ──
+  // Regression note: calling updatePercentages()/currentMax() before this
+  // const binding initializes throws a TDZ ReferenceError at load, silently
+  // killing the whole script — the Save-scores listener never attaches and
+  // the button stops doing anything.
+  const totalMarksInput = document.getElementById('total-marks-input');
+  function currentMax() {
+    const n = Number(totalMarksInput && totalMarksInput.value);
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  }
 
   function updateCount() {
     let count = 0;
@@ -36,11 +46,6 @@
   // ── Keep score inputs in sync with the editable total-marks field ─────
   // The teacher can change the test's total marks on this page; before the
   // save-and-redirect lands, reflect the new ceiling on every score input.
-  const totalMarksInput = document.getElementById('total-marks-input');
-  function currentMax() {
-    const n = Number(totalMarksInput && totalMarksInput.value);
-    return Number.isFinite(n) && n >= 1 ? n : null;
-  }
   if (totalMarksInput) {
     totalMarksInput.addEventListener('input', function () {
       const max = currentMax();

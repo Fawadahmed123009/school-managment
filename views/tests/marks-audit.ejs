@@ -29,8 +29,10 @@
     </form>
   </div>
   <div class="attend-filters" style="padding:0 16px 4px;">
-    <p class="hint" style="margin:0;">Average / min / max are computed over the students already marked. &ldquo;First upload&rdquo; is when marks were
-    first saved; &ldquo;Last update&rdquo; is the most recent change by a teacher. The <em>Marked by</em> filter keeps only the tests that teacher entered.</p>
+    <p class="hint" style="margin:0;">Average / min / max are computed over the students who were marked with actual marks. Students marked with <strong>0 marks</strong> are
+    counted as <em>absent</em> in the &ldquo;Marked&rdquo; column and are excluded from these stats. A test is flagged <em>overdue</em> once 3 days have passed since its test date &mdash;
+    use the <strong>WhatsApp</strong> button to remind the assigned teacher (numbers are set in Staff &rarr; Edit).
+    The <em>Marked by</em> filter keeps only the tests that teacher entered.</p>
   </div>
   <% if (!rows.length) { %>
     <div class="empty"><div class="display">No tests found</div></div>
@@ -40,7 +42,7 @@
     <thead>
       <tr>
         <th>Test</th>
-        <th>Subject &amp; classes</th>
+        <th>Subject</th>
         <th class="num">Total marks</th>
         <th>Test date</th>
         <th class="num">Marked</th>
@@ -51,22 +53,33 @@
         <th>First upload</th>
         <th>Last update</th>
         <th>Updated by</th>
+        <th>Reminder</th>
       </tr>
     </thead>
     <tbody>
       <% rows.forEach(function(r) { %>
-      <tr>
-        <td><strong><%= r.name %></strong></td>
+      <%
+        // WhatsApp reminder link builder — wa.me needs digits only (with country
+        // code); the pre-filled message names the school, test and subject.
+        var reminderDate = r.testDate ? new Date(r.testDate).toLocaleDateString() : '—';
+        var reminderMsg = 'Reminder: test "' + r.name + '" (' + r.subject + ') from ' + reminderDate +
+          ' is awaiting marking. Please complete the marking. — ' + (schoolName || 'School');
+        var reminderEncoded = encodeURIComponent(reminderMsg);
+        var overdueRowStyle = 'background:rgba(245,158,11,0.07);';
+      %>
+      <tr<% if (r.overdue) { %> style="<%= overdueRowStyle %>"<% } %>>
         <td>
-          <%= r.subject %><br />
-          <span style="font-size:11px;color:var(--ink-soft);"><%= r.classes %></span>
+          <strong><%= r.name %></strong>
+          <% if (r.overdue) { %><div><span class="pill" style="font-size:10px;background:rgba(245,158,11,0.12);color:var(--review);" title="More than 3 days after the test date">⚠ overdue</span></div><% } %>
         </td>
+        <td><%= r.subject %></td>
         <td class="num mono"><%= r.totalMarks %></td>
         <td><%= r.testDate ? new Date(r.testDate).toLocaleDateString() : '—' %></td>
         <td class="num">
           <% if (r.markedCount > 0) { %>
             <span class="pill ocr"><%= r.markedCount %></span>
             <% if (r.passCount != null) { %><div style="font-size:11px;color:var(--ink-soft);margin-top:2px;"><%= r.passCount %> passed</div><% } %>
+            <% if (r.absentCount > 0) { %><div style="font-size:11px;color:var(--error, #dc2626);margin-top:2px;"><%= r.absentCount %> absent</div><% } %>
           <% } else { %>
             <span class="pill" style="opacity:.6;">not marked</span>
           <% } %>
@@ -92,6 +105,27 @@
             <strong><%= r.lastUpdatedBy %></strong>
             <% if (r.teachers.length > 1) { %><div style="font-size:11px;color:var(--ink-soft);"><%= r.teachers.length %> teachers marked</div><% } %>
           <% } else { %>—<% } %>
+        </td>
+        <td>
+          <% if (r.overdue) { %>
+            <% if (r.reminderTeachers && r.reminderTeachers.length) { %>
+              <% r.reminderTeachers.forEach(function(rt) { %>
+                <% var digits = String(rt.whatsapp || '').replace(/\D/g, ''); %>
+                <div style="margin:2px 0;white-space:nowrap;">
+                  <% if (digits) { %>
+                    <a href="https://wa.me/<%= digits %>?text=<%= reminderEncoded %>" target="_blank" rel="noopener noreferrer"
+                       class="btn btn-ghost" style="font-size:11px;padding:3px 8px;color:#16a34a;border-color:rgba(22,163,74,0.35);"
+                       title="Send WhatsApp reminder to <%= rt.name || digits %>">WhatsApp &middot; <%= rt.name || digits %></a>
+                  <% } else { %>
+                    <span style="font-size:11px;color:var(--ink-soft);" title="No WhatsApp number saved for this teacher — add it in Staff → Edit">
+                      <%= rt.name || 'Teacher' %> <em>(no number)</em></span>
+                  <% } %>
+                </div>
+              <% }); %>
+            <% } else { %>
+              <span style="font-size:11px;color:var(--ink-soft);">No assigned teacher</span>
+            <% } %>
+          <% } else { %><span style="color:var(--ink-soft);">—</span><% } %>
         </td>
       </tr>
       <% }); %>

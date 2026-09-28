@@ -40,16 +40,17 @@ exports.extractFeesFromImageService = async (filePath, mimeType, res) => {
 const extractFeeRowsFromImage = async (filePath, mimeType, res) => {
   const imageData = fs.readFileSync(filePath, { encoding: "base64" });
 
-  const prompt = `You are reading a school fee collection sheet. It has printed/typed student names and handwritten fee amounts next to each name. Extract every row as JSON.
+  const prompt = `You are reading a school fee collection sheet. It has printed/typed student names and handwritten fee amounts next to each name. Rows may also carry a roll number / serial number column. Extract every row as JSON.
 
 Return ONLY a JSON array, no other text, no markdown code fences. Each item must have exactly these fields:
 - "name": the student's name exactly as printed (string)
+- "rollNo": the row's roll/serial number as printed, as a string (use null if the sheet has no roll column)
 - "amount": the handwritten fee amount as a number (no currency symbols, no commas)
 
 If a handwritten amount is genuinely illegible or missing, set "amount" to null instead of guessing.
 
 Example output:
-[{"name": "John Smith", "amount": 5000}, {"name": "Jane Doe", "amount": null}]`;
+[{"name": "John Smith", "rollNo": "12", "amount": 5000}, {"name": "Jane Doe", "rollNo": null, "amount": null}]`;
 
   let response;
   try {

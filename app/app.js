@@ -4,7 +4,6 @@ const morgan = require("morgan");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 const mongoSanitize = require("express-mongo-sanitize");
-const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
 const { authView } = require("../middlewares/authView");
 const { attachCsrfToken, verifyCsrf } = require("../middlewares/csrf");
@@ -48,27 +47,10 @@ app.use(
   })
 );
 
-// ── CORS — restrict API access to same-origin + localhost dev ─
-// APP_URL should be set in production (e.g. https://avenslms.com).
-// Comma-separate multiple values in EXTRA_ALLOWED_ORIGINS if needed.
-const isProd = process.env.NODE_ENV === "production";
-const allowedOrigins = [
-  // In production, do NOT include localhost — only allow the real domain(s)
-  ...(isProd ? [] : ["http://localhost:3001", "http://127.0.0.1:3001"]),
-  process.env.APP_URL,
-  ...(process.env.EXTRA_ALLOWED_ORIGINS ? process.env.EXTRA_ALLOWED_ORIGINS.split(",").map((o) => o.trim()) : []),
-].filter(Boolean);
-const corsMiddleware = cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (server-side, curl, mobile apps)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error("Not allowed by CORS"));
-  },
-  credentials: true,
-});
-// Apply CORS only to API routes, not to browser form submissions
-app.use("/api", corsMiddleware);
+// ── CORS — restrict API access to same-origin + localhost/allow-listed origins ─
+// Policy lives in utils/corsPolicy.js (unit-tested there): same-origin browser
+// requests are always allowed; cross-origin must match APP_URL / allowlist.
+app.use("/api", require("../utils/corsPolicy").corsMiddleware);
 
 // ── Body parsing ──────────────────────────────────────────────
 app.use(express.json({ limit: "1mb" }));
@@ -223,6 +205,7 @@ app.use(require("../routes/views/attendance.views"));
 app.use(require("../routes/views/attendanceRollup.views"));
 app.use(require("../routes/views/teacherAttendance.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
+app.use(require("../routes/views/teacherSettings.views"));
 app.use(require("../routes/views/parentPortal.views"));
 app.use(require("../routes/views/families.views"));
 

@@ -5,6 +5,7 @@ const {
   getAllTeachersService,
   getTeacherProfileService,
   updateTeacherProfileService,
+  updateTeacherAccountSettingsService,
   adminUpdateTeacherProfileService,
   adminUpdateCredentialsService,
   adminGetTeacherService,
@@ -78,6 +79,19 @@ exports.updateTeacherProfileController = async (req, res) => {
       res
     );
     responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Teacher update own account settings (name/email/number/password)
+ * @route POST /api/v1/teacher/account-settings
+ * @access Private (Teacher)
+ **/
+exports.updateTeacherAccountSettingsController = async (req, res) => {
+  try {
+    await updateTeacherAccountSettingsService(req.body, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

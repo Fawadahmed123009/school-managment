@@ -22,6 +22,7 @@ const mockTestFindById = jest.fn();
 const mockResultFind = jest.fn();
 const mockStudentFind = jest.fn();
 const mockAssignmentFind = jest.fn();
+const mockTeacherFind = jest.fn();
 
 jest.mock("../models/Academic/test.model", () => ({
   find: (...a) => mockTestFind(...a),
@@ -39,6 +40,9 @@ jest.mock("../models/Students/students.model", () => ({
 }));
 jest.mock("../models/Academic/assignment.model", () => ({
   find: (...a) => mockAssignmentFind(...a),
+}));
+jest.mock("../models/Staff/teachers.model", () => ({
+  find: (...a) => mockTeacherFind(...a),
 }));
 
 const { getMarksAuditService, getTestRosterService } = require("../services/academic/test.service");
@@ -97,6 +101,18 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockTestFind.mockReturnValue(chainQuery([TEST_ONE, TEST_TWO]));
   mockResultFind.mockReturnValue(chainQuery(RESULTS_ONE));
+  // Marks audit resolves the responsible teacher(s) + their WhatsApp numbers
+  // from assignments + the Teacher collection; default to Ayesha covering the
+  // Math / Grade 5-Blue pairing that both sample tests use.
+  mockAssignmentFind.mockReturnValue(
+    chainQuery([{ teacher: "t-a", subject: "s1", classLevel: "c1" }])
+  );
+  mockTeacherFind.mockReturnValue(
+    chainQuery([
+      { _id: "t-a", name: "Ms. Ayesha", whatsappNumber: "+92 300 1111111" },
+      { _id: "t-b", name: "Mr. Bilal", whatsappNumber: "" },
+    ])
+  );
 });
 
 // ── Marks audit ──────────────────────────────────────────────────────────────
@@ -179,6 +195,45 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
 
     const empty = res.json.mock.calls[0][0].data.find((r) => r.testId === "test-2");
     expect(empty.markers).toEqual([]);
+  });
+
+  test("counts 0-mark students as absent, excludes them from stats, flags overdue, resolves reminder teachers", async () => {
+    // Add a zero-score result → that student is reported absent AND dropped
+    // from the avg / min / max stats (they must not drag the average down).
+    mockResultFind.mockReturnValue(
+      chainQuery([...RESULTS_ONE, { test: "test-1", student: "b4", score: 0, markedBy: TEACHER_A, createdAt: new Date("2026-09-14T08:00:00Z"), updatedAt: new Date("2026-09-14T08:00:00Z") }])
+    );
+
+    const res = mockRes();
+    await getMarksAuditService({}, res);
+    const rows = res.json.mock.calls[0][0].data;
+    const row = rows.find((r) => r.testId === "test-1");
+
+    // One student scored exactly 0 → counted as absent (and not passed).
+    expect(row.absentCount).toBe(1);
+    expect(row.passCount).toBe(2);
+    // markedCount still counts every entered row, including the absence.
+    expect(row.markedCount).toBe(4);
+    // Stats are over the three real marks (10, 40, 30) — unchanged by the 0.
+    expect(row.avgScore).toBe(26.67);
+    expect(row.minScore).toBe(10);
+    expect(row.maxScore).toBe(40);
+
+    // Both sample tests are dated well over 3 days ago (relative to now) → overdue.
+    expect(row.overdue).toBe(true);
+
+    // Reminder target is the assigned teacher with a saved WhatsApp number.
+    expect(row.reminderTeachers).toEqual([{ name: "Ms. Ayesha", whatsapp: "+92 300 1111111" }]);
+  });
+
+  test("a recent test is not flagged overdue", async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000); // ~1h ago
+    mockTestFind.mockReturnValue(chainQuery([{ ...TEST_TWO, date: future }]));
+
+    const res = mockRes();
+    await getMarksAuditService({}, res);
+    const row = res.json.mock.calls[0][0].data.find((r) => r.testId === "test-2");
+    expect(row.overdue).toBe(false);
   });
 });
 

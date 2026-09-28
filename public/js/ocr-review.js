@@ -30,13 +30,13 @@
 
     uploadStep.style.display = 'none';
     reviewStep.style.display = 'block';
-    rowsBody.innerHTML = '<tr><td colspan="4">Extracting…</td></tr>';
+    rowsBody.innerHTML = '<tr><td colspan="5">Extracting…</td></tr>';
 
     const res = await fetch('/fees/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
 
@@ -56,9 +56,16 @@
       .catch(() => { /* keep local blob preview */ });
   }
 
+  // Mirror of utils/fuzzyMatch normalizeRoll (minimal browser copy) — flags
+  // sheet/record roll mismatches in the review grid.
+  function normalizeRoll(roll) {
+    const s = String(roll ?? "").toLowerCase().replace(/roll\s*(no\.?|number\.?)?|[\s._#-]+/g, "");
+    return /^\d+$/.test(s) ? s.replace(/^0+(?=\d)/, "") : s;
+  }
+
   function renderRows() {
     if (!students.length) {
-      rowsBody.innerHTML = '<tr><td colspan="4" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
+      rowsBody.innerHTML = '<tr><td colspan="5" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
       rowCount.textContent = '0 rows';
       saveBtn.disabled = true;
       return;
@@ -67,6 +74,11 @@
     rowCount.textContent = `${currentRows.length} rows`;
     rowsBody.innerHTML = currentRows.map((row, i) => {
       const esc = window.escapeHtml;
+      const matchedStudent = students.find(s => s._id === row.studentId);
+      // Roll as read from the scanned sheet — flagged red when it disagrees
+      // with the matched student's record roll.
+      const sheetRoll = row.rollNo != null ? String(row.rollNo).trim() : '';
+      const rollMismatch = matchedStudent && sheetRoll && normalizeRoll(sheetRoll) !== normalizeRoll(matchedStudent.rollNumber);
       const options = students.map(s => {
         const cls = s.classLevel ? s.classLevel.name : '';
         const roll = s.rollNumber != null ? `Roll #${s.rollNumber}` : '';
@@ -79,10 +91,11 @@
           <td><span class="dot ${esc(row.confidence)}"></span> ${esc(row.confidence)}</td>
           <td>
             <select class="student-select" data-row="${i}">
-              <option value="">${esc(row.name || '(unreadable)')} — select student</option>
+              <option value="">${esc(row.name || '(unreadable)')}${sheetRoll ? ' · Roll #' + esc(sheetRoll) : ''} — select student</option>
               ${options}
             </select>
           </td>
+          <td><span class="mono" style="font-size:12px;${rollMismatch ? 'color:var(--error);font-weight:600;' : 'color:var(--ink-soft);'}" title="${rollMismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet'}">${sheetRoll ? esc(sheetRoll) : ''}</span></td>
           <td class="num"><input type="number" class="amount-input" data-row="${i}" value="${esc(row.amount ?? '')}" /></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>

@@ -11,6 +11,7 @@ const {
   getAllTeachersController,
   getTeacherProfileController,
   updateTeacherProfileController,
+  updateTeacherAccountSettingsController,
   adminUpdateTeacherProfileController,
   toggleAttendanceManagerController,
   adminUpdateCredentialsController,
@@ -35,6 +36,10 @@ teachersRouter
 teachersRouter
   .route("/teacher/update-profile")
   .patch(isLoggedIn, isTeacher, updateTeacherProfileController);
+// teacher self-service account settings (name/email/number/password)
+teachersRouter
+  .route("/teacher/account-settings")
+  .post(isLoggedIn, isTeacher, updateTeacherAccountSettingsController);
 // admin update user profile
 teachersRouter
   .route("/teacher/:teacherId/update-profile")

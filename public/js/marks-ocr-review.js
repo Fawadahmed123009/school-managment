@@ -54,13 +54,13 @@
 
     uploadStep.style.display = 'none';
     reviewStep.style.display = 'block';
-    rowsBody.innerHTML = '<tr><td colspan="6">Extracting…</td></tr>';
+    rowsBody.innerHTML = '<tr><td colspan="7">Extracting…</td></tr>';
 
     const res = await fetch('/marks/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
     const data = await res.json();
 
     if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="6">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+      rowsBody.innerHTML = `<tr><td colspan="7">Error: ${window.escapeHtml(data.message)}</td></tr>`;
       return;
     }
 
@@ -106,9 +106,16 @@
     return (s.parent && s.parent.name) || s.fatherName || '';
   }
 
+  // Mirror of utils/fuzzyMatch normalizeRoll (kept minimal for the browser) —
+  // used to flag sheet/record roll mismatches in the review grid.
+  function normalizeRoll(roll) {
+    const s = String(roll ?? "").toLowerCase().replace(/roll\s*(no\.?|number\.?)?|[\s._#-]+/g, "");
+    return /^\d+$/.test(s) ? s.replace(/^0+(?=\d)/, "") : s;
+  }
+
   function renderRows() {
     if (!students.length) {
-      rowsBody.innerHTML = '<tr><td colspan="6" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
+      rowsBody.innerHTML = '<tr><td colspan="7" style="color:var(--error)">No students loaded. Make sure students exist in the system, then reload this page.</td></tr>';
       rowCount.textContent = '0 rows';
       saveBtn.disabled = true;
       return;
@@ -119,6 +126,10 @@
       const esc = window.escapeHtml;
       const matchedStudent = students.find(s => s._id === row.studentId);
       const rollDisplay = matchedStudent && matchedStudent.rollNumber ? matchedStudent.rollNumber : '';
+      // Roll as read from the scanned sheet — shown next to the record roll so
+      // a mismatch is visible at a glance (the teacher fixes the selection).
+      const sheetRoll = row.rollNo != null ? String(row.rollNo).trim() : '';
+      const rollMismatch = matchedStudent && sheetRoll && normalizeRoll(sheetRoll) !== normalizeRoll(matchedStudent.rollNumber);
       const parentDisplay = matchedStudent ? parentLabel(matchedStudent) : '';
       const options = students.map(s => {
         const cls = s.classLevel ? s.classLevel.name : '';
@@ -135,12 +146,13 @@
           <td><span class="dot ${esc(row.confidence)}"></span> ${esc(row.confidence)}</td>
           <td>
             <select class="student-select" data-row="${i}">
-              <option value="">${esc(row.name || '(unreadable)')} — select student</option>
+              <option value="">${esc(row.name || '(unreadable)')}${sheetRoll ? ' · Roll #' + esc(sheetRoll) : ''} — select student</option>
               ${options}
             </select>
             <div class="parent-cell" data-row="${i}" style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${parentDisplay ? 'Parent: ' + esc(parentDisplay) : ''}</div>
           </td>
-          <td><span class="mono" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
+          <td><span class="mono roll-cell" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
+          <td><span class="mono sheet-roll-cell" data-roll="${esc(sheetRoll)}" style="font-size:12px;${rollMismatch ? 'color:var(--error);font-weight:600;' : 'color:var(--ink-soft);'}" title="${rollMismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet'}">${sheetRoll ? esc(sheetRoll) : ''}</span></td>
           <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" placeholder="Absent → 0" /></td>
           <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"></span></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
@@ -183,8 +195,16 @@
         const chosen = students.find(s => s._id === this.value);
         const roll = chosen && chosen.rollNumber ? chosen.rollNumber : '';
         tr.dataset.roll = roll;
-        const rollCell = tr.querySelectorAll('td')[2];
+        const rollCell = tr.querySelector('.roll-cell');
         if (rollCell) rollCell.innerHTML = roll ? `<span class="mono" style="color:var(--ink-soft);font-size:12px;">#${window.escapeHtml(roll)}</span>` : '';
+        // Re-flag the sheet-roll cell when it stops/starts matching the choice
+        const sheetCell = tr.querySelector('.sheet-roll-cell');
+        if (sheetCell && sheetCell.dataset.roll) {
+          const mismatch = roll && normalizeRoll(sheetCell.dataset.roll) !== normalizeRoll(roll);
+          sheetCell.style.color = mismatch ? 'var(--error)' : 'var(--ink-soft)';
+          sheetCell.style.fontWeight = mismatch ? '600' : '400';
+          sheetCell.title = mismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet';
+        }
         const parentCell = tr.querySelector('.parent-cell');
         if (parentCell) {
           const pn = chosen ? parentLabel(chosen) : '';
@@ -257,9 +277,9 @@
         if (score === '') { absentCount++; records.push({ student: studentId, score: 0 }); }
         else { records.push({ student: studentId, score: Number(score) }); }
       } else {
-        // No student selected — nothing to save for this row unless a score
-        // was extracted for it (that row still needs a student).
-        if (score !== '') missingStudent++;
+        // No student resolved for this row — it cannot be saved; count it so
+        // the teacher sees exactly what "save all" is leaving out.
+        missingStudent++;
       }
     });
 
@@ -267,6 +287,13 @@
       alert('No rows are ready to save.\n\n' + (missingStudent > 0
         ? `${missingStudent} row(s) have a score but no student selected`
         : 'Select a student for at least one row.'));
+      return;
+    }
+
+    // "Save all" saves EVERY row with a student — high, medium and low
+    // confidence alike. Rows still missing a student selection can't be
+    // persisted, so surface them explicitly instead of dropping silently.
+    if (missingStudent > 0 && !confirm(`${missingStudent} row(s) have no student selected and will NOT be saved.\n\nSave the other ${records.length} row(s)?`)) {
       return;
     }
 
@@ -289,7 +316,7 @@
     } else {
       alert(data.message || 'Save failed');
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Save all confirmed rows';
+      saveBtn.textContent = 'Save all rows';
     }
   });
 })();

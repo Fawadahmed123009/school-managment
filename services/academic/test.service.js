@@ -6,6 +6,8 @@ const TestSession = require("../../models/Academic/testSession.model");
 const Subject = require("../../models/Academic/subject.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
+const Assignment = require("../../models/Academic/assignment.model");
+const TeacherDoc = require("../../models/Staff/teachers.model");
 const { getAssignedClassLevels } = require("./assignment.service");
 
 exports.createTestService = async (data, adminId, res) => {
@@ -588,7 +590,9 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
  * Admin marks audit — one row per test with score statistics AND the marking
  * timeline: when marks were first uploaded (earliest TestResult createdAt),
  * when they were last changed (latest updatedAt) and which teacher entered
- * them. Tests with no results yet are included (markedCount 0) so the admin
+ * them. A stored score of 0 is treated as an absence: it is counted in
+ * `absentCount` but excluded from the avg / min / max stats. Tests with no
+ * results yet are included (markedCount 0) so the admin
  * can also see what is still unmarked. Optional filters: `search` (test /
  * subject / class) and `teacher` — a marker's id or name, keeping only the
  * tests that teacher marked. Read-only, admin/manager only.
@@ -613,16 +617,50 @@ exports.getMarksAuditService = async (query, res) => {
     (byTest[key] = byTest[key] || []).push(r);
   });
 
+  // Resolve which teacher(s) are responsible for marking each test so an
+  // overdue one can be nudged over WhatsApp: assignment is (subject +
+  // classLevel) → teacher. A test spanning several classes may map to several
+  // teachers; we surface each one's name + saved WhatsApp number.
+  const asRefId = (ref) => (ref && ref._id ? String(ref._id) : ref ? String(ref) : null);
+  const [assignments, teachers] = await Promise.all([
+    Assignment.find().select("teacher subject classLevel").lean(),
+    TeacherDoc.find().select("name whatsappNumber").lean(),
+  ]);
+  const teacherInfo = {};
+  teachers.forEach((t) => {
+    teacherInfo[String(t._id)] = { name: t.name || "", whatsapp: t.whatsappNumber || "" };
+  });
+  const teacherIdsBySubjectClass = {}; // `subjectId|classLevelId` → Set(teacherId)
+  assignments.forEach((a) => {
+    const sid = asRefId(a.subject);
+    const cid = asRefId(a.classLevel);
+    const tid = asRefId(a.teacher);
+    if (!sid || !cid || !tid) return;
+    const key = `${sid}|${cid}`;
+    (teacherIdsBySubjectClass[key] || (teacherIdsBySubjectClass[key] = new Set())).add(tid);
+  });
+
+  // A test older than this many days (by its own date) is flagged overdue.
+  const OVERDUE_MS = 3 * 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+
   const round2 = (n) => Math.round(n * 100) / 100;
 
   let rows = tests.map((t) => {
     const rs = byTest[String(t._id)] || [];
     const scores = rs.map((r) => r.score).filter((s) => typeof s === "number" && !isNaN(s));
+    // A stored 0 means the student was absent (0-mark entries are how absences
+    // are recorded), so absences are counted separately and EXCLUDED from the
+    // score/percentage stats below — otherwise they unfairly drag the average
+    // and min down. markedCount / passCount keep counting over all entries
+    // (a 0 can never reach a positive pass mark, so passCount is unaffected).
+    const absentCount = scores.filter((s) => s === 0).length;
+    const present = scores.filter((s) => s > 0);
     // Percentages are computed against the test's CURRENT totalMarks; if the
     // scale was lowered after marking, a stored score may exceed it — those
     // rows are excluded from percent stats rather than reported >100%.
     const percents = t.totalMarks
-      ? scores.filter((s) => s <= t.totalMarks).map((s) => round2((s / t.totalMarks) * 100))
+      ? present.filter((s) => s <= t.totalMarks).map((s) => round2((s / t.totalMarks) * 100))
       : [];
 
     const stat = (arr, fn) => (arr.length ? round2(fn(arr)) : null);
@@ -645,6 +683,30 @@ exports.getMarksAuditService = async (query, res) => {
       if (r.markedBy && r.markedBy._id) markerMap.set(String(r.markedBy._id), r.markedBy.name || "");
     });
 
+    // Overdue = the test date is more than 3 days in the past. Marking status
+    // is intentionally not part of the flag — admin sees it from the Marked
+    // column (0 / not marked = still outstanding).
+    const testTime = t.date ? new Date(t.date).getTime() : null;
+    const overdue = testTime != null && nowMs - testTime > OVERDUE_MS;
+
+    // Teachers responsible for marking (via subject+class assignments), deduped
+    // by id and sorted by name so reminder buttons are stable.
+    const reminderSet = new Set();
+    if (t.subject && t.subject._id) {
+      const sid = String(t.subject._id);
+      (t.classLevels || []).forEach((c) => {
+        const cid = asRefId(c);
+        if (!cid) return;
+        (teacherIdsBySubjectClass[`${sid}|${cid}`] || new Set()).forEach((tid) => reminderSet.add(tid));
+      });
+    }
+    // If assignment data is missing, fall back to whoever has marked so far.
+    if (reminderSet.size === 0) markerMap.forEach((_name, id) => reminderSet.add(id));
+    const reminderTeachers = [...reminderSet]
+      .map((id) => teacherInfo[id] || { name: "", whatsapp: "" })
+      .filter((ti) => ti.name || ti.whatsapp)
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
     return {
       testId: t._id,
       name: t.name,
@@ -654,19 +716,23 @@ exports.getMarksAuditService = async (query, res) => {
       passMarks: t.passMarks,
       testDate: t.date,
       markedCount: rs.length,
-      avgScore: stat(scores, (a) => a.reduce((x, y) => x + y, 0) / a.length),
-      minScore: stat(scores, (a) => Math.min(...a)),
-      maxScore: stat(scores, (a) => Math.max(...a)),
+      // Stats are over present (non-zero) scores only — see absentCount note.
+      avgScore: stat(present, (a) => a.reduce((x, y) => x + y, 0) / a.length),
+      minScore: stat(present, (a) => Math.min(...a)),
+      maxScore: stat(present, (a) => Math.max(...a)),
       avgPercent: stat(percents, (a) => a.reduce((x, y) => x + y, 0) / a.length),
       minPercent: stat(percents, (a) => Math.min(...a)),
       maxPercent: stat(percents, (a) => Math.max(...a)),
       passCount: t.passMarks != null ? scores.filter((s) => s >= t.passMarks).length : null,
+      absentCount,
+      overdue,
       firstUploadAt: created.length ? new Date(Math.min(...created)) : null,
       lastUploadAt: created.length ? new Date(Math.max(...created)) : null,
       lastUpdateAt: updated.length ? new Date(Math.max(...updated)) : null,
       lastUpdatedBy,
       teachers: teacherNames,
       markers: [...markerMap.entries()].map(([id, name]) => ({ id, name })),
+      reminderTeachers,
     };
   });
 

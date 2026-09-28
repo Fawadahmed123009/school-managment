@@ -54,7 +54,7 @@ router.get("/staff/new", requireAdminOrManager(), async (req, res) => {
 
 // ── Create teacher ──
 router.post("/staff/create", requireAdminOrManager(), async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, whatsappNumber } = req.body;
   if (!name || !email || !password) {
     return res.render("staff/new", {
       page: "staff",
@@ -65,7 +65,7 @@ router.post("/staff/create", requireAdminOrManager(), async (req, res) => {
   }
   const { res: cap, result } = captureServiceResponse();
   try {
-    await createTeacherService({ name, email, password }, req.user._id, cap);
+    await createTeacherService({ name, email, password, whatsappNumber }, req.user._id, cap);
   } catch (err) {
     return res.render("staff/new", {
       page: "staff",
@@ -102,11 +102,13 @@ router.get("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) =
 
 // ── Update teacher credentials ──
 router.post("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) => {
-  const { name, email, password } = req.body;
+  const { name, email, password, whatsappNumber } = req.body;
   const body = {};
   if (name) body.name = name;
   if (email) body.email = email;
   if (password) body.password = password;
+  // Always forward the phone field so it can also be cleared.
+  body.whatsappNumber = whatsappNumber || "";
 
   const { res: cap, result } = captureServiceResponse();
   try {
@@ -121,7 +123,7 @@ router.post("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) 
   res.render("staff/edit", {
     page: "staff",
     user: req.user,
-    teacher: teacher || { _id: req.params.teacherId, name, email },
+    teacher: teacher || { _id: req.params.teacherId, name, email, whatsappNumber },
     error: result.message || "Failed to update teacher.",
     schoolName: res.locals.schoolName,
   });
