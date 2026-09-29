@@ -36,17 +36,40 @@
   <div class="panel report-fields" data-for="result-sheet">
     <div class="panel-head"><h2>2. Select test</h2></div>
     <div class="panel-body">
+      <%
+        // Category keys ride on every test option so the three dropdowns below
+        // are built from the tests that can actually be picked (no API
+        // round-trip), exactly like the Manage tests ledger cascade. They carry
+        // no `name` attribute — only testId is submitted.
+        const NONE_KEY = 'none';
+        const catKey = (value) => (value ? String(value) : NONE_KEY);
+      %>
       <div class="field-row">
+        <div class="field">
+          <label for="rs-session">Session</label>
+          <select id="rs-session"></select>
+        </div>
+        <div class="field">
+          <label for="rs-phase">Phase</label>
+          <select id="rs-phase"></select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="rs-week">Week</label>
+          <select id="rs-week"></select>
+        </div>
         <div class="field">
           <label for="testId_rs">Test</label>
           <select name="testId" id="testId_rs">
             <option value="">-- Select test --</option>
             <% tests.forEach(function(t) { %>
-              <option value="<%= t._id %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
+              <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-session-name="<%= t.session ? t.session.name : 'Standalone' %>" data-phase="<%= catKey(t.phase) %>" data-phase-name="<%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : 'No phase' %>" data-week="<%= catKey(t.week && t.week._id) %>" data-week-name="<%= t.week ? t.week.name : 'No week' %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
             <% }); %>
           </select>
         </div>
       </div>
+      <p class="hint" id="rs-test-count"></p>
     </div>
   </div>
 
@@ -90,7 +113,7 @@
 
   <!-- Session Report fields -->
   <div class="panel report-fields" data-for="session-report" style="display:none">
-    <div class="panel-head"><h2>2. Select session & student</h2></div>
+    <div class="panel-head"><h2>2. Session report options</h2></div>
     <div class="panel-body">
       <div class="field-row">
         <div class="field">
@@ -98,10 +121,21 @@
           <select name="sessionId" id="sessionId_sr">
             <option value="">-- Select session --</option>
             <% sessions.forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %></option>
+              <option value="<%= s._id %>" data-phases='<%- JSON.stringify((s.phases || []).slice().sort(function(a, b) { return a.order - b.order; })) %>'><%= s.name %></option>
             <% }); %>
           </select>
         </div>
+        <div class="field">
+          <label for="sr-scope">Report for</label>
+          <select name="scope" id="sr-scope">
+            <option value="student">Specific student</option>
+            <option value="class">Whole class</option>
+            <option value="sections">Selected sections</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row sr-scope-field" data-sr-for="student">
         <div class="field">
           <label for="studentId_sr">Student</label>
           <select name="studentId" id="studentId_sr">
@@ -112,12 +146,84 @@
           </select>
         </div>
       </div>
+
+      <div class="field-row sr-scope-field" data-sr-for="class" style="display:none">
+        <div class="field">
+          <label for="classLevelId_sr">Class</label>
+          <select name="classLevelId" id="classLevelId_sr">
+            <option value="">-- Select class --</option>
+            <%
+              var srGradeGroups = {};
+              classes.forEach(function(c) { var g = c.gradeLevel || '\u2014'; (srGradeGroups[g] = srGradeGroups[g] || []).push(c); });
+            %>
+            <% Object.keys(srGradeGroups).forEach(function(g) { %>
+              <optgroup label="Grade <%= g %>">
+                <% srGradeGroups[g].forEach(function(c) { %>
+                  <option value="<%= c._id %>"><%= g ? g + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %></option>
+                <% }); %>
+              </optgroup>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+
+      <div class="sr-scope-field" data-sr-for="sections" style="display:none">
+        <label>Sections</label>
+        <div id="sr-class-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <% Object.keys(srGradeGroups).forEach(function(g) { var groupClasses = srGradeGroups[g]; %>
+          <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:10px;">
+            <% if (groupClasses.length > 1) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
+                <input type="checkbox" class="grade-all-cb" />
+                All sections of grade <%= g %>
+              </label>
+            <% } else { %>
+              <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
+            <% } %>
+            <% groupClasses.forEach(function(c) { %>
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
+                <input type="checkbox" name="classLevelIds" value="<%= c._id %>" class="class-cb" />
+                <%= c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %><%= c.sectionRef ? ' \u00b7 ' + c.sectionRef.name : '' %>
+              </label>
+            <% }); %>
+          </div>
+          <% }); %>
+        </div>
+        <p class="hint">One PDF report card per active student in the ticked class/es.</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label for="sr-period">Period</label>
+          <select id="sr-period">
+            <option value="session">Whole session</option>
+            <option value="phase">Specific phase</option>
+            <option value="week">Specific week</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="phaseId_sr">Phase</label>
+          <select name="phaseId" id="phaseId_sr" disabled>
+            <option value="">-- Select session first --</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="weekId_sr">Week</label>
+          <select name="weekId" id="weekId_sr" disabled>
+            <option value="">-- Select session first --</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Bulk scopes and WhatsApp sending are for admins and managers. Students with no results in the selected period are skipped.</p>
     </div>
   </div>
 
   <button type="submit" class="btn btn-primary" style="margin-top:16px">Generate PDF</button>
 </form>
 
+<script type="application/json" id="sr-weeks"><%- JSON.stringify(weeks).replace(/</g, '\\u003c') %></script>
 <script src="/js/report-generate.js"></script>
+<script src="/js/report-test-cascade.js"></script>
+<script src="/js/report-session-bulk.js"></script>
 
 <%- include('../partials/foot') %>

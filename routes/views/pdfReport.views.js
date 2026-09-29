@@ -3,6 +3,10 @@ const fs = require("fs");
 const { apiFetch } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const pdfReportService = require("../../services/academic/pdfReport.service");
+const { buildSessionIndex, sortTestsByCategory } = require("../../utils/testCategoryIndex");
+const TestSession = require("../../models/Academic/testSession.model");
+const ClassLevel = require("../../models/Academic/class.model");
+const Week = require("../../models/Academic/week.model");
 
 // ─── Public router (mounted BEFORE authView) ────────────────────────────────
 // Serves generated PDFs by UUID — no auth required (UUID is the secret).
@@ -20,6 +24,19 @@ publicRouter.get("/reports/pdf/:uuid", (req, res) => {
 
 // ─── Authenticated router (mounted AFTER authView) ──────────────────────────
 const generateRouter = express.Router();
+
+// wa.me deep link for one report. Unlike the single-report share link (which
+// pre-dates the bulk flow and just tees up the chat), bulk links must carry
+// the absolute PDF URL — the sender opens dozens of chats and cannot attach
+// each file by hand.
+function buildBulkWhatsAppLink(req, { name, whatsapp }, pdfUrl) {
+  const phone = String(whatsapp || "").replace(/[^0-9]/g, "");
+  if (!phone || !pdfUrl) return null;
+  const absoluteUrl = `${req.protocol}://${req.get("host")}${pdfUrl}`;
+  const contactLine = process.env.INSTITUTE_WHATSAPP ? ` For queries, contact us on WhatsApp: ${process.env.INSTITUTE_WHATSAPP}` : "";
+  const msg = encodeURIComponent(`Here is the session report for ${name} — ${process.env.SCHOOL_NAME || "School Portal"}: ${absoluteUrl}${contactLine}`);
+  return `https://wa.me/${phone}?text=${msg}`;
+}
 
 // GET /reports/generate — PDF generation form
 generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (req, res) => {
@@ -73,6 +90,19 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     tests = testsRes.status === "success" ? testsRes.data : [];
   }
 
+  // Result-sheet picker: Session → Phase → Week, then newest first.
+  const { sessionRank, phaseNames, phaseOrder } = await buildSessionIndex(tests, sessions);
+  sortTestsByCategory(tests, sessionRank, phaseOrder);
+
+  // Session-report bulk pickers: every class/section (grouped by grade in the
+  // view) and the weeks belonging to the listed sessions (cascaded client-
+  // side). Read-only metadata at the same exposure level as the session/phase
+  // index already handed to teachers.
+  const [classes, weeks] = await Promise.all([
+    ClassLevel.find({}).select("name gradeLevel group sectionRef").populate("sectionRef", "name").sort("gradeLevel name").lean(),
+    sessions.length > 0 ? Week.find({ session: { $in: sessions.map((s) => s._id) } }).select("name phase session startDate").sort("startDate").lean() : [],
+  ]);
+
   res.render("reports/generate", {
     page: "reports",
     user: req.user,
@@ -80,6 +110,9 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     subjects,
     tests,
     sessions,
+    phaseNames,
+    classes,
+    weeks,
     isTeacher,
     teacherSubjects,
     teacherClasses,
@@ -91,6 +124,74 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
 generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async (req, res) => {
   const { reportType, testId, studentId, subjectId, fromDate, toDate, sessionId } = req.body;
 
+  // Session report: three scopes share one picker panel — one student
+  // (existing single flow), a whole class, or selected sections (bulk).
+  if (reportType === "session-report") {
+    const scope = req.body.scope || "student";
+    const period = { phaseId: req.body.phaseId || undefined, weekId: req.body.weekId || undefined };
+
+    if (scope === "class" || scope === "sections") {
+      const bulkRes = await apiFetch("/pdf-reports/session-report-bulk", req.token, {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId,
+          scope,
+          classLevelId: req.body.classLevelId,
+          classLevelIds: req.body.classLevelIds,
+          phaseId: period.phaseId,
+          weekId: period.weekId,
+        }),
+      });
+      if (bulkRes.status !== "success") {
+        return res.redirect(`/reports/generate?error=${encodeURIComponent(bulkRes.message || "PDF generation failed")}`);
+      }
+
+      const session = await TestSession.findById(sessionId).select("name").lean();
+      const reports = (bulkRes.data.reports || []).map((r) => ({
+        ...r,
+        waLink: r.status === "generated" ? buildBulkWhatsAppLink(req, r, r.pdfUrl) : null,
+      }));
+
+      return res.render("reports/bulk-result", {
+        page: "reports",
+        user: req.user,
+        sessionName: session ? session.name : "",
+        reports,
+        generatedCount: bulkRes.data.generatedCount,
+        skippedCount: bulkRes.data.skippedCount,
+        schoolName: res.locals.schoolName,
+      });
+    }
+
+    const singleRes = await apiFetch("/pdf-reports/session-report", req.token, {
+      method: "POST",
+      body: JSON.stringify({ sessionId, studentId, phaseId: period.phaseId, weekId: period.weekId }),
+    });
+    if (singleRes.status !== "success") {
+      return res.redirect(`/reports/generate?error=${encodeURIComponent(singleRes.message || "PDF generation failed")}`);
+    }
+    const { pdfUrl, singleStudent } = singleRes.data;
+
+    // Build WhatsApp share link (only for single student)
+    let whatsappLink = null;
+    if (singleStudent && singleStudent.whatsapp) {
+      const phone = singleStudent.whatsapp.replace(/[^0-9]/g, "");
+      const contactLine = process.env.INSTITUTE_WHATSAPP ? ` For queries, contact us on WhatsApp: ${process.env.INSTITUTE_WHATSAPP}` : "";
+      const msg = encodeURIComponent(`Here is the report for ${singleStudent.name} — ${process.env.SCHOOL_NAME || "School Portal"}${contactLine}`);
+      whatsappLink = `https://wa.me/${phone}?text=${msg}`;
+    }
+
+    return res.render("reports/result", {
+      page: "reports",
+      user: req.user,
+      pdfUrl,
+      whatsappLink,
+      studentName: singleStudent ? singleStudent.name : null,
+      reportType,
+      schoolName: res.locals.schoolName,
+    });
+  }
+
   let endpoint, body;
   if (reportType === "result-sheet") {
     endpoint = "/pdf-reports/result-sheet";
@@ -98,9 +199,6 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
   } else if (reportType === "analytics") {
     endpoint = "/pdf-reports/analytics";
     body = { studentId: studentId || undefined, subjectId: subjectId || undefined, fromDate, toDate };
-  } else if (reportType === "session-report") {
-    endpoint = "/pdf-reports/session-report";
-    body = { sessionId, studentId };
   } else {
     return res.redirect("/reports/generate?error=Invalid+report+type");
   }

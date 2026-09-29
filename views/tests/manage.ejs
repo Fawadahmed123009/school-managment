@@ -137,6 +137,7 @@
             <td><%= t.week ? t.week.name : '—' %></td>
             <td class="num mono"><%= t.totalMarks %></td>
             <td style="display:flex;gap:6px;justify-content:flex-end;">
+              <a href="/tests/<%= t._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
               <a href="/tests/<%= t._id %>/result-sheet" class="btn btn-ghost" style="padding:4px 10px;">Results</a>
               <form method="POST" action="/tests/<%= t._id %>/delete" data-confirm="Delete this test and ALL submitted scores? This cannot be undone." style="display:inline;">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />

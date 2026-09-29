@@ -19,7 +19,8 @@
  * Programmatic usage is also supported:
  *   ClassPicker.init('container-id', classesArray, {
  *     fieldName: 'classLevels',
- *     required: true
+ *     required: true,
+ *     selected: ['<classId>', ...]   // pre-ticked rows (edit forms)
  *   });
  *
  * Each class object needs: _id, name, gradeLevel, group?, section?
@@ -156,7 +157,7 @@
     if (noRes) noRes.style.display = visibleGroups === 0 ? '' : 'none';
   }
 
-  function buildGroup(key, groupClasses, el, classes) {
+  function buildGroup(key, groupClasses, el, classes, selectedIds) {
     var group = document.createElement('div');
     group.className = 'cpicker-group';
     group.setAttribute('data-grade', key);
@@ -208,6 +209,7 @@
       cb.type = 'checkbox';
       cb.className = 'cpicker-item-cb';
       cb.value = c._id;
+      if (selectedIds.indexOf(String(c._id)) !== -1) cb.checked = true;
       cb.addEventListener('change', function () {
         handleChange(el, classes);
       });
@@ -226,6 +228,7 @@
     opts = opts || {};
     var fieldName = opts.fieldName || 'classLevels';
     var required  = !!opts.required;
+    var selected  = (opts.selected || []).map(function (id) { return String(id); });
     var el = document.getElementById(containerId);
     if (!el || !classes) return;
 
@@ -276,7 +279,7 @@
     el.appendChild(hiddenWrap);
 
     sortedKeys.forEach(function (key) {
-      list.appendChild(buildGroup(key, groups[key], el, classes));
+      list.appendChild(buildGroup(key, groups[key], el, classes, selected));
     });
 
     var noRes = document.createElement('div');
@@ -304,8 +307,14 @@
       }
     }
 
-    updateSummary(el, classes);
-    syncHidden(el, fieldName);
+    // A pre-ticked picker also needs its group counters and hidden fields in
+    // sync before the user touches anything.
+    if (selected.length) {
+      handleChange(el, classes);
+    } else {
+      updateSummary(el, classes);
+      syncHidden(el, fieldName);
+    }
   }
 
   function autoInit() {
@@ -323,9 +332,17 @@
           catch (e) { classes = []; }
         }
       }
+      // Edit forms pre-tick the rows that already belong to the record.
+      var selected = [];
+      var selAttr = node.getAttribute('data-cpicker-selected');
+      if (selAttr) {
+        try { selected = JSON.parse(selAttr); }
+        catch (e) { selected = []; }
+      }
       init(node.id, classes, {
         fieldName: node.getAttribute('data-cpicker-field') || 'classLevels',
-        required: node.hasAttribute('data-cpicker-required')
+        required: node.hasAttribute('data-cpicker-required'),
+        selected: selected
       });
     }
   }

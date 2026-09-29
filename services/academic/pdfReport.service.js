@@ -7,6 +7,8 @@ const Test = require("../../models/Academic/test.model");
 const TestResult = require("../../models/Academic/testResult.model");
 const TestSession = require("../../models/Academic/testSession.model");
 const Student = require("../../models/Students/students.model");
+const ClassLevel = require("../../models/Academic/class.model");
+const Week = require("../../models/Academic/week.model");
 
 const PDF_DIR = path.join(__dirname, "../../tmp/pdfs");
 const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
@@ -242,14 +244,96 @@ async function gatherAnalytics({ studentId, subjectId, fromDate, toDate }, scope
   return { rows, studentName, whatsappNumber, studentPhotoUrl };
 }
 
-async function gatherSessionReport(sessionId, studentId) {
+// ─── Session-report period filtering helpers ───────────────────────────────
+// A session report can cover the whole session or just one phase / one week
+// inside it. Week beats phase when both are given (a week always lives inside
+// a phase). Kept as pure functions so the bulk path and unit tests share one
+// implementation.
+function filterTestsByPeriod(tests, period = {}) {
+  if (period && period.weekId) {
+    return tests.filter((t) => String((t.week && t.week._id) || t.week || "") === String(period.weekId));
+  }
+  if (period && period.phaseId) {
+    return tests.filter((t) => t.phase && String(t.phase._id || t.phase) === String(period.phaseId));
+  }
+  return tests;
+}
+
+async function resolvePeriodLabel(session, period = {}) {
+  if (!period) return null;
+  const phases = (session && session.phases) || [];
+  if (period.weekId) {
+    const week = await Week.findById(period.weekId).select("name phase").lean();
+    if (!week) return null;
+    const phase = phases.find((p) => String(p._id) === String(week.phase));
+    return [phase && phase.name, `Week: ${week.name}`].filter(Boolean).join(" — ");
+  }
+  if (period.phaseId) {
+    const phase = phases.find((p) => String(p._id) === String(period.phaseId));
+    return phase ? phase.name : null;
+  }
+  return null;
+}
+
+// Shared row builder — guards the percent division against totalMarks = 0.
+function buildSessionRows(testList, resultByTest) {
+  return testList
+    .filter((t) => resultByTest[String(t._id)] !== undefined)
+    .map((t) => {
+      const score = resultByTest[String(t._id)];
+      const totalMarks = t.totalMarks;
+      return {
+        test: t.name,
+        subject: t.subject ? t.subject.name : "Unknown",
+        score,
+        totalMarks,
+        percent: totalMarks ? Math.round((score / totalMarks) * 10000) / 100 : null,
+      };
+    });
+}
+
+function averagePercent(rows) {
+  const valid = rows.filter((r) => r.percent !== null);
+  return valid.length > 0 ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100 : null;
+}
+
+// Group the (already period-filtered) tests into the session's phase blocks.
+// D-1: session tests with no phase would otherwise be dropped from the
+// report card entirely. Give them an explicit block so their scores are
+// never silently missing from the parent-facing PDF.
+function buildPhaseBlocks(sessionPhases, tests, resultByTest) {
+  const phaseBlocks = (sessionPhases || [])
+    .slice()
+    .sort((a, b) => a.order - b.order)
+    .map((phase) => {
+      const phaseTests = tests.filter((t) => t.phase && String(t.phase._id || t.phase) === String(phase._id));
+      const rows = buildSessionRows(phaseTests, resultByTest);
+      return { phase: phase.name, order: phase.order, tests: rows, average: averagePercent(rows) };
+    });
+
+  const ungroupedRows = buildSessionRows(tests.filter((t) => !t.phase), resultByTest);
+  if (ungroupedRows.length > 0) {
+    phaseBlocks.push({ phase: "Not grouped into a phase", order: null, tests: ungroupedRows, average: averagePercent(ungroupedRows) });
+  }
+  return phaseBlocks;
+}
+
+function overallAverageOf(phases) {
+  const phasesWithScores = phases.filter((p) => p.average !== null);
+  return phasesWithScores.length > 0
+    ? Math.round((phasesWithScores.reduce((sum, p) => sum + p.average, 0) / phasesWithScores.length) * 100) / 100
+    : null;
+}
+
+async function gatherSessionReport(sessionId, studentId, period = {}) {
   const session = await TestSession.findById(sessionId);
   if (!session) return null;
 
   const student = await Student.findById(studentId).select("name studentId rollNumber whatsappNumber fatherName classLevel photoUrl");
   if (!student) return null;
 
-  const tests = await Test.find({ session: sessionId }).populate("subject", "name");
+  const allTests = await Test.find({ session: sessionId }).populate("subject", "name");
+  const tests = filterTestsByPeriod(allTests, period);
   const testIds = tests.map((t) => t._id);
 
   const results = await TestResult.find({ test: { $in: testIds }, student: studentId });
@@ -258,59 +342,22 @@ async function gatherSessionReport(sessionId, studentId) {
     resultByTest[r.test.toString()] = r.score;
   });
 
-  // Shared row builder — guards the percent division against totalMarks = 0.
-  const buildRows = (testList) =>
-    testList
-      .filter((t) => resultByTest[t._id.toString()] !== undefined)
-      .map((t) => {
-        const score = resultByTest[t._id.toString()];
-        return {
-          test: t.name,
-          subject: t.subject ? t.subject.name : "Unknown",
-          score,
-          totalMarks: t.totalMarks,
-          percent: t.totalMarks ? Math.round((score / t.totalMarks) * 10000) / 100 : null,
-        };
-      });
-  const averageOf = (rows) => {
-    const valid = rows.filter((r) => r.percent !== null);
-    return valid.length > 0
-      ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100
-      : null;
-  };
-
-  const phaseBlocks = session.phases
-    .sort((a, b) => a.order - b.order)
-    .map((phase) => {
-      const phaseTests = tests.filter((t) => t.phase && t.phase.toString() === phase._id.toString());
-      const rows = buildRows(phaseTests);
-      return { phase: phase.name, order: phase.order, tests: rows, average: averageOf(rows) };
-    });
-
-  // D-1: session tests with no phase would otherwise be dropped from the
-  // report card entirely. Give them an explicit block so their scores are
-  // never silently missing from the parent-facing PDF.
-  const ungroupedRows = buildRows(tests.filter((t) => !t.phase));
-  if (ungroupedRows.length > 0) {
-    phaseBlocks.push({ phase: "Not grouped into a phase", order: null, tests: ungroupedRows, average: averageOf(ungroupedRows) });
-  }
-
-  const phasesWithScores = phaseBlocks.filter((p) => p.average !== null);
-  const overallAverage =
-    phasesWithScores.length > 0
-      ? Math.round((phasesWithScores.reduce((sum, p) => sum + p.average, 0) / phasesWithScores.length) * 100) / 100
-      : null;
+  const phaseBlocks = buildPhaseBlocks(session.phases, tests, resultByTest);
+  const overallAverage = overallAverageOf(phaseBlocks);
 
   // Populate class level name
   const classLevelPop = student.classLevel
     ? await require("../../models/Academic/class.model").findById(student.classLevel).select("name")
     : null;
 
+  const periodLabel = await resolvePeriodLabel(session, period);
+
   return {
     session: { _id: session._id, name: session.name },
     student: {
       name: student.name,
       studentId: student.studentId,
+      rollNumber: student.rollNumber,
       whatsappNumber: student.whatsappNumber,
       fatherName: student.fatherName,
       className: classLevelPop ? classLevelPop.name : "—",
@@ -318,7 +365,70 @@ async function gatherSessionReport(sessionId, studentId) {
     },
     phases: phaseBlocks,
     overallAverage,
+    periodLabel,
   };
+}
+
+// Bulk variant: one round of queries for the whole roster, then per-student
+// report payloads shaped exactly like the single-student gather above so the
+// same PDF renderer handles both paths.
+async function gatherSessionReportsBulk({ sessionId, studentIds, period = {} }) {
+  const session = await TestSession.findById(sessionId).lean();
+  if (!session) throw new Error("Session not found");
+
+  const students = await Student.find({ _id: { $in: studentIds } })
+    .select("name studentId rollNumber whatsappNumber fatherName classLevel photoUrl")
+    .sort("rollNumber name")
+    .lean();
+
+  const classIds = [...new Set(students.map((s) => s.classLevel).filter(Boolean))];
+  const classDocs = await ClassLevel.find({ _id: { $in: classIds } }).select("name").lean();
+  const classNameById = {};
+  classDocs.forEach((c) => {
+    classNameById[String(c._id)] = c.name;
+  });
+
+  const allTests = await Test.find({ session: sessionId }).populate("subject", "name").lean();
+  const tests = filterTestsByPeriod(allTests, period);
+  const testIds = tests.map((t) => String(t._id));
+
+  const results =
+    testIds.length > 0
+      ? await TestResult.find({ test: { $in: testIds }, student: { $in: studentIds } }).lean()
+      : [];
+
+  const byStudent = {};
+  results.forEach((r) => {
+    const sid = String(r.student && r.student._id ? r.student._id : r.student);
+    const tid = String(r.test && r.test._id ? r.test._id : r.test);
+    (byStudent[sid] = byStudent[sid] || {})[tid] = r.score;
+  });
+
+  const periodLabel = await resolvePeriodLabel(session, period);
+
+  return students.map((student) => {
+    const resultByTest = byStudent[String(student._id)] || {};
+    const phaseBlocks = buildPhaseBlocks(session.phases, tests, resultByTest);
+    const data = {
+      session: { _id: session._id, name: session.name },
+      student: {
+        name: student.name,
+        studentId: student.studentId,
+        rollNumber: student.rollNumber,
+        whatsappNumber: student.whatsappNumber,
+        fatherName: student.fatherName,
+        className: classNameById[String(student.classLevel)] || "—",
+        photoUrl: student.photoUrl,
+      },
+      phases: phaseBlocks,
+      overallAverage: overallAverageOf(phaseBlocks),
+      periodLabel,
+    };
+    // A student with no recorded result inside the selected period would
+    // produce an empty report card — flag it so the caller can skip it.
+    const hasResults = phaseBlocks.some((p) => p.tests.length > 0);
+    return { data, hasResults };
+  });
 }
 
 // ─── PDF generation functions ──────────────────────────────────────────────────
@@ -457,8 +567,8 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
   });
 }
 
-function generateSessionReportPDF(data, schoolName, photoResult) {
-  const { session, student, phases, overallAverage } = data;
+function renderSessionReportPdf(data, schoolName, photoResult) {
+  const { session, student, phases, overallAverage, periodLabel } = data;
   const doc = new PDFDocument({ size: "A4", margin: 50 });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
@@ -466,7 +576,7 @@ function generateSessionReportPDF(data, schoolName, photoResult) {
   let y = drawHeader(doc, {
     schoolName,
     title: "Session Report Card",
-    subtitle: `${session.name}`,
+    subtitle: periodLabel ? `${session.name} — ${periodLabel}` : `${session.name}`,
   });
 
   // Student info box (taller to accommodate passport photo on the right)
@@ -560,12 +670,58 @@ exports.generateAnalyticsPDF = async (filters, schoolName, scope) => {
   return generateAnalyticsPDF(data, schoolName, filters, photoResult);
 };
 
-exports.generateSessionReportPDF = async (sessionId, studentId, schoolName) => {
-  const data = await gatherSessionReport(sessionId, studentId);
+exports.generateSessionReportPDF = async (sessionId, studentId, schoolName, period = {}) => {
+  const data = await gatherSessionReport(sessionId, studentId, period);
   if (!data) throw new Error("Session or student not found");
   const photoResult = await resolveStudentPhoto(data.student.photoUrl);
-  return generateSessionReportPDF(data, schoolName, photoResult);
+  return renderSessionReportPdf(data, schoolName, photoResult);
 };
+
+// Bulk: one PDF per student for a class / set of sections, optionally narrowed
+// to one phase or week. Students with no results in the period are skipped
+// (an empty report card is noise for the parent) and surfaced as `skipped`
+// entries so the UI can explain why. Photos are resolved through a per-batch
+// cache so a class sharing one storage URL is fetched once.
+exports.generateSessionReportBulkPDFs = async ({ sessionId, studentIds, phaseId, weekId }, schoolName) => {
+  const period = { phaseId, weekId };
+  const items = await gatherSessionReportsBulk({ sessionId, studentIds, period });
+  const photoCache = new Map();
+  const reports = [];
+
+  for (const item of items) {
+    const stu = item.data.student;
+    const base = {
+      name: stu.name,
+      rollNumber: stu.rollNumber || "—",
+      className: stu.className,
+      whatsapp: stu.whatsappNumber || "",
+    };
+
+    if (!item.hasResults) {
+      reports.push({ ...base, status: "skipped" });
+      continue;
+    }
+
+    let photoResult = null;
+    if (stu.photoUrl) {
+      if (!photoCache.has(stu.photoUrl)) photoCache.set(stu.photoUrl, await resolveStudentPhoto(stu.photoUrl));
+      photoResult = photoCache.get(stu.photoUrl);
+    }
+
+    const rendered = await renderSessionReportPdf(item.data, schoolName, photoResult);
+    reports.push({
+      ...base,
+      status: "generated",
+      uuid: rendered.uuid,
+      pdfUrl: `/reports/pdf/${rendered.uuid}`,
+    });
+  }
+
+  return reports;
+};
+
+// Pure shaping helpers — exported for unit tests (period filter + phase blocks).
+exports._sessionReportInternals = { filterTestsByPeriod, buildPhaseBlocks, buildSessionRows, averagePercent, overallAverageOf };
 
 exports.getPdfPath = (uuid) => {
   const filePath = path.join(PDF_DIR, `${uuid}.pdf`);

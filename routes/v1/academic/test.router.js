@@ -30,6 +30,8 @@ const {
 
 const {
   createTestController,
+  getTestByIdController,
+  updateTestController,
   getAllTestsController,
   getTestsByRoleController,
   getTeacherAssignedClassesController,
@@ -156,7 +158,13 @@ testRouter
   .patch(isLoggedIn, isTeacherAssignedOrManager, updateTestMarksController);
 testRouter.route("/tests/:testId/result-sheet").get(isLoggedIn, isAdminOrManager, getTestResultSheetController);
 
+// GET /tests/:testId — current values for the edit form (admin/manager).
+// PATCH /tests/:testId — edit the test (admin/manager).
 // DELETE /tests/:testId — admin/manager only; cascades to TestResult documents
-testRouter.route("/tests/:testId").delete(isLoggedIn, isAdminOrManager, deleteTestController);
+testRouter
+  .route("/tests/:testId")
+  .get(isLoggedIn, isAdminOrManager, getTestByIdController)
+  .patch(isLoggedIn, isAdminOrManager, updateTestController)
+  .delete(isLoggedIn, isAdminOrManager, deleteTestController);
 
 module.exports = testRouter;

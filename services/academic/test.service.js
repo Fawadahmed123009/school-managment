@@ -10,42 +10,51 @@ const Assignment = require("../../models/Academic/assignment.model");
 const TeacherDoc = require("../../models/Staff/teachers.model");
 const { getAssignedClassLevels } = require("./assignment.service");
 
-exports.createTestService = async (data, adminId, res) => {
-  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = data;
+// ── Shared create/update validators ──────────────────────────────────────────
+// Editing a test must never be able to produce a state that creation would
+// have rejected, so both paths run exactly these two checks.
 
-  if (!classLevels || classLevels.length === 0) {
-    return responseStatus(res, 400, "failed", "A test needs at least one class");
+/**
+ * Session → phase → week must form a real chain. Returns null when the
+ * placement is acceptable, otherwise the { code, message } to reject with.
+ */
+async function validateTestPlacement({ session, phase, week }) {
+  if (!session) return null;
+
+  const sessionDoc = await TestSession.findById(session);
+  if (!sessionDoc) return { code: 404, message: "Session not found" };
+  if (!phase) return null;
+
+  const phaseExists = sessionDoc.phases.some((p) => p._id.toString() === phase);
+  if (!phaseExists) return { code: 400, message: "Phase not found in this session" };
+
+  // Week is required when both session and phase are set
+  if (!week) {
+    return { code: 400, message: "A week is required for session-based tests — select a week for this phase" };
   }
 
-  if (session) {
-    const sessionDoc = await TestSession.findById(session);
-    if (!sessionDoc) return responseStatus(res, 404, "failed", "Session not found");
-    if (phase) {
-      const phaseExists = sessionDoc.phases.some((p) => p._id.toString() === phase);
-      if (!phaseExists) return responseStatus(res, 400, "failed", "Phase not found in this session");
-
-      // Week is required when both session and phase are set
-      if (!week) {
-        return responseStatus(res, 400, "failed", "A week is required for session-based tests — select a week for this phase");
-      }
-
-      // Validate that the selected week belongs to this session+phase
-      const Week = require("../../models/Academic/week.model");
-      const weekDoc = await Week.findById(week);
-      if (!weekDoc || weekDoc.session.toString() !== session || weekDoc.phase.toString() !== phase) {
-        return responseStatus(res, 400, "failed", "The selected week does not belong to this session's phase");
-      }
-    }
+  // Validate that the selected week belongs to this session+phase
+  const Week = require("../../models/Academic/week.model");
+  const weekDoc = await Week.findById(week);
+  if (!weekDoc || weekDoc.session.toString() !== session || weekDoc.phase.toString() !== phase) {
+    return { code: 400, message: "The selected week does not belong to this session's phase" };
   }
 
-  // Validate that the subject's appliesTo covers every classLevel in the test.
-  // A test may target multiple classLevels at once; all must be valid for the subject.
+  return null;
+}
+
+/**
+ * Validate that the subject's appliesTo covers every classLevel in the test.
+ * A test may target multiple classLevels at once; all must be valid for the
+ * subject. Returns null when in scope, otherwise { code, message }.
+ */
+async function validateSubjectClassScope(subject, classLevels) {
   const subjectDoc = await Subject.findById(subject);
-  if (!subjectDoc) return responseStatus(res, 404, "failed", "Subject not found");
+  if (!subjectDoc) return { code: 404, message: "Subject not found" };
 
   for (const clId of classLevels) {
     const classDoc = await ClassLevel.findById(clId);
-    if (!classDoc) return responseStatus(res, 404, "failed", "Class not found");
+    if (!classDoc) return { code: 404, message: "Class not found" };
 
     const applies = subjectDoc.appliesTo.some((a) => {
       // (1) specific: exact ClassLevel ID match
@@ -60,13 +69,31 @@ exports.createTestService = async (data, adminId, res) => {
     });
 
     if (!applies) {
-      return responseStatus(
-        res,
-        400,
-        "failed",
-        `"${subjectDoc.name}" is not taught in "${classDoc.name}" (grade ${classDoc.gradeLevel}${classDoc.group ? ", " + classDoc.group : ""})`
-      );
+      return {
+        code: 400,
+        message: `"${subjectDoc.name}" is not taught in "${classDoc.name}" (grade ${classDoc.gradeLevel}${classDoc.group ? ", " + classDoc.group : ""})`,
+      };
     }
+  }
+
+  return null;
+}
+
+exports.createTestService = async (data, adminId, res) => {
+  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = data;
+
+  if (!classLevels || classLevels.length === 0) {
+    return responseStatus(res, 400, "failed", "A test needs at least one class");
+  }
+
+  const placementError = await validateTestPlacement({ session, phase, week });
+  if (placementError) {
+    return responseStatus(res, placementError.code, "failed", placementError.message);
+  }
+
+  const scopeError = await validateSubjectClassScope(subject, classLevels);
+  if (scopeError) {
+    return responseStatus(res, scopeError.code, "failed", scopeError.message);
   }
 
   const test = await Test.create({
@@ -83,6 +110,143 @@ exports.createTestService = async (data, adminId, res) => {
   });
 
   return responseStatus(res, 201, "success", test);
+};
+
+/**
+ * One test, fully populated — the edit form needs the current values of every
+ * field the create form offers. Admin/manager only (see the API route).
+ */
+exports.getTestByIdService = async (testId, res) => {
+  const test = await Test.findById(testId)
+    .populate("subject", "name")
+    .populate("classLevels", "_id name")
+    .populate("session", "name")
+    .populate("week", "name startDate endDate");
+  if (!test) return responseStatus(res, 404, "failed", "Test not found");
+
+  return responseStatus(res, 200, "success", test);
+};
+
+/** Compare two class sets by id, ignoring order (populate may return docs). */
+function sameClassScope(a, b) {
+  const norm = (list) =>
+    [...new Set((list || []).map((c) => String(c && c._id ? c._id : c)))].sort();
+  const left = norm(a);
+  const right = norm(b);
+  return left.length === right.length && left.every((v, i) => v === right[i]);
+}
+
+/**
+ * Edit an existing test (admin/manager — "Manage tests" → Edit).
+ *
+ * Everything the create form offers is editable, under the same validations,
+ * plus two guards that protect results already submitted:
+ *   • subject / class scope is frozen once any score exists — stored results
+ *     belong to that subject and that roster;
+ *   • totalMarks can never be lowered below an already-entered score.
+ * Category placement (session/phase/week) stays editable even with results
+ * present, because it only groups the test for reporting — and a placement the
+ * record already had is left alone, so legacy tests stay fixable.
+ */
+exports.updateTestService = async (testId, data, res) => {
+  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = data;
+
+  const test = await Test.findById(testId);
+  if (!test) return responseStatus(res, 404, "failed", "Test not found");
+
+  if (!name || !String(name).trim()) {
+    return responseStatus(res, 400, "failed", "Test name is required");
+  }
+  if (!classLevels || classLevels.length === 0) {
+    return responseStatus(res, 400, "failed", "A test needs at least one class");
+  }
+  if (!date) return responseStatus(res, 400, "failed", "Test date is required");
+
+  const total = Number(totalMarks);
+  const pass = Number(passMarks);
+  if (!Number.isFinite(total) || total < 1) {
+    return responseStatus(res, 400, "failed", "Total marks must be a number of at least 1");
+  }
+  if (!Number.isFinite(pass) || pass < 0) {
+    return responseStatus(res, 400, "failed", "Pass marks must be a number of 0 or more");
+  }
+  if (pass > total) {
+    return responseStatus(res, 400, "failed", "Pass marks cannot exceed total marks");
+  }
+
+  // Normalise the category chain: a standalone test carries no phase/week, and
+  // a session test without a phase carries no week (the form hides them).
+  const placement = {
+    session: session || null,
+    phase: session && phase ? phase : null,
+    week: session && phase && week ? week : null,
+  };
+
+  // Legacy records may already sit in a placement creation would reject (e.g. a
+  // phase with no week). Re-validating an unchanged placement would make such a
+  // test unrenamable, so the create rules are only applied when the placement
+  // actually changes — re-categorising must produce a proper chain.
+  const idOf = (v) => String((v && v._id) || v || "");
+  const placementUnchanged =
+    idOf(test.session) === idOf(placement.session) &&
+    idOf(test.phase) === idOf(placement.phase) &&
+    idOf(test.week) === idOf(placement.week);
+
+  if (!placementUnchanged) {
+    const placementError = await validateTestPlacement(placement);
+    if (placementError) {
+      return responseStatus(res, placementError.code, "failed", placementError.message);
+    }
+  }
+
+  const scopeError = await validateSubjectClassScope(subject, classLevels);
+  if (scopeError) {
+    return responseStatus(res, scopeError.code, "failed", scopeError.message);
+  }
+
+  const resultCount = await TestResult.countDocuments({ test: testId });
+
+  const scopeChanged = String(test.subject?._id || test.subject) !== String(subject) ||
+    !sameClassScope(test.classLevels, classLevels);
+
+  if (resultCount > 0 && scopeChanged) {
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      `Cannot change the subject or classes — ${resultCount} score(s) have already been submitted for this test. Correct the scores first, or delete the test and create it again.`
+    );
+  }
+
+  // Shrinking the scale must not orphan scores above the new maximum.
+  if (resultCount > 0 && total !== test.totalMarks) {
+    const tooHigh = await TestResult.find({ test: testId, score: { $gt: total } }).populate("student", "name");
+    if (tooHigh.length > 0) {
+      const details = tooHigh
+        .slice(0, 5)
+        .map((r) => `${r.score}${r.student?.name ? " (" + r.student.name + ")" : ""}`)
+        .join(", ");
+      return responseStatus(
+        res,
+        400,
+        "failed",
+        `Cannot lower total marks below ${total} — ${tooHigh.length} entered score(s) exceed it (${details}${tooHigh.length > 5 ? ", …" : ""}). Remove or correct those scores first.`
+      );
+    }
+  }
+
+  test.name = String(name).trim();
+  test.subject = subject;
+  test.classLevels = classLevels;
+  test.date = date;
+  test.totalMarks = total;
+  test.passMarks = pass;
+  test.session = placement.session;
+  test.phase = placement.phase;
+  test.week = placement.week;
+  await test.save();
+
+  return responseStatus(res, 200, "success", test);
 };
 
 exports.getAllTestsService = async (res) => {

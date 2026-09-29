@@ -8,6 +8,7 @@ const isAdminOrTeacher = require("../../../middlewares/isAdminOrTeacher");
 router.post("/pdf-reports/result-sheet", isLoggedIn, isAdminOrTeacher, pdfReportController.generateResultSheet);
 router.post("/pdf-reports/analytics", isLoggedIn, isAdminOrTeacher, pdfReportController.generateAnalytics);
 router.post("/pdf-reports/session-report", isLoggedIn, isAdminOrTeacher, pdfReportController.generateSessionReport);
+router.post("/pdf-reports/session-report-bulk", isLoggedIn, isAdminOrTeacher, pdfReportController.generateSessionReportBulk);
 
 // Serve generated PDF by UUID (unguessable URL)
 router.get("/pdf-reports/:uuid", isLoggedIn, isAdminOrTeacher, pdfReportController.servePdf);

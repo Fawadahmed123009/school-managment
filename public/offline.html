@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a2744" />
+  <title>Avenir Academy — Offline</title>
+  <style>
+    :root { --ink: #1a2744; --paper: #f4f6fb; --accent: #c8a84b; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      box-shadow: 0 8px 30px rgba(26, 39, 68, 0.08);
+      max-width: 26rem;
+      width: 100%;
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }
+    .logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 1.25rem;
+    }
+    h1 { font-size: 1.35rem; margin-bottom: 0.6rem; }
+    p { font-size: 0.95rem; color: #6b7280; line-height: 1.55; margin-bottom: 1.5rem; }
+    .retry {
+      display: inline-block;
+      background: var(--ink);
+      color: #fff;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 600;
+      padding: 0.7rem 1.6rem;
+      border-radius: 8px;
+    }
+    .retry:hover { background: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img class="logo" src="/images/logo.jpg" alt="Avenir Academy logo" />
+    <h1>You appear to be offline</h1>
+    <p>
+      This page needs a network connection. Check your Wi‑Fi or mobile data
+      and try again — your session and data are safe on the server.
+    </p>
+    <a class="retry" href="/">Try again</a>
+  </div>
+</body>
+</html>

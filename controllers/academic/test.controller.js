@@ -1,6 +1,8 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const {
   createTestService,
+  getTestByIdService,
+  updateTestService,
   getAllTestsService,
   getTeacherScopedTestsService,
   getTeacherAssignedClassesService,
@@ -25,6 +27,23 @@ const {
 exports.createTestController = async (req, res) => {
   try {
     await createTestService(req.body, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.getTestByIdController = async (req, res) => {
+  try {
+    await getTestByIdService(req.params.testId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Edit a test's own fields (admin/manager — "Manage tests" → Edit)
+exports.updateTestController = async (req, res) => {
+  try {
+    await updateTestService(req.params.testId, req.body, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

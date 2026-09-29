@@ -1,0 +1,83 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Reports</p>
+    <h1>Session Reports Ready</h1>
+  </div>
+  <a href="/reports/generate" class="btn btn-ghost">&#8592; Generate another</a>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2><%= sessionName %></h2>
+  </div>
+  <div class="panel-body">
+    <p style="margin:0;font-size:14px;color:var(--ink-soft);">
+      <strong style="color:var(--ink);"><%= generatedCount %></strong> report<%= generatedCount === 1 ? '' : 's' %> generated
+      &nbsp;·&nbsp;
+      <strong style="color:var(--ink);"><%= skippedCount %></strong> skipped (no results in the selected period)
+    </p>
+    <p class="hint" style="margin-top:8px;">Each &ldquo;Send on WhatsApp&rdquo; button opens the student's registered number in WhatsApp with the report link ready — press send once per chat.</p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>Reports</h2></div>
+  <div class="panel-body">
+    <% if (reports.length === 0) { %>
+      <p class="hint">No students matched the selection.</p>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Class</th>
+              <th>Roll No</th>
+              <th>Status</th>
+              <th>PDF</th>
+              <th>WhatsApp</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% reports.forEach(function (r) { %>
+              <tr>
+                <td><%= r.name %></td>
+                <td><%= r.className %></td>
+                <td><%= r.rollNumber %></td>
+                <td>
+                  <% if (r.status === 'generated') { %>
+                    <span style="color:#166534;font-weight:600;">Ready</span>
+                  <% } else { %>
+                    <span style="color:var(--ink-soft);font-style:italic;">Skipped — no results</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (r.status === 'generated') { %>
+                    <a href="<%= r.pdfUrl %>" target="_blank" class="btn btn-sm" style="padding:6px 14px;font-size:12px;">&#128194; View</a>
+                  <% } else { %>
+                    &mdash;
+                  <% } %>
+                </td>
+                <td>
+                  <% if (r.waLink) { %>
+                    <a href="<%= r.waLink %>" target="_blank" rel="noopener" class="btn" style="background:#25D366;color:#fff;padding:6px 14px;font-size:12px;">&#9993; Send</a>
+                  <% } else if (r.status === 'generated') { %>
+                    <span class="hint">No number registered</span>
+                  <% } else { %>
+                    &mdash;
+                  <% } %>
+                </td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

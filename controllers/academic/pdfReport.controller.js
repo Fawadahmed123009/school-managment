@@ -6,6 +6,17 @@ const Assignment = require("../../models/Academic/assignment.model");
 const Student = require("../../models/Students/students.model");
 const Admin = require("../../models/Staff/admin.model");
 const Teacher = require("../../models/Staff/teachers.model");
+const TestSession = require("../../models/Academic/testSession.model");
+
+// Hard cap for one bulk run — a report card is a multi-section PDF, so an
+// unscoped school-wide batch would wedge the request thread for minutes.
+const BULK_STUDENT_CAP = 300;
+
+const OBJECT_ID_RE = /^[a-f\d]{24}$/i;
+const sanitizeIds = (value) =>
+  (Array.isArray(value) ? value : value ? [value] : [])
+    .map((v) => String(v))
+    .filter((v) => OBJECT_ID_RE.test(v));
 
 // Resolve whether the caller must be teacher-scoped.
 // IMPORTANT: the API Bearer token only carries { id } (see
@@ -145,7 +156,7 @@ exports.generateAnalytics = async (req, res) => {
 // POST /pdf-reports/session-report
 exports.generateSessionReport = async (req, res) => {
   try {
-    const { sessionId, studentId } = req.body;
+    const { sessionId, studentId, phaseId, weekId } = req.body;
     if (!sessionId || !studentId) return responseStatus(res, 400, "failed", "sessionId and studentId are required");
 
     // Finding B-1: the session report is a full per-student report card that
@@ -161,12 +172,75 @@ exports.generateSessionReport = async (req, res) => {
     }
 
     const schoolName = process.env.SCHOOL_NAME || "School Portal";
-    const result = await pdfReportService.generateSessionReportPDF(sessionId, studentId, schoolName);
+    const period = { phaseId: phaseId || undefined, weekId: weekId || undefined };
+    const result = await pdfReportService.generateSessionReportPDF(sessionId, studentId, schoolName, period);
 
     return responseStatus(res, 200, "success", {
       pdfUrl: `/reports/pdf/${result.uuid}`,
       singleStudent: result.singleStudent,
       reportType: "session-report",
+    });
+  } catch (err) {
+    return responseStatus(res, 500, "failed", err.message || "PDF generation failed");
+  }
+};
+
+// POST /pdf-reports/session-report-bulk
+// Session report cards for a whole class or a set of selected sections,
+// optionally narrowed to one phase or one week. Same admin/manager gate as
+// the single-student twin (Finding B-1): the payload is the full parent-
+// facing report card, so no teacher scoping is attempted — it is simply 403.
+exports.generateSessionReportBulk = async (req, res) => {
+  try {
+    const { sessionId, scope, classLevelId, classLevelIds, phaseId, weekId } = req.body;
+    if (!sessionId || !OBJECT_ID_RE.test(String(sessionId))) {
+      return responseStatus(res, 400, "failed", "A valid sessionId is required");
+    }
+
+    const caller = await resolveCaller(req);
+    if (caller.restricted) {
+      return responseStatus(res, 403, "failed", "Only admins and managers can generate session report cards");
+    }
+
+    // "class" = one ClassLevel (whole class), "sections" = several ClassLevels
+    // (the class-section combos picked from the grouped checkbox list).
+    const ids = scope === "class" ? sanitizeIds(classLevelId) : scope === "sections" ? sanitizeIds(classLevelIds) : [];
+    if (ids.length === 0) {
+      return responseStatus(res, 400, "failed", "Select at least one class or section");
+    }
+
+    const session = await TestSession.findById(sessionId).select("_id").lean();
+    if (!session) return responseStatus(res, 404, "failed", "Session not found");
+
+    // Only currently-enrolled students get report cards.
+    const students = await Student.find({
+      classLevel: { $in: ids },
+      status: "active",
+      isWithdrawn: false,
+      isGraduated: false,
+    })
+      .select("_id")
+      .lean();
+
+    if (students.length === 0) {
+      return responseStatus(res, 400, "failed", "No active students in the selected class/es");
+    }
+    if (students.length > BULK_STUDENT_CAP) {
+      return responseStatus(res, 400, "failed", `Bulk generation supports up to ${BULK_STUDENT_CAP} students at a time (selected class/es have ${students.length})`);
+    }
+
+    const schoolName = process.env.SCHOOL_NAME || "School Portal";
+    const reports = await pdfReportService.generateSessionReportBulkPDFs(
+      { sessionId, studentIds: students.map((s) => s._id), phaseId: phaseId || undefined, weekId: weekId || undefined },
+      schoolName
+    );
+
+    const generatedCount = reports.filter((r) => r.status === "generated").length;
+    return responseStatus(res, 200, "success", {
+      reports,
+      generatedCount,
+      skippedCount: reports.length - generatedCount,
+      reportType: "session-report-bulk",
     });
   } catch (err) {
     return responseStatus(res, 500, "failed", err.message || "PDF generation failed");

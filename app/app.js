@@ -153,6 +153,18 @@ app.use("/uploads", (req, res, next) => {
   }
 }, express.static(path.join(__dirname, "../uploads")));
 
+// ── PWA hardening: dynamic responses are never cacheable ─────────
+// Mounted AFTER the static/upload mounts (which keep their normal HTTP
+// caching) and before every view/API router, so all HTML portals, /api/*
+// responses and CSRF/session-dependent output carry Cache-Control:
+// no-store. Together with the service worker (which caches no dynamic
+// response at all) this means a back-button replay after logout can only
+// re-issue a network request — which authView then redirects to /login.
+app.use((req, res, next) => {
+  res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 app.use((req, res, next) => {
   res.locals.schoolName = process.env.SCHOOL_NAME || "School Portal";
   res.locals.instituteWhatsApp = process.env.INSTITUTE_WHATSAPP || "";

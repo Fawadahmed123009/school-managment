@@ -1,0 +1,116 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<%
+  // Placement is resolved server-side so the form renders its real current
+  // state; the cascade script only has to react to later changes.
+  const currentSessionId = test.session ? String(test.session._id) : '';
+  const currentPhaseId = test.phase ? String(test.phase) : '';
+  const currentWeekId = test.week ? String(test.week._id || test.week) : '';
+  const showPhase = !!currentSessionId;
+  // The week field follows the phase choice (a legacy test can sit on a phase
+  // with no week yet — the admin must still be able to pick one).
+  const showWeek = !!(currentSessionId && currentPhaseId);
+%>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Tests</p>
+    <h1>Edit test</h1>
+  </div>
+  <a href="/tests/manage" class="btn btn-ghost">← Back to tests</a>
+</div>
+
+<% if (saveError) { %><div class="flash error"><%= saveError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2><%= test.name %></h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/tests/<%= test._id %>/edit" id="test-edit-form">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row">
+        <div class="field">
+          <label for="name">Test name</label>
+          <input type="text" name="name" id="name" value="<%= test.name %>" required />
+        </div>
+        <div class="field">
+          <label for="subject">Subject</label>
+          <select name="subject" id="subject" required>
+            <option value="">Select a subject</option>
+            <% subjects.forEach(function(s) { %>
+              <option value="<%= s._id %>" <%= String(test.subject && (test.subject._id || test.subject)) === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Classes / sections</label>
+        <div
+          id="cpicker-edit"
+          data-cpicker
+          data-cpicker-source="cpicker-edit-classes"
+          data-cpicker-selected='<%- JSON.stringify(test.classLevels.map(function(c) { return String(c._id || c); })) %>'
+          data-cpicker-field="classLevels"
+          data-cpicker-required
+        ></div>
+        <p class="hint">Select classes to include — this creates one unified roster across all selected.</p>
+        <p class="hint">Subject and classes can't be changed once scores have been submitted for this test.</p>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="date">Date</label>
+          <input type="date" name="date" id="date" value="<%= dateValue %>" required />
+        </div>
+        <div class="field">
+          <label for="totalMarks">Total marks</label>
+          <input type="number" name="totalMarks" id="totalMarks" value="<%= test.totalMarks %>" min="1" required />
+        </div>
+        <div class="field">
+          <label for="passMarks">Pass marks</label>
+          <input type="number" name="passMarks" id="passMarks" value="<%= test.passMarks %>" min="0" required />
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="session">Session</label>
+          <select name="session" id="session">
+            <option value="" <%= currentSessionId ? '' : 'selected' %>>Standalone test — no session</option>
+            <% sessions.forEach(function(s) { %>
+              <option value="<%= s._id %>" data-phases='<%- JSON.stringify(s.phases) %>' <%= currentSessionId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" id="phase-field" style="display:<%= showPhase ? '' : 'none' %>;">
+          <label for="phase">Phase</label>
+          <select name="phase" id="phase">
+            <option value="">—</option>
+            <% phases.forEach(function(p) { %>
+              <option value="<%= p._id %>" <%= currentPhaseId === String(p._id) ? 'selected' : '' %>><%= p.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" id="week-field" style="display:<%= showWeek ? '' : 'none' %>;">
+          <label for="week">Week</label>
+          <select name="week" id="week">
+            <option value="">Select a week</option>
+            <% weeks.forEach(function(w) { %>
+              <option value="<%= w._id %>" <%= currentWeekId === String(w._id) ? 'selected' : '' %>><%= w.name %></option>
+            <% }); %>
+          </select>
+          <p class="hint" id="week-hint"><%= weeks.length === 0 ? 'No weeks defined for this phase yet. Create weeks from the session management page.' : '' %></p>
+        </div>
+      </div>
+      <div class="field-row" style="gap:8px;">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="/tests/manage" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="application/json" id="cpicker-edit-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script src="/js/class-picker.js"></script>
+<script src="/js/test-edit.js"></script>
+
+<%- include('../partials/foot') %>

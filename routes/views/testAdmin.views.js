@@ -89,6 +89,83 @@ router.post("/tests/create", requireAdminOrManager(), async (req, res) => {
   res.redirect("/tests/manage?ok=1");
 });
 
+// Format a Date as YYYY-MM-DD for <input type="date"> value (browser-local).
+function toDateInputValue(d) {
+  if (!d) return "";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "";
+  const off = date.getTimezoneOffset();
+  return new Date(date.getTime() - off * 60000).toISOString().slice(0, 10);
+}
+
+// Edit a test — same fields as the create form, pre-filled with the current
+// values so an admin/manager can correct anything before or after marking.
+router.get("/tests/:testId/edit", requireAdminOrManager(), async (req, res) => {
+  const [testRes, sessionsRes, subjectsRes, classesRes] = await Promise.all([
+    apiFetch(`/tests/${req.params.testId}`, req.token),
+    apiFetch("/test-sessions", req.token),
+    apiFetch("/subject", req.token),
+    apiFetch("/class-levels", req.token),
+  ]);
+
+  if (testRes.status !== "success") {
+    return res.redirect(`/tests/manage?error=${encodeURIComponent(testRes.message || "Test not found")}`);
+  }
+
+  const test = testRes.data;
+  const sessions = sessionsRes.status === "success" ? sessionsRes.data : [];
+
+  // `phase` is a bare subdocument id, so the phase list has to come from the
+  // owning session; the week list from that session+phase pair.
+  const sessionDoc = test.session ? sessions.find((s) => String(s._id) === String(test.session._id)) : null;
+  const phases = sessionDoc ? [...(sessionDoc.phases || [])].sort((a, b) => a.order - b.order) : [];
+
+  let weeks = [];
+  if (sessionDoc && test.phase) {
+    const weeksRes = await apiFetch(`/sessions/${sessionDoc._id}/weeks/${test.phase}`, req.token);
+    weeks = weeksRes.status === "success" ? weeksRes.data : [];
+  }
+
+  res.render("tests/edit", {
+    page: "tests-manage",
+    user: req.user,
+    test,
+    sessions,
+    phases,
+    weeks,
+    subjects: subjectsRes.status === "success" ? subjectsRes.data : [],
+    classes: classesRes.status === "success" ? classesRes.data : [],
+    dateValue: toDateInputValue(test.date),
+    saveError: req.query.error || null,
+    schoolName: res.locals.schoolName,
+  });
+});
+
+router.post("/tests/:testId/edit", requireAdminOrManager(), async (req, res) => {
+  const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = req.body;
+  const backUrl = `/tests/${req.params.testId}/edit`;
+
+  const result = await apiFetch(`/tests/${req.params.testId}`, req.token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      name,
+      subject,
+      classLevels: Array.isArray(classLevels) ? classLevels : [classLevels],
+      date,
+      totalMarks,
+      passMarks,
+      session: session || null,
+      phase: phase || null,
+      week: week || null,
+    }),
+  });
+
+  if (result.status !== "success") {
+    return res.redirect(`${backUrl}?error=${encodeURIComponent(result.message || "Update failed")}`);
+  }
+  res.redirect("/tests/manage?ok=1");
+});
+
 router.get("/sessions/manage", requireAdminOrManager(), async (req, res) => {
   const [sessionsRes, classesRes] = await Promise.all([
     apiFetch("/test-sessions", req.token),
