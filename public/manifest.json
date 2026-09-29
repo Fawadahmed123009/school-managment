@@ -3,7 +3,7 @@
   "short_name": "Avenir",
   "description": "Avenir Academy Management Portal — students, staff, fees, exams and parent portal.",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

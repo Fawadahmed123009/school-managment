@@ -12,7 +12,8 @@
 //     for failed API calls or failed responses (4xx/5xx pass through).
 //
 // Bump CACHE_VERSION when static assets change in a way that must invalidate.
-const CACHE_VERSION = "v1";
+// v2: regenerated /images/icons/* (padded) — drop the stale edge-to-edge copies.
+const CACHE_VERSION = "v2";
 const STATIC_CACHE = `avenir-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
