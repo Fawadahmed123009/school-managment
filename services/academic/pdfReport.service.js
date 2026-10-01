@@ -11,7 +11,6 @@ const ClassLevel = require("../../models/Academic/class.model");
 const Week = require("../../models/Academic/week.model");
 
 const PDF_DIR = path.join(__dirname, "../../tmp/pdfs");
-const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
 
 // Ensure PDF output directory exists
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
@@ -22,141 +21,23 @@ if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 // local-storage deployments. See E-1.
 const { loadStudentPhoto: resolveStudentPhoto } = require("../../utils/studentPhoto");
 
-// ─── Shared PDF drawing helpers ────────────────────────────────────────────────
-
-const HEADER_RESERVE = 68; // vertical space used by drawHeader (logo + titles + divider + gap)
-
-/**
- * Draw the repeating page header (logo + school name + title + subtitle + divider).
- * Registers a `pageAdded` listener so the header is redrawn on every new page.
- * Returns the Y position where body content should start.
- */
-function drawHeader(doc, { schoolName, title, subtitle }) {
-  const hasLogo = fs.existsSync(LOGO_PATH);
-  const leftMargin = doc.page.margins.left;
-  const topMargin = doc.page.margins.top;
-  const pageW = doc.page.width;
-
-  function paintHeader() {
-    if (hasLogo) {
-      try {
-        doc.image(LOGO_PATH, leftMargin, topMargin, { width: 48, height: 48 });
-      } catch {
-        // logo corrupt — skip silently
-      }
-    }
-
-    const textX = hasLogo ? leftMargin + 58 : leftMargin;
-    doc
-      .fontSize(18)
-      .font("Helvetica-Bold")
-      .fillColor("#1e3a5f")
-      .text(schoolName || "School Portal", textX, topMargin + 2);
-
-    doc
-      .fontSize(13)
-      .font("Helvetica-Bold")
-      .fillColor("#333")
-      .text(title, textX, topMargin + 22);
-
-    if (subtitle) {
-      doc
-        .fontSize(10)
-        .font("Helvetica")
-        .fillColor("#666")
-        .text(subtitle, textX, topMargin + 40);
-    }
-
-    // Divider line
-    const lineY = hasLogo ? topMargin + 56 : topMargin + 50;
-    doc.moveTo(leftMargin, lineY).lineTo(pageW - leftMargin - doc.page.margins.right, lineY).strokeColor("#ddd").lineWidth(1).stroke();
-  }
-
-  // Paint on first page
-  paintHeader();
-
-  // Re-paint on every subsequent page
-  doc.on("pageAdded", () => {
-    paintHeader();
-  });
-
-  return topMargin + HEADER_RESERVE;
-}
-
-function drawTable(doc, startY, { headers, rows, colWidths }) {
-  let y = startY;
-  const leftMargin = doc.page.margins.left;
-  const topMargin = doc.page.margins.top;
-  const rowHeight = 22;
-  const headerHeight = 24;
-
-  // Header row
-  doc.fillStyle = "#1e3a5f";
-  doc.rect(leftMargin, y, 550 - leftMargin - doc.page.margins.right, headerHeight).fill();
-
-  doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
-  let x = leftMargin + 6;
-  headers.forEach((h, i) => {
-    doc.text(h, x, y + 7, { width: colWidths[i] - 8, align: i > 0 ? "right" : "left" });
-    x += colWidths[i];
-  });
-  y += headerHeight;
-
-  // Data rows
-  doc.font("Helvetica").fontSize(9);
-  rows.forEach((row, ri) => {
-    if (y > 750) {
-      doc.addPage();
-      // Start below the repeating page header (drawn by pageAdded handler)
-      y = topMargin + HEADER_RESERVE;
-    }
-
-    // Alternating row background
-    if (ri % 2 === 0) {
-      doc.fillStyle = "#f8f9fa";
-      doc.rect(leftMargin, y, 550 - leftMargin - doc.page.margins.right, rowHeight).fill();
-    }
-
-    doc.fillColor("#333");
-    x = leftMargin + 6;
-    row.forEach((cell, i) => {
-      const align = i > 0 ? "right" : "left";
-      doc.text(String(cell), x, y + 7, { width: colWidths[i] - 8, align });
-      x += colWidths[i];
-    });
-    y += rowHeight;
-  });
-
-  return y;
-}
-
-function drawStatBox(doc, x, y, value, label) {
-  doc
-    .fillColor("#1e3a5f")
-    .fontSize(16)
-    .font("Helvetica-Bold")
-    .text(value, x, y, { width: 100, align: "center" });
-  doc
-    .fillColor("#666")
-    .fontSize(8)
-    .font("Helvetica")
-    .text(label, x, y + 20, { width: 100, align: "center" });
-}
-
-function drawFooter(doc) {
-  const pageW = doc.page.width;
-  const pageH = doc.page.height;
-  doc
-    .fontSize(7)
-    .font("Helvetica")
-    .fillColor("#aaa")
-    .text(
-      `Generated ${new Date().toLocaleString()} — School Management System`,
-      doc.page.margins.left,
-      pageH - 30,
-      { width: pageW - doc.page.margins.left - doc.page.margins.right, align: "center" }
-    );
-}
+// ─── Shared card-style drawing primitives ──────────────────────────────────────
+// Every PDF this service produces (result sheet, analytics, session report
+// card) draws the same black-on-white chrome/info-grid/tables defined in
+// utils/cardPdfStyle.js — layout/rendering only, no data logic.
+const {
+  CARD_BLACK,
+  CARD_DASH,
+  CARD_TABLE_X,
+  CARD_TABLE_W,
+  createCardChrome,
+  strokeCardCell: cardStrokeCell,
+  drawCenteredLines: cardCenteredLines,
+  wrapCardLabel,
+  clipCardLine,
+  drawInfoGrid,
+  drawCardTable,
+} = require("../../utils/cardPdfStyle");
 
 // ─── Data gathering (reuses existing model queries) ────────────────────────────
 
@@ -439,50 +320,61 @@ function generateResultSheetPDF(data, schoolName) {
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
 
-  // Header
-  let y = drawHeader(doc, {
+  // Page chrome (frame + centered logo/title block + footer), same as the
+  // session report card.
+  const chrome = createCardChrome(doc, {
     schoolName,
     title: "Test Result Sheet",
     subtitle: `${test.subject ? test.subject.name : ""} — ${test.name}`,
   });
-
-  // Test info
-  doc.fillColor("#333").fontSize(10).font("Helvetica");
-  doc.text(`Date: ${new Date(test.date).toLocaleDateString()}`, 50, y);
-  doc.text(`Total Marks: ${test.totalMarks}`, 200, y);
-  doc.text(`Pass Marks: ${test.passMarks}`, 350, y);
-  y += 20;
 
   // Stats
   const passCount = results.filter((r) => r.score >= test.passMarks).length;
   // Finding 1.3: show meaningful message when test has zero results
   const passRate = results.length > 0 ? Math.round((passCount / results.length) * 100) : 0;
 
-  drawStatBox(doc, 50, y, String(results.length), "Students");
-  drawStatBox(doc, 170, y, results.length > 0 ? String(passCount) : "—", "Passed");
-  drawStatBox(doc, 290, y, results.length > 0 ? `${passRate}%` : "—", "Pass Rate");
-  y += 50;
+  // Labeled info grid: test meta + summary stats, black-on-white cells
+  let y = drawInfoGrid(doc, {
+    y: chrome.y,
+    rows: [
+      [{ label: "Test", value: test.name, size: 10 }],
+      [
+        { label: "Subject", value: test.subject ? test.subject.name : null },
+        { label: "Date", value: new Date(test.date).toLocaleDateString() },
+      ],
+      [
+        { label: "Total Marks", value: String(test.totalMarks) },
+        { label: "Pass Marks", value: test.passMarks != null ? String(test.passMarks) : null },
+      ],
+      [
+        { label: "Students", value: String(results.length) },
+        { label: "Passed", value: results.length > 0 ? String(passCount) : null },
+        { label: "Pass Rate", value: results.length > 0 ? `${passRate}%` : null },
+      ],
+    ],
+  }) + 16;
 
-  // Results table
+  // Results table — pass/fail column only when the test actually has a pass mark
+  const hasPass = Number(test.passMarks) > 0;
   if (results.length > 0) {
-    const headers = ["Student", "Roll No", "ID", "Score", "%", "Status"];
-    const colWidths = [150, 60, 90, 70, 60, 70];
+    const headers = hasPass ? ["Roll No", "Student", "Score / Max", "Status"] : ["Roll No", "Student", "Score / Max"];
+    const colWidths = hasPass ? [80, 240, 105, 70] : [90, 260, 145];
+    const aligns = hasPass ? ["center", "left", "center", "center"] : ["center", "left", "center"];
     const rows = results.map((r) => {
-      const pct = test.totalMarks ? Math.round((r.score / test.totalMarks) * 10000) / 100 : null;
       // A student can be deleted out-of-band while their TestResult rows
       // remain, leaving r.student null after populate. Render a graceful "—"
       // row instead of throwing a 500.
       const stu = r.student || {};
-      return [stu.name || "—", stu.rollNumber || "—", stu.studentId || "—", `${r.score}/${test.totalMarks}`, pct !== null ? `${pct}%` : "—", r.score >= test.passMarks ? "Pass" : "Fail"];
+      const line = [stu.rollNumber || CARD_DASH, stu.name || CARD_DASH, `${r.score}/${test.totalMarks}`];
+      if (hasPass) line.push(r.score >= test.passMarks ? "Pass" : "Fail");
+      return line;
     });
-    drawTable(doc, y, { headers, rows, colWidths });
+    y = drawCardTable(doc, y, { headers, rows, colWidths, aligns, chrome });
   } else {
-    doc.fillColor("#999").fontSize(10).font("Helvetica-Oblique");
-    doc.text("No results recorded yet", 50, y);
+    doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK).text("No results recorded yet", CARD_TABLE_X, y);
     y += 20;
   }
 
-  drawFooter(doc);
   doc.end();
 
   return new Promise((resolve) => {
@@ -493,6 +385,83 @@ function generateResultSheetPDF(data, schoolName) {
       resolve({ uuid, filePath, studentCount: results.length, singleStudent: null });
     });
   });
+}
+
+// Single-student analytics: one row per test with the Subject column merged
+// vertically across that subject's rows — the same merged-cell idea the
+// session report card uses for its phase headers. Rows are sorted by subject,
+// then date, purely for display grouping (no data change).
+function drawSubjectMergedTable(doc, startY, rows, chrome) {
+  const sorted = rows
+    .slice()
+    .sort((a, b) => String(a.subject).localeCompare(String(b.subject)) || new Date(a.date) - new Date(b.date));
+
+  const x = CARD_TABLE_X;
+  const colWidths = [105, 165, 85, 80, 60]; // sums to CARD_TABLE_W (495)
+  const aligns = ["center", "left", "center", "center", "center"];
+  const headers = ["Subject", "Test", "Date", "Score / Max", "%"];
+  const fontSize = 9;
+  const rowH = 20;
+  const bottomLimit = () => doc.page.height - 92;
+  const colX = (i) => x + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
+
+  let y = startY;
+  const headerLines = headers.map((h, i) => wrapCardLabel(doc, h, colWidths[i] - 8, fontSize, 2));
+  const hdrH = Math.max(...headerLines.map((l) => l.length)) * (fontSize + 3) + 6;
+  const paintHeader = () => {
+    headers.forEach((h, i) => {
+      cardCenteredLines(doc, headerLines[i], colX(i) + 2, colWidths[i] - 4, y, hdrH, { font: "Helvetica-Bold", size: fontSize });
+      cardStrokeCell(doc, colX(i), colWidths[i], y, hdrH, 0.75);
+    });
+    y += hdrH;
+  };
+  paintHeader();
+
+  // A "segment" is the part of one merged subject cell that lives on a single
+  // page; page turns close the old segment and reopen it under the new header.
+  let group = null;
+  let segTop = null;
+  const closeSegment = (bottom) => {
+    if (group === null || segTop === null) return;
+    const h = bottom - segTop;
+    if (h > 0) {
+      cardStrokeCell(doc, colX(0), colWidths[0], segTop, h, 0.5);
+      const maxLines = Math.max(1, Math.floor(h / (fontSize + 3)));
+      cardCenteredLines(doc, wrapCardLabel(doc, group, colWidths[0] - 10, fontSize, maxLines), colX(0) + 5, colWidths[0] - 10, segTop, h, {
+        font: "Helvetica-Bold",
+        size: fontSize,
+      });
+    }
+    segTop = null;
+  };
+
+  for (const r of sorted) {
+    const newGroup = group === null || r.subject !== group;
+    if (y + rowH > bottomLimit()) {
+      closeSegment(y);
+      doc.addPage();
+      y = chrome.y;
+      paintHeader();
+      if (!newGroup) segTop = y; // group continues below the repeated header
+    }
+    if (newGroup) {
+      closeSegment(y);
+      group = r.subject;
+      segTop = y;
+    }
+
+    const ry = y;
+    doc.font("Helvetica").fontSize(fontSize).fillColor(CARD_BLACK);
+    const cells = [r.test, new Date(r.date).toLocaleDateString(), `${r.score}/${r.totalMarks}`, r.percent !== null ? `${r.percent}%` : CARD_DASH];
+    for (let i = 1; i < colWidths.length; i++) {
+      const t = clipCardLine(doc, String(cells[i - 1]), colWidths[i] - 8, "Helvetica", fontSize);
+      doc.text(t, colX(i) + 4, ry + (rowH - fontSize * 1.2) / 2, { width: colWidths[i] - 8, align: aligns[i] });
+      cardStrokeCell(doc, colX(i), colWidths[i], ry, rowH, 0.5);
+    }
+    y = ry + rowH;
+  }
+  closeSegment(y);
+  return y;
 }
 
 function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
@@ -507,53 +476,67 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
         .filter(Boolean)
         .join(" | ") || "All results";
 
-  let y = drawHeader(doc, {
+  const chrome = createCardChrome(doc, {
     schoolName,
     title: "Test Analytics Report",
     subtitle,
   });
 
-  // Student photo + info strip when scoped to a single student with a photo
-  if (studentName && photoResult && photoResult.buffer) {
-    const PHOTO_SIZE = 54;
-    const stripH = 40;
-    doc.fillStyle = "#f0f4f8";
-    doc.rect(50, y, 495, stripH).fill();
-    try {
-      doc.image(photoResult.buffer, 56, y + (stripH - PHOTO_SIZE) / 2, {
-        width: PHOTO_SIZE,
-        height: PHOTO_SIZE,
-        fit: [PHOTO_SIZE, PHOTO_SIZE],
-      });
-    } catch {
-      // photo corrupt — skip
-    }
-    doc.fillColor("#1e3a5f").fontSize(10).font("Helvetica-Bold");
-    doc.text(studentName, 118, y + 13);
-    y += stripH + 10;
-  }
-
-  // Stats
+  // Stats — same labeled black-on-white cells as the session card
   // Filter out rows where totalMarks is falsy (0 or undefined) to avoid NaN — Finding 2.1
   const validRows = rows.filter((r) => r.totalMarks);
   const avg = validRows.length > 0 ? Math.round((validRows.reduce((s, r) => s + r.percent, 0) / validRows.length) * 100) / 100 : 0;
-  drawStatBox(doc, 50, y, String(rows.length), "Results");
-  drawStatBox(doc, 170, y, `${avg}%`, "Average");
-  y += 50;
 
-  // Table
-  if (rows.length > 0) {
-    const headers = studentName ? ["Test", "Subject", "Date", "Score", "%"] : ["Student", "Roll No", "Test", "Subject", "Score", "%"];
-    const colWidths = studentName ? [130, 120, 80, 70, 70] : [120, 60, 100, 90, 60, 60];
-    const rows_data = rows.map((r) =>
-      studentName
-        ? [r.test, r.subject, new Date(r.date).toLocaleDateString(), `${r.score}/${r.totalMarks}`, `${r.percent !== null ? r.percent : "—"}%`]
-        : [r.studentName, r.rollNumber || "—", r.test, r.subject, `${r.score}/${r.totalMarks}`, `${r.percent !== null ? r.percent : "—"}%`]
-    );
-    drawTable(doc, y, { headers, rows: rows_data, colWidths });
+  let y;
+  if (studentName) {
+    // Student info block: photo cell + label/value grid, like the report card
+    y = drawInfoGrid(doc, {
+      y: chrome.y,
+      withPhoto: true,
+      photoResult,
+      rows: [
+        [{ label: "Name", value: studentName, size: 11 }],
+        [
+          { label: "Roll No", value: rows[0] ? String(rows[0].rollNumber || "") : null },
+          { label: "Student ID", value: rows[0] ? String(rows[0].studentId || "") : null },
+        ],
+      ],
+    }) + 16;
+  } else {
+    y = chrome.y;
   }
 
-  drawFooter(doc);
+  y = drawInfoGrid(doc, {
+    y,
+    rows: [
+      [
+        { label: "Results", value: String(rows.length) },
+        { label: "Average", value: `${avg}%` },
+      ],
+    ],
+  }) + 16;
+
+  // Table
+  if (rows.length === 0) {
+    doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK).text("No results recorded for this filter.", CARD_TABLE_X, y);
+    y += 20;
+  } else if (studentName) {
+    y = drawSubjectMergedTable(doc, y, rows, chrome);
+  } else {
+    const headers = ["Student", "Roll No", "Test", "Subject", "Score", "%"];
+    const colWidths = [130, 60, 120, 95, 50, 40];
+    const aligns = ["left", "center", "left", "left", "center", "center"];
+    const tableRows = rows.map((r) => [
+      r.studentName,
+      r.rollNumber || CARD_DASH,
+      r.test,
+      r.subject,
+      `${r.score}/${r.totalMarks}`,
+      r.percent !== null ? `${r.percent}%` : CARD_DASH,
+    ]);
+    y = drawCardTable(doc, y, { headers, rows: tableRows, colWidths, aligns, chrome });
+  }
+
   doc.end();
 
   return new Promise((resolve) => {
@@ -567,82 +550,216 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
   });
 }
 
+// ─── Session Report Card layout (black-on-white, one marks matrix) ─────────
+// Layout/rendering only: the data shape (session, student, phases[], overallAverage,
+// periodLabel) produced by gatherSessionReport / gatherSessionReportsBulk is
+// consumed exactly as before. Its page chrome, info grid and cell rules come
+// from utils/cardPdfStyle.js — the same primitives the Result Sheet and
+// Analytics renderers now share, so every PDF has one visual language.
+
+// Reshape phase blocks into a subjects × test-columns matrix. Within each
+// phase, a subject's k-th test occupies the k-th sub-column, so parallel
+// tests across subjects line up in the same column. Slots are derived from
+// recorded results only; a subject missing slot k shows a dash.
+function buildSubjectTable(phases = []) {
+  const subjectSet = new Set();
+  phases.forEach((pb) => pb.tests.forEach((t) => subjectSet.add(t.subject)));
+  const subjects = [...subjectSet].sort((a, b) => String(a).localeCompare(String(b)));
+
+  const groups = phases
+    .map((pb) => {
+      const slotsBySubject = new Map();
+      pb.tests.forEach((t) => {
+        if (!slotsBySubject.has(t.subject)) slotsBySubject.set(t.subject, []);
+        slotsBySubject.get(t.subject).push(t);
+      });
+      const slotCount = Math.max(0, ...[...slotsBySubject.values()].map((list) => list.length));
+      return { phase: pb.phase, slotCount, slotsBySubject };
+    })
+    .filter((g) => g.slotCount > 0);
+
+  const columns = [];
+  groups.forEach((g, gi) => {
+    for (let s = 0; s < g.slotCount; s++) {
+      const cellBySubject = {};
+      g.slotsBySubject.forEach((list, subj) => {
+        if (list[s]) cellBySubject[subj] = list[s];
+      });
+      columns.push({ gi, label: `Test ${s + 1}`, cellBySubject });
+    }
+  });
+
+  return { subjects, groups, columns };
+}
+
 function renderSessionReportPdf(data, schoolName, photoResult) {
   const { session, student, phases, overallAverage, periodLabel } = data;
   const doc = new PDFDocument({ size: "A4", margin: 50 });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
 
-  let y = drawHeader(doc, {
+  const TABLE_X = CARD_TABLE_X;
+  const TABLE_W = CARD_TABLE_W;
+  const bottomLimit = () => doc.page.height - 92; // keep clear of the in-frame footer
+
+  const strokeCardCell = (x, w, yy, h, lw = 0.5) => cardStrokeCell(doc, x, w, yy, h, lw);
+  const drawCenteredLines = (lines, x, w, yy, h, opts) => cardCenteredLines(doc, lines, x, w, yy, h, opts);
+
+  // ── Page chrome: thin outer frame, centred title block, in-frame footer ──
+  const chrome = createCardChrome(doc, {
     schoolName,
     title: "Session Report Card",
-    subtitle: periodLabel ? `${session.name} — ${periodLabel}` : `${session.name}`,
+    subtitle: periodLabel ? `${session.name} — ${periodLabel}` : session.name,
   });
 
-  // Student info box (taller to accommodate passport photo on the right)
-  const PHOTO_SIZE = 72; // 1 inch
-  const infoBoxH = photoResult ? 80 : 55;
-  doc.fillStyle = "#f0f4f8";
-  doc.rect(50, y, 495, infoBoxH).fill();
+  // ── Student info block: photo cell + label/value grid (not a paragraph) ──
+  let y =
+    drawInfoGrid(doc, {
+      x: TABLE_X,
+      w: TABLE_W,
+      y: chrome.y,
+      withPhoto: true,
+      photoResult,
+      rows: [
+        [{ label: "Name", value: student.name, size: 11 }],
+        [{ label: "Roll No", value: student.rollNumber }, { label: "Class / Section", value: student.className }],
+        [{ label: "Father's Name", value: student.fatherName }, { label: "Student ID", value: student.studentId }],
+      ],
+    }) + 16;
 
-  // Student photo (right side of info box)
-  if (photoResult && photoResult.buffer) {
-    try {
-      const photoX = 50 + 495 - PHOTO_SIZE - 6;
-      const photoY = y + (infoBoxH - PHOTO_SIZE) / 2;
-      doc.image(photoResult.buffer, photoX, photoY, {
-        width: PHOTO_SIZE,
-        height: PHOTO_SIZE,
-        fit: [PHOTO_SIZE, PHOTO_SIZE],
+  // ── Single marks table: rows = subjects, columns = phase test slots + Total ──
+  const table = buildSubjectTable(phases);
+  const nCols = table.columns.length;
+  const cellOf = (subj, i) => table.columns[i].cellBySubject[subj] || null;
+
+  // totalMarks context: if every recorded test shares one max, keep cells bare
+  // and say so in a footnote; otherwise show score/max per cell.
+  const allTotals = new Set();
+  table.columns.forEach((c) => Object.values(c.cellBySubject).forEach((t) => allTotals.add(t.totalMarks)));
+  const uniformTotal = allTotals.size === 1 && [...allTotals][0] > 0 ? [...allTotals][0] : null;
+  const fmtCell = (t) => {
+    if (!t) return CARD_DASH;
+    if (uniformTotal !== null) return String(t.score);
+    return t.totalMarks > 0 ? `${t.score}/${t.totalMarks}` : String(t.score);
+  };
+
+  if (nCols === 0) {
+    doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK)
+      .text("No test results recorded for this period.", TABLE_X, y);
+    y += 24;
+  } else {
+    // Font/column sizing: shrink rather than break the table when the session
+    // has many phases/tests.
+    const scoreFont = nCols <= 8 ? 9 : nCols <= 12 ? 8 : nCols <= 16 ? 7 : 6;
+    const headFont = Math.min(10, scoreFont + 1);
+    const subjW = nCols > 14 ? 88 : nCols > 10 ? 104 : 122;
+    const totalW = nCols > 14 ? 44 : nCols > 10 ? 50 : 56;
+    const testW = (TABLE_W - subjW - totalW) / nCols;
+    const rowH = scoreFont + 9;
+    const colXAt = (i) => TABLE_X + subjW + i * testW;
+
+    const groupSpans = [];
+    table.columns.forEach((c, i) => {
+      const last = groupSpans[groupSpans.length - 1];
+      if (!last || last.gi !== c.gi) groupSpans.push({ gi: c.gi, start: i, count: 1 });
+      else last.count += 1;
+    });
+    const r1Lines = groupSpans.map((sp) => wrapCardLabel(doc, table.groups[sp.gi].phase, sp.count * testW - 8, headFont, 2));
+    const r1H = Math.max(...r1Lines.map((l) => l.length)) * (headFont + 3) + 8;
+    const r2Font = testW >= 30 ? headFont - 1 : Math.max(5, scoreFont - 1);
+    const r2Lines = table.columns.map((c) => wrapCardLabel(doc, c.label, testW - 4, r2Font, 2));
+    const r2H = Math.max(...r2Lines.map((l) => l.length)) * (r2Font + 3) + 6;
+
+    const drawTableHeader = () => {
+      const hy = y;
+      strokeCardCell(TABLE_X, subjW, hy, r1H + r2H, 0.75);
+      doc.font("Helvetica-Bold").fontSize(headFont).fillColor(CARD_BLACK)
+        .text("Subject", TABLE_X + 5, hy + (r1H + r2H) / 2 - headFont * 0.6, { width: subjW - 10 });
+      groupSpans.forEach((sp, k) => {
+        const gx = colXAt(sp.start);
+        strokeCardCell(gx, sp.count * testW, hy, r1H, 0.75);
+        drawCenteredLines(r1Lines[k], gx + 4, sp.count * testW - 8, hy, r1H, { font: "Helvetica-Bold", size: headFont });
       });
-    } catch {
-      // photo corrupt or unsupported format — skip silently
+      strokeCardCell(colXAt(nCols), totalW, hy, r1H + r2H, 0.75);
+      drawCenteredLines(["Total"], colXAt(nCols) + 2, totalW - 4, hy, r1H + r2H, { font: "Helvetica-Bold", size: headFont });
+      table.columns.forEach((c, i) => {
+        strokeCardCell(colXAt(i), testW, hy + r1H, r2H, 0.5);
+        drawCenteredLines(r2Lines[i], colXAt(i) + 1, testW - 2, hy + r1H, r2H, { font: "Helvetica", size: r2Font });
+      });
+      y = hy + r1H + r2H;
+    };
+
+    const drawRow = (cells, { bold = false } = {}) => {
+      if (y + rowH > bottomLimit()) {
+        doc.addPage();
+        y = chrome.y;
+        drawTableHeader();
+      }
+      const ry = y;
+      const font = bold ? "Helvetica-Bold" : "Helvetica";
+      doc.font(font).fontSize(scoreFont).fillColor(CARD_BLACK);
+      cells.forEach((c) => {
+        const t = c.align === "left" ? clipCardLine(doc, c.text, c.w - 8, font, scoreFont) : c.text;
+        doc.text(t, c.x + 4, ry + (rowH - scoreFont * 1.2) / 2, { width: c.w - 8, align: c.align });
+      });
+      cells.forEach((c) => strokeCardCell(c.x, c.w, ry, rowH, 0.5));
+      y = ry + rowH;
+    };
+
+    drawTableHeader();
+
+    const colSums = new Array(nCols).fill(0);
+    const colHasScore = new Array(nCols).fill(false);
+    let grand = 0;
+
+    table.subjects.forEach((subj) => {
+      let subjSum = 0;
+      const cells = [{ x: TABLE_X, w: subjW, text: String(subj), align: "left" }];
+      for (let i = 0; i < nCols; i++) {
+        const t = cellOf(subj, i);
+        cells.push({ x: colXAt(i), w: testW, text: fmtCell(t), align: "center" });
+        if (t) {
+          subjSum += t.score;
+          colSums[i] += t.score;
+          colHasScore[i] = true;
+        }
+      }
+      grand += subjSum;
+      cells.push({ x: colXAt(nCols), w: totalW, text: String(subjSum), align: "center" });
+      drawRow(cells);
+    });
+
+    // Total row: per-column sums + grand total
+    const totalCells = [{ x: TABLE_X, w: subjW, text: "Total", align: "left" }];
+    colSums.forEach((s, i) => {
+      totalCells.push({ x: colXAt(i), w: testW, text: colHasScore[i] ? String(s) : CARD_DASH, align: "center" });
+    });
+    totalCells.push({ x: colXAt(nCols), w: totalW, text: String(grand), align: "center" });
+    drawRow(totalCells, { bold: true });
+    y += 14;
+
+    // ── Overall percentage + footnotes (needs ~70pt clearance for its lines) ──
+    if (y + 70 > bottomLimit()) {
+      doc.addPage();
+      y = chrome.y;
     }
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK)
+      .text(`Overall Percentage: ${overallAverage !== null ? `${overallAverage}%` : CARD_DASH}`, TABLE_X, y);
+    y += 15;
+
+    const phaseAvgs = phases.filter((p) => p.average !== null).map((p) => `${p.phase}: ${p.average}%`);
+    doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK)
+      .text(
+        `Overall percentage is provisional — the simple average of phase averages${phaseAvgs.length ? ` (${phaseAvgs.join("; ")})` : ""}. ` +
+          (uniformTotal !== null
+            ? `All tests are marked out of ${uniformTotal} marks; the Total column and Total row sum raw marks. A dash means the subject has no test recorded for that column.`
+            : "Cells show marks scored against each test's total; the Total column and Total row sum raw marks. A dash means the subject has no test recorded for that column."),
+        TABLE_X,
+        y,
+        { width: TABLE_W }
+      );
   }
 
-  // Text area: keep within the left portion when photo is present
-  const textMaxWidth = photoResult ? 495 - PHOTO_SIZE - 20 : 495 - 20;
-  doc.fillColor("#1e3a5f").fontSize(12).font("Helvetica-Bold");
-  doc.text(student.name, 60, y + 8, { width: textMaxWidth });
-  doc.fillColor("#555").fontSize(9).font("Helvetica");
-  doc.text(`Roll No: ${student.rollNumber || "—"}  |  ID: ${student.studentId}`, 60, y + 25);
-  doc.text(`Father: ${student.fatherName}`, 200, y + 25);
-  doc.text(`Class: ${student.className}`, 370, y + 25);
-  y += infoBoxH + 10;
-
-  // Overall average
-  drawStatBox(doc, 50, y, overallAverage !== null ? `${overallAverage}%` : "—", "Overall Average");
-  y += 50;
-
-  // Phase blocks
-  phases.forEach((phaseBlock) => {
-    if (y > 680) {
-      doc.addPage();
-      y = doc.page.margins.top + HEADER_RESERVE;
-    }
-
-    doc.fillColor("#1e3a5f").fontSize(11).font("Helvetica-Bold");
-    doc.text(phaseBlock.phase, 50, y);
-    if (phaseBlock.average !== null) {
-      doc.fillColor("#666").fontSize(9).font("Helvetica");
-      doc.text(`${phaseBlock.average}% average`, 200, y + 2);
-    }
-    y += 18;
-
-    if (phaseBlock.tests.length > 0) {
-      const headers = ["Test", "Subject", "Score", "%"];
-      const colWidths = [180, 150, 80, 80];
-      const rows = phaseBlock.tests.map((t) => [t.test, t.subject, `${t.score}/${t.totalMarks}`, t.percent !== null ? `${t.percent}%` : "—"]);
-      y = drawTable(doc, y, { headers, rows, colWidths });
-    } else {
-      doc.fillColor("#999").fontSize(9).font("Helvetica-Oblique");
-      doc.text("No results in this phase yet", 60, y);
-      y += 20;
-    }
-    y += 10;
-  });
-
-  drawFooter(doc);
   doc.end();
 
   return new Promise((resolve) => {
@@ -722,6 +839,10 @@ exports.generateSessionReportBulkPDFs = async ({ sessionId, studentIds, phaseId,
 
 // Pure shaping helpers — exported for unit tests (period filter + phase blocks).
 exports._sessionReportInternals = { filterTestsByPeriod, buildPhaseBlocks, buildSessionRows, averagePercent, overallAverageOf };
+
+// Drawing-only internals — exported so layout tests can exercise the merged
+// subject table (multi-row groups + page-break segments) without DB data.
+exports._cardInternals = { drawSubjectMergedTable };
 
 exports.getPdfPath = (uuid) => {
   const filePath = path.join(PDF_DIR, `${uuid}.pdf`);

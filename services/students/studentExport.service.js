@@ -2,11 +2,16 @@ const XLSX = require("xlsx");
 const PDFDocument = require("pdfkit");
 const {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  ImageRun, WidthType, BorderStyle, AlignmentType, Header,
+  ImageRun, WidthType, BorderStyle, AlignmentType, Header, Footer,
+  TableLayoutType, VerticalAlign,
 } = require("docx");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+
+// Shared black-on-white "report card" page chrome — same visual language as
+// the session report card / result sheet / analytics PDFs (layout only).
+const { CARD_BLACK, createCardChrome } = require("../../utils/cardPdfStyle");
 
 const Student = require("../../models/Students/students.model");
 const ClassLevel = require("../../models/Academic/class.model");
@@ -238,8 +243,7 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
 
   const photoColIndex = includesPhoto ? fieldDefs.findIndex((f) => f.key === "photo") : -1;
 
-  const MARGIN = 28;
-  const HEADER_RESERVE = 44; // space for repeating logo + title + divider
+  const MARGIN = 50; // matches the card table column (x=50, width≈495) used by the report PDFs
   const doc = new PDFDocument({ size: "A4", margin: MARGIN });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
@@ -248,26 +252,12 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   const pageH = doc.page.height;  // 841.89
   const usableW = pageW - MARGIN * 2;
 
-  // ── Reusable page header (logo + centered title + divider) ────────────────
-  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
-  const hasLogo = fs.existsSync(LOGO_PATH);
+  // ── Repeating page chrome: frame, centred logo + school name + title,
+  // hairline divider, in-frame footer — identical to the session report card.
+  const chrome = createCardChrome(doc, { schoolName, title: "Student List" });
+  const bottomLimit = () => pageH - 92; // keep clear of the in-frame footer
 
-  function drawPageHeader() {
-    const curY = MARGIN;
-    if (hasLogo) {
-      try { doc.image(LOGO_PATH, MARGIN, curY, { width: 30, height: 30 }); } catch { /* skip */ }
-    }
-    const textX = hasLogo ? MARGIN + 36 : MARGIN;
-    doc.fontSize(16).font("Helvetica-Bold").fillColor("#000")
-      .text(schoolName || "School Portal", textX, curY + 2, { width: usableW - (textX - MARGIN), align: "center" });
-    const lineY = curY + HEADER_RESERVE - 6;
-    doc.moveTo(MARGIN, lineY).lineTo(pageW - MARGIN, lineY).strokeColor("#ddd").lineWidth(0.5).stroke();
-  }
-
-  drawPageHeader();
-  doc.on("pageAdded", () => { drawPageHeader(); });
-
-  let y = MARGIN + HEADER_RESERVE;
+  let y = chrome.y;
 
   // ── Build explicit key list matching headers (prevents stray columns) ───
   const resolvedKeys = fieldDefs.map((f) => f.label);
@@ -305,7 +295,8 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
     });
     x = MARGIN;
     for (let i = 0; i < cells.length; i++) {
-      doc.rect(x, rowY, colWidths[i], rh).stroke("#999");
+      // Card style: black hairline rules (0.75pt header, 0.5pt data), no fills.
+      doc.rect(x, rowY, colWidths[i], rh).lineWidth(isHeader ? 0.75 : 0.5).strokeColor(CARD_BLACK).stroke();
       x += colWidths[i];
     }
   }
@@ -314,11 +305,16 @@ exports.generatePDF = async (scope, scopeValues, selectedFields, blankCount, sch
   drawRow(headers, y, hdrH, true);
   y += hdrH;
 
+  if (rows.length === 0) {
+    doc.font("Helvetica-Oblique").fontSize(9).fillColor(CARD_BLACK)
+      .text("No students matched the selected scope.", MARGIN, y + 12);
+  }
+
   // ── Data rows ─────────────────────────────────────────────────────────────
   rows.forEach((row, i) => {
-    if (y + rowH > pageH - MARGIN) {
+    if (y + rowH > bottomLimit()) {
       doc.addPage();
-      y = MARGIN + HEADER_RESERVE;
+      y = chrome.y;
       drawRow(headers, y, hdrH, true);
       y += hdrH;
     }
@@ -353,88 +349,114 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, sc
 
   const photoColIndex = includesPhoto ? fieldDefs.findIndex((f) => f.key === "photo") : -1;
 
-  // ── Word header section (repeats on every page via header1.xml) ─────────
-  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
-  const hasLogo = fs.existsSync(LOGO_PATH);
+  // ── Page geometry (A4 with 2 cm margins), all in DXA ───────────────────
+  const PAGE_W_DXA = 11906;
+  const PAGE_H_DXA = 16838;
+  const MARGIN_DXA = 1134;
+  const CONTENT_W = PAGE_W_DXA - MARGIN_DXA * 2; // 9638 — everything must sum to this
 
-  const noBorder = { style: BorderStyle.NONE, size: 0 };
-  const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+  const BLACK = "000000"; // black-on-white only, matching the PDF report cards
 
-  const logoCellChildren = [];
-  if (hasLogo) {
-    try {
-      const logoData = fs.readFileSync(LOGO_PATH);
-      logoCellChildren.push(
-        new Paragraph({
-          children: [
-            new ImageRun({ data: logoData, type: "jpg", transformation: { width: 48, height: 48 } }),
-          ],
-        })
-      );
-    } catch { /* skip logo */ }
+  // ── Column widths ────────────────────────────────────────────────────────
+  // Real Word lays a fixed table out from <w:tblGrid> + per-cell <w:tcW>, and
+  // collapses/misaligns the table when the cell widths disagree with the grid
+  // or no longer sum to the declared table width (this was a real past bug:
+  // the photo cell widened itself past its grid column). ONE widths array now
+  // feeds the grid, every cell and the table total; the last non-photo column
+  // absorbs rounding so the sum is exactly CONTENT_W.
+  const colCount = headers.length;
+  let widths = [];
+  if (colCount > 0) {
+    if (photoColIndex !== -1) {
+      // Finding 4.4 (kept): many-column exports shrink the photo column so the
+      // table still fits — thumbnail width in DXA, clamped to 30% of the page.
+      const photoW = Math.min(Math.max(mmToDxa(thumbMm), 900), Math.round(CONTENT_W * 0.3));
+      const others = colCount - 1;
+      const base = others > 0 ? Math.max(1, Math.floor((CONTENT_W - photoW) / others)) : CONTENT_W - photoW;
+      widths = headers.map((h, i) => (i === photoColIndex ? photoW : base));
+    } else {
+      widths = headers.map(() => Math.floor(CONTENT_W / colCount));
+    }
+    const adjIdx = colCount - 1 === photoColIndex && colCount > 1 ? colCount - 2 : colCount - 1;
+    widths[adjIdx] += CONTENT_W - widths.reduce((a, b) => a + b, 0);
   }
 
-  const headerTable = new Table({
-    rows: [
-      new TableRow({
+  // ── Repeating Word header: centred logo + school + title + hairline ────
+  const LOGO_PATH = path.join(__dirname, "../../public/images/logo.jpg");
+
+  const headerChildren = [];
+  if (fs.existsSync(LOGO_PATH)) {
+    try {
+      // Real logo bytes, real extension (jpg) — square 1080x1078 source, so a
+      // 50x50 px box keeps the aspect (past bugs: ".undefined" type, wrong
+      // placeholder size — both stay fixed here).
+      const logoData = fs.readFileSync(LOGO_PATH);
+      headerChildren.push(
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          children: [new ImageRun({ data: logoData, type: "jpg", transformation: { width: 50, height: 50 } })],
+        })
+      );
+    } catch { /* logo unreadable — header shows text only */ }
+  }
+  headerChildren.push(
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 60, after: 40 },
+      children: [new TextRun({ text: schoolName || "School Portal", bold: true, size: 30, color: BLACK })],
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 120 },
+      children: [new TextRun({ text: "Student List", bold: true, size: 24, color: BLACK })],
+    }),
+    // Hairline divider under the title block, like the PDF chrome
+    new Paragraph({
+      spacing: { after: 0 },
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: BLACK, space: 1 } },
+      children: [new TextRun({ text: "", size: 2, color: BLACK })],
+    })
+  );
+  const docxHeader = new Header({ children: headerChildren });
+
+  const docxFooter = new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
         children: [
-          new TableCell({
-            children: logoCellChildren.length > 0 ? logoCellChildren : [new Paragraph({ children: [] })],
-            borders: noBorders,
-            width: { size: 1500, type: WidthType.DXA },
-            verticalAlign: "center",
-          }),
-          new TableCell({
-            children: [
-              new Paragraph({
-                alignment: AlignmentType.CENTER,
-                children: [new TextRun({ text: schoolName || "School Portal", bold: true, size: 36 })],
-              }),
-            ],
-            borders: noBorders,
-            width: { size: 6000, type: WidthType.DXA },
-            verticalAlign: "center",
-          }),
-          new TableCell({
-            children: [new Paragraph({ children: [] })],
-            borders: noBorders,
-            width: { size: 1500, type: WidthType.DXA },
-          }),
+          new TextRun({ text: `Generated ${new Date().toLocaleString()} \u2014 School Management System`, size: 14, color: BLACK }),
         ],
       }),
     ],
-    width: { size: 9000, type: WidthType.DXA },
   });
 
-  const docxHeader = new Header({ children: [headerTable] });
-
-  const cellBorder = {
-    top: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
-    bottom: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
-    left: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
-    right: { style: BorderStyle.SINGLE, size: 1, color: "999999" },
-  };
-
-  const colCount = headers.length;
-  const colWidth = Math.floor(9000 / Math.max(colCount, 1));
-
-  const headerRow = new TableRow({
-    children: headers.map((h) =>
-      new TableCell({
-        children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 16 })] })],
-        borders: cellBorder,
-        width: { size: colWidth, type: WidthType.DXA },
-      })
-    ),
+  const mkBorder = (size) => ({
+    top: { style: BorderStyle.SINGLE, size, color: BLACK },
+    bottom: { style: BorderStyle.SINGLE, size, color: BLACK },
+    left: { style: BorderStyle.SINGLE, size, color: BLACK },
+    right: { style: BorderStyle.SINGLE, size, color: BLACK },
   });
+  const cellBorder = mkBorder(4); // 0.5 pt black hairlines
+  const headerBorder = mkBorder(6); // slightly heavier outline on the header row
 
   const resolvedKeys = fieldDefs.map((f) => f.label);
   for (let i = 1; i <= (blankCount || 0); i++) resolvedKeys.push(`___blank_${i}`);
 
-  const THUMB_DXA = mmToDxa(thumbMm); // photo thumbnail size in DXA (from mm)
-  // Finding 4.4: shrink photo thumbnail when many columns to avoid table overflow
-  const effectiveThumb = colCount > 8 ? Math.min(THUMB_DXA, Math.max(colWidth, 720)) : THUMB_DXA;
-  const photoPx = Math.round(effectiveThumb / 15); // DXA to px (approx 96px per inch)
+  const headerRow = new TableRow({
+    tableHeader: true, // repeat the header row on every page, like the PDF tables
+    children: headers.map((h, i) =>
+      new TableCell({
+        children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 16, color: BLACK })] })],
+        borders: headerBorder,
+        width: { size: widths[i], type: WidthType.DXA },
+        verticalAlign: VerticalAlign.CENTER,
+      })
+    ),
+  });
+
+  const thumbPx = Math.round((mmToDxa(thumbMm) / 1440) * 96); // mm → DXA → px (96 dpi)
+  // Never let the image exceed its (possibly shrunk) column width.
+  const photoPx = photoColIndex !== -1 ? Math.min(thumbPx, Math.max(24, Math.round(widths[photoColIndex] / 15))) : thumbPx;
 
   const dataRows = rows.map((row, rowIdx) => {
     const vals = resolvedKeys.map((k) => (row[k] != null ? String(row[k]) : ""));
@@ -448,6 +470,7 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, sc
             try {
               children = [
                 new Paragraph({
+                  alignment: AlignmentType.CENTER,
                   children: [
                     new ImageRun({
                       data: photoResult.buffer,
@@ -464,30 +487,51 @@ exports.generateDOCX = async (scope, scopeValues, selectedFields, blankCount, sc
             children = [new Paragraph({ children: [] })];
           }
         } else {
-          children = [new Paragraph({ children: [new TextRun({ text: v, size: 16 })] })];
+          children = [new Paragraph({ children: [new TextRun({ text: v, size: 16, color: BLACK })] })];
         }
         return new TableCell({
           children,
           borders: cellBorder,
-          width: { size: colIdx === photoColIndex ? Math.max(colWidth, effectiveThumb) : colWidth, type: WidthType.DXA },
+          width: { size: widths[colIdx], type: WidthType.DXA },
+          verticalAlign: VerticalAlign.CENTER,
         });
       }),
     });
   });
 
-  const columnWidths = headers.map((h, i) => (i === photoColIndex ? Math.max(colWidth, effectiveThumb) : colWidth));
+  const docChildren = [];
+  if (rows.length === 0) {
+    docChildren.push(
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 },
+        children: [new TextRun({ text: "No students matched the selected scope.", italics: true, size: 18, color: BLACK })],
+      })
+    );
+  }
+  docChildren.push(
+    new Table({
+      rows: [headerRow, ...dataRows],
+      width: { size: CONTENT_W, type: WidthType.DXA },
+      columnWidths: widths,
+      layout: TableLayoutType.FIXED, // Word must honour the grid, not autofit it
+      margins: { marginUnitType: WidthType.DXA, top: 40, bottom: 40, left: 80, right: 80 },
+    })
+  );
 
   const doc = new Document({
+    styles: { default: { document: { run: { font: "Arial", size: 16, color: BLACK } } } },
     sections: [
       {
+        properties: {
+          page: {
+            size: { width: PAGE_W_DXA, height: PAGE_H_DXA },
+            margin: { top: MARGIN_DXA, bottom: MARGIN_DXA, left: MARGIN_DXA, right: MARGIN_DXA },
+          },
+        },
         headers: { default: docxHeader },
-        children: [
-          new Table({
-            rows: [headerRow, ...dataRows],
-            width: { size: 9000, type: WidthType.DXA },
-            columnWidths,
-          }),
-        ],
+        footers: { default: docxFooter },
+        children: docChildren,
       },
     ],
   });
