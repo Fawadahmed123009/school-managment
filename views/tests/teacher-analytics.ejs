@@ -59,7 +59,7 @@
         <select name="subject" id="subject">
           <option value="">All my subjects</option>
           <% subjects.forEach(function(s) { %>
-            <option value="<%= s._id %>" <%= filters.subject === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+            <option value="<%= s._id %>" <%= filters.subject === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
           <% }); %>
         </select>
       </div>

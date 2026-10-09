@@ -396,6 +396,10 @@ exports.getTeacherScopedStudents = async (req, res) => {
     // Section resolves the same way as everywhere else on the report form
     // (sectionRef name preferred, legacy `section` fallback for pre-migration
     // rows) so client-side Grade → Section narrowing matches server-side scope.
+    // classLevelId keys the session funnel: the shared cascade links a pupil to
+    // the classes a session's tests cover (Test.classLevels) purely client-side,
+    // so Session → Grade → Section → Student narrowing works for every role
+    // without a per-session round-trip.
     return responseStatus(res, 200, "success", {
       students: students.map((s) => {
         const cl = s.classLevel || {};
@@ -405,6 +409,7 @@ exports.getTeacherScopedStudents = async (req, res) => {
           rollNumber: s.rollNumber,
           grade: cl.gradeLevel || null,
           section: (cl.sectionRef && cl.sectionRef.name) || cl.section || null,
+          classLevelId: cl._id ? String(cl._id) : null,
         };
       }),
     });

@@ -57,7 +57,7 @@
         <% tests.forEach(function(t) { %>
           <tr>
             <td><strong><%= t.name %></strong></td>
-            <td><%= t.subject ? t.subject.name : '—' %></td>
+            <td><%= t.subject ? (t.subject.displayName || t.subject.name) : '—' %></td>
             <td><%= (t.classLevels || []).map(function(c){ return c.name; }).join(', ') || '—' %></td>
             <td><%= new Date(t.date).toLocaleDateString() %></td>
             <td class="num mono"><%= t.totalMarks %></td>

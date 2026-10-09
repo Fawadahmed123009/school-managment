@@ -31,7 +31,7 @@
           <select name="subject" id="subject" required>
             <option value="">Select a subject</option>
             <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %></option>
+              <option value="<%= s._id %>"><%= s.displayName || s.name %></option>
             <% }); %>
           </select>
         </div>
@@ -130,7 +130,7 @@
             data-week-name="<%= t.week ? t.week.name : 'No week' %>"
           >
             <td><strong><%= t.name %></strong></td>
-            <td><%= t.subject ? t.subject.name : '—' %></td>
+            <td><%= t.subject ? (t.subject.displayName || t.subject.name) : '—' %></td>
             <td><%= t.classLevels.map(function(c) { return c.name; }).join(', ') %></td>
             <td><%= t.session ? t.session.name : 'Standalone' %></td>
             <td><%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : '—' %></td>

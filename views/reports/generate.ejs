@@ -179,6 +179,7 @@
 </form>
 
 <script type="application/json" id="sr-weeks"><%- JSON.stringify(weeks).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="report-class-scope"><%- JSON.stringify(classScope || {}).replace(/</g, '\\u003c') %></script>
 <script src="/js/report-generate.js"></script>
 <script src="/js/report-filter-cascade.js"></script>
 <script src="/js/report-session-bulk.js"></script>

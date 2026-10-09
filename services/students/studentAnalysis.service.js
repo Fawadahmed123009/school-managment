@@ -22,7 +22,7 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     .populate({
       path: "test",
       populate: [
-        { path: "subject", select: "name" },
+        { path: "subject", select: "name displayName" },
         { path: "session", select: "name" },
       ],
     });
@@ -44,7 +44,10 @@ exports.getStudentAnalysisService = async (studentId, res) => {
 
     bySession[sessionName].push({
       test: test.name,
-      subject: test.subject ? test.subject.name : "Unknown",
+      // Display label for the per-test table. The subject-wise aggregation
+      // below still keys off test.subject.name (see subjectAgg) so program-
+      // split subjects stay separate in averages and charts.
+      subject: test.subject ? (test.subject.displayName || test.subject.name) : "Unknown",
       date: test.date,
       score: r.score,
       totalMarks: test.totalMarks,

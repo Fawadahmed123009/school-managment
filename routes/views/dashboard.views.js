@@ -10,6 +10,7 @@ const Assignment = require("../../models/Academic/assignment.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const { getAtRiskStudentsAdmin, getAtRiskStudentsTeacher, THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
 const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary } = require("../../services/academic/markingFollowUp.service");
+const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
 const logger = require("../../config/logger");
 
 // ── Helper: start-of-month date for MongoDB queries ──
@@ -328,10 +329,12 @@ router.get("/dashboard", async (req, res) => {
 
       if (subjectIds.length > 0 && assignedClassIds.size > 0) {
         // Students in the teacher's classes, mapped to their class level.
+        // `dateAdmitted` is fetched so a test's expected pool can drop pupils
+        // who joined the class after it was held (see markStatus below).
         const teacherStudents = await Student.find({
           classLevel: { $in: [...assignedClassIds] },
           isWithdrawn: { $ne: true },
-        }).select("_id classLevel").lean();
+        }).select("_id classLevel dateAdmitted").lean();
         const teacherStudentIds = teacherStudents.map((s) => s._id);
 
         const now = new Date();
@@ -371,13 +374,21 @@ router.get("/dashboard", async (req, res) => {
         }
 
         // How many of the teacher's in-scope students are marked for a test.
+        // The expected pool is the class's pupils who were ALREADY admitted on
+        // the test's day: a student enrolled after it never sat that test, so
+        // they must not be counted as outstanding marking — otherwise an old
+        // test is pinned to "not fully marked" the moment a new child joins.
+        // This mirrors the mark-entry roster at /tests/mark/:testId exactly.
         const markStatus = (test) => {
           const skey = String(test.subject && test.subject._id ? test.subject._id : test.subject);
           const subj = subjectAssignments[skey];
           const inScope = new Set(
             (test.classLevels || []).map((c) => String(c._id || c)).filter((id) => subj && subj.classLevelIds.has(id))
           );
-          const expectedIds = teacherStudents.filter((s) => inScope.has(String(s.classLevel))).map((s) => s._id.toString());
+          const admissionCutoff = admissionCutoffForTest(test.date);
+          const expectedIds = teacherStudents
+            .filter((s) => inScope.has(String(s.classLevel)) && isAdmittedByTest(s.dateAdmitted, admissionCutoff))
+            .map((s) => s._id.toString());
           const markedSet = markedByTest[String(test._id)] || new Set();
           const marked = expectedIds.reduce((n, id) => n + (markedSet.has(id) ? 1 : 0), 0);
           return { expected: expectedIds.length, marked };

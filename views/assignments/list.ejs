@@ -33,7 +33,7 @@
           <select name="subject" id="subject" required>
             <option value="">Select a subject</option>
             <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %></option>
+              <option value="<%= s._id %>"><%= s.displayName || s.name %></option>
             <% }); %>
           </select>
         </div>
@@ -84,7 +84,7 @@
         <select name="subject">
           <option value="">All subjects</option>
           <% subjects.forEach(function(s) { %>
-            <option value="<%= s._id %>" <%= filters.subject === s._id ? 'selected' : '' %>><%= s.name %></option>
+            <option value="<%= s._id %>" <%= filters.subject === s._id ? 'selected' : '' %>><%= s.displayName || s.name %></option>
           <% }); %>
         </select>
       </div>
@@ -125,7 +125,7 @@
                 <span class="mono" style="display:block;font-size:11px;color:var(--ink-soft);"><%= a.teacher.teacherId %></span>
               <% } %>
             </td>
-            <td><%= a.subject ? a.subject.name : 'Unknown' %></td>
+            <td><%= a.subject ? (a.subject.displayName || a.subject.name) : 'Unknown' %></td>
             <td>
               <%= a.classLevel ? a.classLevel.name : 'Unknown' %>
               <% if (a.classLevel && a.classLevel.section) { %>

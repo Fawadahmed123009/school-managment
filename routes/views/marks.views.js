@@ -41,7 +41,7 @@ router.get("/marks/report/:studentId/:academicTermId", requireRole("teacher"), a
     average: result.data.average,
     letterGrade: result.data.overallLetterGrade,
     subjects: result.data.subjects.map((s) => ({
-      subject: s.subject && s.subject.name ? s.subject.name : "—",
+      subject: s.subject ? (s.subject.displayName || s.subject.name) || "—" : "—",
       score: s.score,
       letterGrade: s.letterGrade,
     })),

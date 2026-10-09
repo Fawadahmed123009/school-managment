@@ -12,7 +12,7 @@
 <% if (saveError) { %><div class="flash error"><%= saveError %></div><% } %>
 
 <div class="panel">
-  <div class="panel-head"><h2><%= subject.name %></h2></div>
+  <div class="panel-head"><h2><%= subject.displayName || subject.name %></h2></div>
   <div class="panel-body">
     <form method="POST" action="/subjects/<%= subject._id %>/edit" id="editSubjectForm">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -27,6 +27,14 @@
         <div class="field">
           <label for="name">Subject name</label>
           <input type="text" name="name" id="name" value="<%= subject.name %>" required />
+          <p class="hint" style="margin-top:4px;color:#6b7280;font-size:0.8rem;">Internal name — used for grouping and uniqueness. Reports may still key off it.</p>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="displayName">Display label (optional)</label>
+          <input type="text" name="displayName" id="displayName" value="<%= subject.displayName || '' %>" placeholder="Simplified label shown to users, e.g. English" />
+          <p class="hint" style="margin-top:4px;color:#6b7280;font-size:0.8rem;">Shown everywhere instead of the internal name. Leave blank to use the name.</p>
         </div>
       </div>
       <div class="field">

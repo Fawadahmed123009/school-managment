@@ -11,20 +11,11 @@ const TeacherDoc = require("../../models/Staff/teachers.model");
 const TestAudit = require("../../models/Academic/testAudit.model");
 const { getAssignedClassLevels } = require("./assignment.service");
 
-// Inclusive upper bound on a student's admission date for them to belong to a
-// test: a pupil admitted on the test's own day (or earlier) was in the class
-// when it was held; anyone admitted later was NOT, so they must not appear on
-// that test's mark-entry roster. Day-granularity (end of the test's day) so a
-// same-day admission is never wrongly hidden by time-of-day differences.
-// Returns null when the test carries no usable date — callers then apply no
-// admission filter at all.
-function admissionCutoffForTest(testDate) {
-  if (!testDate) return null;
-  const d = new Date(testDate);
-  if (isNaN(d.getTime())) return null;
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
+// A pupil admitted AFTER a test was held never sat it, so they are not part of
+// that test's roster and are never expected to have a score for it. The shared
+// rule is day-granular and lives in utils/testRosterEligibility.js so the
+// marks audit, the marking follow-up and the teacher dashboard all agree.
+const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
 
 // ── Multi-document atomicity (mirrors services/fees/fees.service.js, H6) ─────
 // A test deletion writes MORE THAN ONE document: the append-only audit row plus
@@ -190,7 +181,7 @@ exports.createTestService = async (data, adminId, res) => {
  */
 exports.getTestByIdService = async (testId, res) => {
   const test = await Test.findById(testId)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "_id name")
     .populate("session", "name")
     .populate("week", "name startDate endDate");
@@ -323,7 +314,7 @@ exports.updateTestService = async (testId, data, res) => {
 
 exports.getAllTestsService = async (res) => {
   const tests = await Test.find({})
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("session", "name")
     .populate("week", "name startDate endDate")
@@ -355,7 +346,7 @@ exports.getTeacherScopedTestsService = async (teacherId, res) => {
   // Fetch all tests for the teacher's assigned subjects
   const subjectIds = Object.keys(subjectClassMap);
   const tests = await Test.find({ subject: { $in: subjectIds } })
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("session", "name")
     .populate("week", "name startDate endDate")
@@ -454,13 +445,14 @@ exports.getTeacherAssignedSubjectsService = async (teacherId, classLevelParam, r
 
   const subjectIds = Object.keys(subjectClassMap);
   const subjects = await Subject.find({ _id: { $in: subjectIds } })
-    .select("_id name")
+    .select("_id name displayName")
     .sort("name");
 
   // Build response with class-level annotations
   const result = subjects.map((s) => ({
     _id: s._id,
     name: s.name,
+    displayName: s.displayName,
     classLevels: Array.from(subjectClassMap[s._id.toString()]),
   }));
 
@@ -531,7 +523,7 @@ exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLeve
   }
 
   const tests = await Test.find(query)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("session", "name")
     .populate("week", "name startDate endDate")
@@ -895,7 +887,7 @@ exports.getMarksAuditService = async (query, res) => {
   const { search, teacher, status, session, phase, week, page, limit } = query || {};
 
   const tests = await Test.find({})
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name gradeLevel group")
     .populate("session", "name")
     .populate("week", "name")
@@ -1022,13 +1014,7 @@ exports.getMarksAuditService = async (query, res) => {
     const testAdmissionCutoff = admissionCutoffForTest(t.date);
     const expectedCount = (t.classLevels || []).reduce((n, c) => {
       const admissions = admissionsByClass[asRefId(c)] || [];
-      return (
-        n +
-        admissions.filter(
-          (admitted) =>
-            !testAdmissionCutoff || !admitted || new Date(admitted) <= testAdmissionCutoff
-        ).length
-      );
+      return n + admissions.filter((admitted) => isAdmittedByTest(admitted, testAdmissionCutoff)).length;
     }, 0);
     const markedStudentIds = new Set(rs.map((r) => String(r.student)));
     const fullyMarked = expectedCount > 0 && markedStudentIds.size >= expectedCount;
@@ -1061,7 +1047,9 @@ exports.getMarksAuditService = async (query, res) => {
     return {
       testId: t._id,
       name: t.name,
-      subject: t.subject ? t.subject.name : "",
+      // Display label only — falls back to the internal name. Grouping/scoping
+      // above keys off subject ids, never this string.
+      subject: t.subject ? (t.subject.displayName || t.subject.name) : "",
       classes: (t.classLevels || []).map((c) => c.name).join(", "),
       // Category keys + labels for the session/phase/week cascade filters.
       session: t.session ? String(t.session._id) : null,
@@ -1245,7 +1233,7 @@ exports.updateTestMarksService = async (testId, data, res) => {
 
 exports.getTestResultSheetService = async (testId, res) => {
   const test = await Test.findById(testId)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("week", "name startDate endDate");
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
@@ -1266,7 +1254,7 @@ exports.getTestAnalyticsService = async (filters, res) => {
     if (toDate) testQuery.date.$lte = new Date(toDate);
   }
 
-  const tests = await Test.find(testQuery).populate("subject", "name");
+  const tests = await Test.find(testQuery).populate("subject", "name displayName");
   const testIds = tests.map((t) => t._id);
 
   const resultQuery = { test: { $in: testIds } };
@@ -1274,12 +1262,13 @@ exports.getTestAnalyticsService = async (filters, res) => {
 
   const results = await TestResult.find(resultQuery)
     .populate("student", "name studentId")
-    .populate({ path: "test", populate: { path: "subject", select: "name" } });
+    .populate({ path: "test", populate: { path: "subject", select: "name displayName" } });
 
   const summary = results.map((r) => ({
     student: r.student,
     test: r.test.name,
-    subject: r.test.subject ? r.test.subject.name : "Unknown",
+    // Display label — no downstream logic keys off this string.
+    subject: r.test.subject ? (r.test.subject.displayName || r.test.subject.name) : "Unknown",
     date: r.test.date,
     score: r.score,
     totalMarks: r.test.totalMarks,
@@ -1342,7 +1331,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     ClassLevel.find().sort({ gradeLevel: 1, group: 1, section: 1 }).lean(),
     Subject.find().sort("name").lean(),
     Test.find(testQuery)
-      .populate("subject", "name")
+      .populate("subject", "name displayName")
       .populate("classLevels", "name")
       .populate("week", "name startDate endDate")
       .sort({ date: -1 })
@@ -1362,7 +1351,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   }
 
   const test = await Test.findById(testId)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name");
   if (!test) {
     return responseStatus(res, 200, "success", {
@@ -1457,7 +1446,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
       classLevels: { $in: testClassIds },
       date: { $lt: test.date },
     })
-      .populate("subject", "name")
+      .populate("subject", "name displayName")
       .populate("classLevels", "name")
       .sort({ date: -1 });
 
@@ -1587,7 +1576,7 @@ exports.getTestTrendService = async (filters, res) => {
     const results = await TestResult.find({ student: studentId })
       .populate({
         path: "test",
-        populate: [{ path: "subject", select: "name" }],
+        populate: [{ path: "subject", select: "name displayName" }],
       })
       .lean();
 
@@ -1609,7 +1598,11 @@ exports.getTestTrendService = async (filters, res) => {
       percent: r.test.totalMarks
         ? Math.round((r.score / r.test.totalMarks) * 10000) / 100
         : null,
+      // subjectName stays the grouping key for the per-subject trend lines
+      // (Middle/Matric/Inter must remain separate). subjectDisplay is the
+      // simplified label for the results table only — never used to group.
       subjectName: r.test.subject ? r.test.subject.name : "Unknown",
+      subjectDisplay: r.test.subject ? (r.test.subject.displayName || r.test.subject.name) : "Unknown",
       subjectId: r.test.subject ? r.test.subject._id.toString() : null,
     }));
 
@@ -1653,7 +1646,7 @@ exports.getTestTrendService = async (filters, res) => {
     if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
 
     const tests = await Test.find(testQuery)
-      .populate("subject", "name")
+      .populate("subject", "name displayName")
       .sort({ date: 1 })
       .lean();
 
@@ -1854,7 +1847,7 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
 
   // 5. Find matching tests (filtered to teacher's class scope)
   const tests = await Test.find(testQuery)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("session", "name")
     .sort({ date: -1 })
@@ -1997,7 +1990,7 @@ exports.deleteTestService = async (testId, actorId, res) => {
   // Pre-image with human-readable subject/class names so the audit trail is
   // self-describing even after the documents are gone.
   const test = await Test.findById(testId)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name");
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
@@ -2060,7 +2053,7 @@ exports.getSessionReportCardService = async (sessionId, studentId, res) => {
   const session = await TestSession.findById(sessionId);
   if (!session) return responseStatus(res, 404, "failed", "Session not found");
 
-  const tests = await Test.find({ session: sessionId }).populate("subject", "name");
+  const tests = await Test.find({ session: sessionId }).populate("subject", "name displayName");
   const testIds = tests.map((t) => t._id);
 
   const results = await TestResult.find({ test: { $in: testIds }, student: studentId });
@@ -2076,7 +2069,8 @@ exports.getSessionReportCardService = async (sessionId, studentId, res) => {
         const score = resultByTest[t._id.toString()];
         return {
           test: t.name,
-          subject: t.subject ? t.subject.name : "Unknown",
+          // Display label; phase grouping above keys off phase ids, not this.
+          subject: t.subject ? (t.subject.displayName || t.subject.name) : "Unknown",
           score,
           totalMarks: t.totalMarks,
           percent: t.totalMarks ? Math.round((score / t.totalMarks) * 10000) / 100 : null,

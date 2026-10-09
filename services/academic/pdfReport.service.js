@@ -43,11 +43,13 @@ const {
 
 async function gatherResultSheet(testId) {
   const test = await Test.findById(testId)
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name");
   if (!test) return null;
 
-  const results = await TestResult.find({ test: testId }).populate("student", "name studentId rollNumber whatsappNumber classLevel");
+  // Read-only gather: the rows are only filtered, sorted and formatted into the
+  // PDF, never written back, so .lean() skips the Mongoose document hydration.
+  const results = await TestResult.find({ test: testId }).populate("student", "name studentId rollNumber whatsappNumber classLevel").lean();
 
   return { test, results };
 }
@@ -101,7 +103,7 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
     testQuery.subject = { $in: scope.teacherSubjectIds };
   }
 
-  let tests = await Test.find(testQuery).populate("subject", "name").populate("week", "name startDate");
+  let tests = await Test.find(testQuery).populate("subject", "name displayName").populate("week", "name startDate");
   tests = filterTestsByPeriod(tests, period);
   const testIds = tests.map((t) => t._id);
   if (testIds.length === 0) return { rows: [], studentName: null, mode: "single-week", periodLabel: null };
@@ -109,15 +111,19 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
   const resultQuery = { test: { $in: testIds } };
   if (studentId) resultQuery.student = studentId;
 
+  // Read-only gather: the rows are only scope/grade-filtered, mapped into plain
+  // report rows and rendered, never written back, so .lean() skips the document
+  // hydration (the populated student/test docs come back lean too).
   const resultsRaw = await TestResult.find(resultQuery)
     .populate("student", "name studentId rollNumber whatsappNumber photoUrl classLevel")
     .populate({
       path: "test",
       populate: [
-        { path: "subject", select: "name" },
+        { path: "subject", select: "name displayName" },
         { path: "week", select: "name startDate" },
       ],
-    });
+    })
+    .lean();
 
   // Teacher scope: keep only results whose (test subject × student classLevel)
   // pair is an actual assignment. This is the intersection the controller could
@@ -153,7 +159,11 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
       rollNumber: r.student.rollNumber,
       whatsappNumber: r.student.whatsappNumber,
       test: r.test.name,
+      // `subject` stays the raw internal name — it is the grouping key for
+      // buildSubjectWeekGroups/buildSubjectTestGroups. `subjectDisplay` is the
+      // simplified label (falls back to name) used only when PRINTING rows.
       subject: r.test.subject ? r.test.subject.name : "Unknown",
+      subjectDisplay: r.test.subject ? r.test.subject.displayName || r.test.subject.name : "Unknown",
       date: r.test.date,
       score: r.score,
       totalMarks: r.test.totalMarks,
@@ -257,7 +267,9 @@ function buildSessionRows(testList, resultByTest) {
       const weekPop = t.week && t.week._id ? t.week : null;
       return {
         test: t.name,
+        // subject = grouping key (raw name); subjectDisplay = printed label.
         subject: t.subject ? t.subject.name : "Unknown",
+        subjectDisplay: t.subject ? t.subject.displayName || t.subject.name : "Unknown",
         score,
         totalMarks,
         percent: totalMarks ? Math.round((score / totalMarks) * 10000) / 100 : null,
@@ -271,6 +283,21 @@ function buildSessionRows(testList, resultByTest) {
 function averagePercent(rows) {
   const valid = rows.filter((r) => r.percent !== null);
   return valid.length > 0 ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100 : null;
+}
+
+// Map a subject grouping key (its raw internal name) to the simplified display
+// label carried on the rows (subjectDisplay, falling back to name). Rows carry
+// BOTH fields: every grouping/aggregation below keys strictly off `subject`
+// (the internal name), so Middle/Matric/Inter stay separate; this map is only
+// consulted when PRINTING a subject label. Rows are grouped BEFORE rendering,
+// so the first row of a group deterministically supplies its label.
+function buildSubjectDisplayMap(rows = []) {
+  const map = new Map();
+  rows.forEach((r) => {
+    const key = String(r.subject || "Unknown");
+    if (!map.has(key)) map.set(key, String(r.subjectDisplay || r.subject || "Unknown"));
+  });
+  return map;
 }
 
 // Group the (already period-filtered) tests into the session's phase blocks.
@@ -414,7 +441,7 @@ async function gatherSessionReport(sessionId, studentId, period = {}) {
   const student = await Student.findById(studentId).select("name studentId rollNumber whatsappNumber fatherName classLevel photoUrl");
   if (!student) return null;
 
-  const allTests = await Test.find({ session: sessionId }).populate("subject", "name").populate("week", "name startDate");
+  const allTests = await Test.find({ session: sessionId }).populate("subject", "name displayName").populate("week", "name startDate");
   const tests = filterTestsByPeriod(allTests, period);
   const testIds = tests.map((t) => t._id);
 
@@ -479,7 +506,7 @@ async function gatherSessionReportsBulk({ sessionId, studentIds, period = {} }) 
     classNameById[String(c._id)] = c.name;
   });
 
-  const allTests = await Test.find({ session: sessionId }).populate("subject", "name").populate("week", "name startDate").lean();
+  const allTests = await Test.find({ session: sessionId }).populate("subject", "name displayName").populate("week", "name startDate").lean();
   const tests = filterTestsByPeriod(allTests, period);
   const testIds = tests.map((t) => String(t._id));
 
@@ -541,7 +568,7 @@ function generateResultSheetPDF(data, schoolName) {
   const chrome = createCardChrome(doc, {
     schoolName,
     title: "Test Result Sheet",
-    subtitle: `${test.subject ? test.subject.name : ""} — ${test.name}`,
+    subtitle: `${test.subject ? test.subject.displayName || test.subject.name : ""} — ${test.name}`,
   });
 
   // Stats
@@ -565,7 +592,7 @@ function generateResultSheetPDF(data, schoolName) {
     rows: [
       [{ label: "Test", value: test.name, size: 10 }],
       [
-        { label: "Subject", value: test.subject ? test.subject.name : null },
+        { label: "Subject", value: test.subject ? test.subject.displayName || test.subject.name : null },
         { label: "Date", value: new Date(test.date).toLocaleDateString() },
       ],
       [
@@ -658,13 +685,15 @@ function drawAnalyticsGroupedTables(doc, startY, rows, mode, chrome) {
       y += 20;
     }
     const groups = mode === "multi-week" ? buildSubjectWeekGroups(sec.rows) : buildSubjectTestGroups(sec.rows);
+    // Groups stay keyed by internal name; print the simplified label instead.
+    const subjectDisp = buildSubjectDisplayMap(sec.rows);
     groups.forEach((g) => {
       // Keep the subject label attached to at least a header + one row.
       if (y + 56 > bottomLimit()) {
         doc.addPage();
         y = chrome.y;
       }
-      doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK).text(g.subject, CARD_TABLE_X, y);
+      doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK).text(subjectDisp.get(g.subject) || g.subject, CARD_TABLE_X, y);
       y += 16;
       const lines = g.lines.map((l) =>
         mode === "multi-week"
@@ -752,7 +781,7 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
     const tableRows = sorted.map((r) => [
       r.test,
       new Date(r.date).toLocaleDateString(),
-      r.subject,
+      r.subjectDisplay || r.subject,
       String(r.score),
       String(r.totalMarks),
       r.percent !== null ? `${r.percent}%` : "N/A",
@@ -777,7 +806,7 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
       r.studentName,
       r.rollNumber || CARD_DASH,
       r.test,
-      r.subject,
+      r.subjectDisplay || r.subject,
       String(r.score),
       String(r.totalMarks),
       r.percent !== null ? `${r.percent}%` : "N/A",
@@ -845,11 +874,11 @@ function buildSubjectTable(phases = []) {
 // subject's tests in the week summed). buildSubjectWeekGroups already sums per
 // week, so a group's totalScore/totalOutOf/percent are the one-row-per-subject
 // values; a bold Total line closes the table.
-function drawSessionSingleWeekTable(doc, startY, groups, chrome) {
+function drawSessionSingleWeekTable(doc, startY, groups, chrome, subjectDisp) {
   const headers = ["Subject", "Obtained", "Total Marks", "Percentage"];
   const colWidths = [225, 80, 90, 100];
   const aligns = ["left", "center", "center", "center"];
-  const tableRows = groups.map((g) => [g.subject, String(g.totalScore), String(g.totalOutOf), g.percent]);
+  const tableRows = groups.map((g) => [subjectDisp.get(g.subject) || g.subject, String(g.totalScore), String(g.totalOutOf), g.percent]);
   const grandScore = groups.reduce((s, g) => s + g.totalScore, 0);
   const grandOutOf = groups.reduce((s, g) => s + g.totalOutOf, 0);
   tableRows.push(["Total", String(grandScore), String(grandOutOf), analyticsPercentLabel(grandScore, grandOutOf)]);
@@ -860,7 +889,7 @@ function drawSessionSingleWeekTable(doc, startY, groups, chrome) {
 // then a table of that subject's weeks (name, obtained, out-of, %) closed by a
 // per-subject Total line. Mirrors the analytics multi-week grouped layout, but
 // for a single pupil's report card.
-function drawSessionMultiWeekGroups(doc, startY, groups, chrome) {
+function drawSessionMultiWeekGroups(doc, startY, groups, chrome, subjectDisp) {
   const bottomLimit = () => doc.page.height - 92;
   const tableShape = { headers: ["Week", "Obtained", "Total Marks", "%"], colWidths: [255, 80, 80, 80], aligns: ["left", "center", "center", "center"] };
   let y = startY;
@@ -870,7 +899,7 @@ function drawSessionMultiWeekGroups(doc, startY, groups, chrome) {
       y = chrome.y;
     }
     doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK)
-      .text(clipCardLine(doc, g.subject, CARD_TABLE_W, "Helvetica-Bold", 9.5), CARD_TABLE_X, y);
+      .text(clipCardLine(doc, subjectDisp.get(g.subject) || g.subject, CARD_TABLE_W, "Helvetica-Bold", 9.5), CARD_TABLE_X, y);
     y += 16;
     const lines = g.lines.map((l) => [l.label, String(l.score), String(l.outOf), l.percent]);
     const totalsRow = ["Total", String(g.totalScore), String(g.totalOutOf), g.percent];
@@ -930,10 +959,13 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
       y += 24;
     } else {
       const groups = buildSubjectWeekGroups(flatRows);
+      // Groups key off the internal subject name; labels come from the rows'
+      // subjectDisplay (fallback to name).
+      const subjectDisp = buildSubjectDisplayMap(flatRows);
       y =
         mode === "single-week"
-          ? drawSessionSingleWeekTable(doc, y, groups, chrome)
-          : drawSessionMultiWeekGroups(doc, y, groups, chrome);
+          ? drawSessionSingleWeekTable(doc, y, groups, chrome, subjectDisp)
+          : drawSessionMultiWeekGroups(doc, y, groups, chrome, subjectDisp);
 
       const grandScore = groups.reduce((s, g) => s + g.totalScore, 0);
       const grandOutOf = groups.reduce((s, g) => s + g.totalOutOf, 0);
@@ -962,6 +994,9 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
     // a parent can read marks scored and marks available for every test without
     // a combined cell.
     const table = buildSubjectTable(phases);
+    // Subject ROWS stay keyed by internal name (buildSubjectTable slots cells by
+    // t.subject); only the printed row label uses the display map.
+    const subjectDisp = buildSubjectDisplayMap([].concat(...(phases || []).map((pb) => pb.tests || [])));
     const nSlots = table.columns.length;
     const cellOf = (subj, i) => table.columns[i].cellBySubject[subj] || null;
 
@@ -1051,7 +1086,7 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
 
     table.subjects.forEach((subj) => {
       let subjSum = 0;
-      const cells = [{ x: TABLE_X, w: subjW, text: String(subj), align: "left" }];
+      const cells = [{ x: TABLE_X, w: subjW, text: subjectDisp.get(String(subj)) || String(subj), align: "left" }];
       for (let i = 0; i < nSlots; i++) {
         const t = cellOf(subj, i);
         cells.push({ x: obtX(i), w: subW, text: fmtObt(t), align: "center" });

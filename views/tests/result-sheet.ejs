@@ -8,7 +8,7 @@
 <% } else { %>
   <div class="page-head">
     <div>
-      <p class="eyebrow"><%= test.subject ? test.subject.name : '' %></p>
+      <p class="eyebrow"><%= test.subject ? (test.subject.displayName || test.subject.name) : '' %></p>
       <h1><%= test.name %></h1>
     </div>
     <div class="page-head-actions">

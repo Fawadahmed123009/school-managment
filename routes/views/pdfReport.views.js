@@ -65,7 +65,7 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     const subjectMap = {};
     const classMap = {};
     assignments.forEach((a) => {
-      if (a.subject) subjectMap[a.subject._id] = a.subject.name;
+      if (a.subject) subjectMap[a.subject._id] = a.subject.displayName || a.subject.name;
       if (a.classLevel) classMap[a.classLevel._id] = a.classLevel.name;
     });
     teacherSubjects = Object.entries(subjectMap).map(([id, name]) => ({ _id: id, name }));
@@ -92,6 +92,32 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
   const { sessionRank, phaseOrder } = await buildSessionIndex(tests, sessions);
   sortTestsByCategory(tests, sessionRank, phaseOrder);
 
+  // Class-scope map for the session→grade/section→test narrowing. Each test
+  // targets one or more ClassLevels (Test.classLevels); the shared cascade needs
+  // the grade + section behind every referenced class so it can (a) list only the
+  // grades/sections a chosen session's tests actually cover and (b) drop tests
+  // that don't touch the picked grade/section. Built from the already role-scoped
+  // tests, so a teacher only ever sees classes within their assignments.
+  const ClassLevel = require("../../models/Academic/class.model");
+  const referencedClassIds = new Set();
+  tests.forEach((t) => (t.classLevels || []).forEach((cl) => {
+    const id = cl && cl._id ? cl._id : cl;
+    if (id) referencedClassIds.add(id);
+  }));
+  const classScope = {};
+  if (referencedClassIds.size > 0) {
+    const classes = await ClassLevel.find({ _id: { $in: [...referencedClassIds] } })
+      .select("gradeLevel section sectionRef")
+      .populate("sectionRef", "name")
+      .lean();
+    classes.forEach((c) => {
+      classScope[String(c._id)] = {
+        grade: c.gradeLevel || null,
+        section: (c.sectionRef && c.sectionRef.name) || c.section || null,
+      };
+    });
+  }
+
   // Session-report weeks for the period picker (cascaded client-side).
   // Read-only metadata at the same exposure level as the session/phase
   // index already handed to teachers.
@@ -107,6 +133,7 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     tests,
     sessions,
     weeks,
+    classScope,
     isTeacher,
     teacherSubjects,
     teacherClasses,

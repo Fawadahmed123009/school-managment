@@ -120,7 +120,7 @@
           var opt = document.createElement('option');
           opt.value = s._id;
           // Subject name only — annotating sections clutters the dropdown.
-          opt.textContent = s.name;
+          opt.textContent = s.displayName || s.name;
           subjectSelect.appendChild(opt);
         });
         subjectSelect.disabled = false;

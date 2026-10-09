@@ -39,7 +39,7 @@
               <select name="subjectId" id="subjectId">
                 <option value="">Select a subject…</option>
                 <% subjects.forEach(function(s) { %>
-                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
                 <% }); %>
               </select>
             </div>
@@ -67,7 +67,7 @@
               <select name="subjectId" id="subjectId">
                 <option value="">All subjects</option>
                 <% subjects.forEach(function(s) { %>
-                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
                 <% }); %>
               </select>
             </div>
@@ -121,7 +121,7 @@
                 <tr>
                   <td><strong><%= r.testName %></strong></td>
                   <td><%= new Date(r.date).toLocaleDateString() %></td>
-                  <td><%= r.subjectName %></td>
+                  <td><%= r.subjectDisplay || r.subjectName %></td>
                   <td class="num mono"><%= r.score %></td>
                   <td class="num mono"><%= r.totalMarks %></td>
                   <td><%= r.percent !== null ? r.percent + '%' : '—' %></td>
@@ -161,7 +161,7 @@
             <% tests.forEach(function(t) { %>
               <%
                 var label = t.name;
-                if (t.subject) label += ' — ' + t.subject.name;
+                if (t.subject) label += ' — ' + (t.subject.displayName || t.subject.name);
                 if (t.date) label += ' · ' + new Date(t.date).toLocaleDateString();
               %>
               <option value="<%= t._id %>" <%= filters.testId === String(t._id) ? 'selected' : '' %>><%= label %></option>
@@ -176,7 +176,7 @@
           <select name="subjectId" id="subjectId">
             <option value="">All subjects</option>
             <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+              <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
             <% }); %>
           </select>
         </div>

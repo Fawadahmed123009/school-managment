@@ -39,7 +39,7 @@
           <select name="subject" id="subject" required>
             <option value="">Select a subject</option>
             <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>" <%= String(test.subject && (test.subject._id || test.subject)) === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+              <option value="<%= s._id %>" <%= String(test.subject && (test.subject._id || test.subject)) === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
             <% }); %>
           </select>
         </div>

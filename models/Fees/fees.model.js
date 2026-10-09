@@ -78,6 +78,12 @@ const feesSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Query-audit indexes: per-student fee history, year/status dashboards and
+// collection reports, and paid-on-date ranges (e.g. monthly deposits).
+feesSchema.index({ student: 1 });
+feesSchema.index({ academicYear: 1, status: 1 });
+feesSchema.index({ status: 1, datePaid: 1 });
+
 // ── Read-scope guard ──────────────────────────────────────────────
 // Applied at the schema level on purpose: fee records are read from ~25
 // places (fee list, dashboards, parent portal, student analysis, collection

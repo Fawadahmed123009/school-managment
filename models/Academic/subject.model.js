@@ -7,6 +7,16 @@ const subjectSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Optional simplified label shown wherever a subject is presented to a user
+    // (admin views, dropdowns, PDF headers). Display call sites must fall back
+    // to `name` when unset (`displayName || name`). `name` itself stays the
+    // internal grouping/uniqueness key — analytics, PDF subject groupings,
+    // dashboard charts and at-risk detection all key off `name` directly, so
+    // program-split subjects (e.g. "English Middle" / "English Matric") remain
+    // separate there even when they share a displayName.
+    displayName: {
+      type: String,
+    },
     description: {
       type: String,
     },

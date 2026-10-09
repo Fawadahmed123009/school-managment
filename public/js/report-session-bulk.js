@@ -339,27 +339,48 @@
   // ── period cascade ───────────────────────────────────────────────────────
   function rebuildPeriodOptions() {
     var phases = selectedPhases();
-    var sessionId = sessionSelect.value;
-    fillSelect(phaseSelect, '-- Select phase --', phases.map(function (p) { return { value: String(p._id), label: p.name }; }));
-    var phaseNameById = {};
-    phases.forEach(function (p) { phaseNameById[String(p._id)] = p.name; });
-    // Label weeks with their owning phase — "Week 1" repeats across phases.
-    fillSelect(weekSelect, '-- Select week --', allWeeks
-      .filter(function (w) { return String(w.session) === String(sessionId); })
-      .map(function (w) {
-        var pname = phaseNameById[String(w.phase)];
-        return { value: String(w._id), label: pname ? pname + ' \u2014 ' + w.name : w.name };
-      }));
-    rebuildWeeksPhase();
+    rebuildPhaseSelect(phases);
+    rebuildWeekSelect(phases);
+    rebuildWeeksPhase(phases);
     rebuildWeekCheckboxList();
     applyPeriod();
   }
 
+  function rebuildPhaseSelect(phases) {
+    fillSelect(phaseSelect, '-- Select phase --', (phases || selectedPhases()).map(function (p) { return { value: String(p._id), label: p.name }; }));
+  }
+
+  // Single-week picker: only weeks of the chosen session, then narrowed to the
+  // chosen phase — same rule as the "Selected weeks" list, so the two week
+  // pickers can never offer different options for the same session/phase. With
+  // no phase picked every session week is offered (labelled with its phase).
+  // Picking a phase a previously chosen week doesn't belong to clears the week
+  // rather than submitting a stale mismatch (fillSelect keeps still-valid values;
+  // the control is disabled unless "Specific week" is the active period).
+  function rebuildWeekSelect(phases) {
+    phases = phases || selectedPhases();
+    var sessionId = sessionSelect.value;
+    var phaseId = phaseSelect.value;
+    var phaseNameById = {};
+    phases.forEach(function (p) { phaseNameById[String(p._id)] = p.name; });
+    var shown = weeksForSession(sessionId).filter(function (w) {
+      return !phaseId || String(w.phase || '') === String(phaseId);
+    });
+    fillSelect(weekSelect, sessionId ? '-- Select week --' : '-- Select session first --', shown.map(function (w) {
+      var pname = phaseNameById[String(w.phase)];
+      return { value: String(w._id), label: pname ? pname + ' \u2014 ' + w.name : w.name };
+    }));
+  }
+
+  function weeksForSession(sessionId) {
+    if (!sessionId) return [];
+    return allWeeks.filter(function (w) { return String(w.session) === String(sessionId); });
+  }
+
   // The "Selected weeks" period asks for a phase first, then lists that phase's
   // weeks to tick.
-  function rebuildWeeksPhase() {
-    var phases = selectedPhases();
-    fillSelect(weeksPhase, '-- Select phase first --', phases.map(function (p) { return { value: String(p._id), label: p.name }; }));
+  function rebuildWeeksPhase(phases) {
+    fillSelect(weeksPhase, '-- Select phase first --', (phases || selectedPhases()).map(function (p) { return { value: String(p._id), label: p.name }; }));
   }
 
   function rebuildWeekCheckboxList() {
@@ -419,7 +440,14 @@
     }
   }
 
-  if (weeksPhase) weeksPhase.addEventListener('change', rebuildWeekCheckboxList);
+  if (weeksPhase) weeksPhase.addEventListener('change', function () { rebuildWeekSelect(); rebuildWeekCheckboxList(); });
+  // Phase → Week narrowing: the "Selected weeks" phase filter also drives the
+  // single-week picker, so both week lists always show only the chosen phase's
+  // weeks (both submit paths accept only one period anyway — applyPeriod keeps
+  // exactly one picker enabled, so whichever phase select is active narrows the
+  // week list that will actually submit). Wrap in an anonymous fn so the Event
+  // is never passed as rebuildWeekSelect's `phases` argument.
+  if (phaseSelect) phaseSelect.addEventListener('change', function () { rebuildWeekSelect(); });
   sessionSelect.addEventListener('change', function () { loadSessionClasses(); rebuildPeriodOptions(); });
   periodSelect.addEventListener('change', applyPeriod);
 

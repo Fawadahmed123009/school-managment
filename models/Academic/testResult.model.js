@@ -49,5 +49,9 @@ const testResultSchema = new mongoose.Schema(
 // one result per student per test
 testResultSchema.index({ test: 1, student: 1 }, { unique: true });
 
+// Query-audit index: per-student result lookups (student is not the prefix of
+// the compound unique index above, so those queries were collscanning).
+testResultSchema.index({ student: 1 });
+
 const TestResult = mongoose.model("TestResult", testResultSchema);
 module.exports = TestResult;

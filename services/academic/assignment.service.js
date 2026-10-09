@@ -143,7 +143,7 @@ exports.getAllAssignmentsService = async (query = {}) => {
     sort: "-createdAt",
     populate: [
       { path: "teacher", select: "name teacherId" },
-      { path: "subject", select: "name" },
+      { path: "subject", select: "name displayName" },
       { path: "classLevel", select: "name gradeLevel group section" },
     ],
   });
@@ -151,7 +151,7 @@ exports.getAllAssignmentsService = async (query = {}) => {
 
 exports.getMyAssignmentsService = async (teacherId, res) => {
   const assignments = await Assignment.find({ teacher: teacherId })
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevel", "name gradeLevel group section");
   return responseStatus(res, 200, "success", assignments);
 };

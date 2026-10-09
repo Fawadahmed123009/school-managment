@@ -63,5 +63,15 @@ const testSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Query-audit indexes: session+date listing, per-subject lookups ($in),
+// week- and phase-scoped filters.
+testSchema.index({ session: 1, date: -1 });
+// Unscoped newest-first listing (Test.find({}).sort({date:-1})) can't use the
+// compound index above — a global date sort needs date as the leading field.
+testSchema.index({ date: -1 });
+testSchema.index({ subject: 1 });
+testSchema.index({ week: 1 });
+testSchema.index({ phase: 1 });
+
 const Test = mongoose.model("Test", testSchema);
 module.exports = Test;

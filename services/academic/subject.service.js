@@ -20,6 +20,9 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  */
 exports.createSubjectService = async (data, programId, userId, res) => {
   const { name, description, appliesTo } = data;
+  // Optional display label — blank input normalizes to undefined so display
+  // call sites fall back to `name`. Never affects the grouping key below.
+  const displayName = (data.displayName || "").trim() || undefined;
 
   // Find the program
   const programFound = await Program.findById(programId);
@@ -50,6 +53,7 @@ exports.createSubjectService = async (data, programId, userId, res) => {
   // Create the Subject
   const SubjectCreated = await Subject.create({
     name,
+    displayName,
     description,
     appliesTo,
     program: programId,
@@ -102,6 +106,14 @@ exports.updateSubjectService = async (data, id, userId, res) => {
     return responseStatus(res, 404, "failed", "Subject not found");
   }
 
+  // Optional display label: a string (even blank, meaning "clear it") from the
+  // edit form wins; when the caller doesn't send the field at all the existing
+  // value is preserved. `name` below remains the grouping/uniqueness key.
+  const displayName =
+    typeof data.displayName === "string"
+      ? data.displayName.trim() || null
+      : existingSubject.displayName || null;
+
   // Check if the updated name already exists within the same program
   const classFound = await Subject.findOne({ name, program: existingSubject.program });
   if (classFound && classFound._id.toString() !== id) {
@@ -128,6 +140,7 @@ exports.updateSubjectService = async (data, id, userId, res) => {
     id,
     {
       name,
+      displayName,
       description,
       appliesTo,
       createdBy: userId,

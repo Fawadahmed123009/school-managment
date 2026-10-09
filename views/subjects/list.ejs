@@ -33,6 +33,13 @@
           <input type="text" name="name" id="name" placeholder="e.g. Mathematics" required />
         </div>
       </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="displayName">Display label (optional)</label>
+          <input type="text" name="displayName" id="displayName" placeholder="Simplified label shown to users, e.g. English" />
+          <p class="hint" style="margin-top:4px;color:#6b7280;font-size:0.8rem;">Shown everywhere instead of the internal name. Leave blank to use the name. The name stays the internal grouping key.</p>
+        </div>
+      </div>
       <div class="field">
         <label for="description">Description (optional)</label>
         <input type="text" name="description" id="description" />
@@ -90,7 +97,10 @@
         <% subjects.forEach(function(s) { %>
           <% var info = subjectProgramMap.get(String(s._id)) || {}; %>
           <tr>
-            <td><strong><%= s.name %></strong></td>
+            <td>
+              <strong><%= s.displayName || s.name %></strong>
+              <% if (s.displayName && s.displayName !== s.name) { %><div style="font-size:0.78rem;color:#6b7280;">internal: <%= s.name %></div><% } %>
+            </td>
             <td><%= info.programName || '—' %></td>
             <td>
               <% if (s.appliesTo && s.appliesTo.length > 0) { %>

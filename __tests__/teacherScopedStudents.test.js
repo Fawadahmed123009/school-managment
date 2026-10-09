@@ -148,8 +148,8 @@ describe("teacher-scoped students — unrestricted branch (admin / manager)", ()
 describe("teacher-scoped students — payload shape", () => {
   test("sectionRef wins over legacy section; missing class data stays null", async () => {
     mockStudentLean.mockResolvedValue([
-      { _id: "s1", name: "Alice", rollNumber: "R1", classLevel: { gradeLevel: "9", section: "Girls", sectionRef: { name: "Boys" } } },
-      { _id: "s2", name: "Bob", rollNumber: "R2", classLevel: { gradeLevel: "10", section: "Girls", sectionRef: null } },
+      { _id: "s1", name: "Alice", rollNumber: "R1", classLevel: { _id: "c1", gradeLevel: "9", section: "Girls", sectionRef: { name: "Boys" } } },
+      { _id: "s2", name: "Bob", rollNumber: "R2", classLevel: { _id: "c2", gradeLevel: "10", section: "Girls", sectionRef: null } },
       { _id: "s3", name: "Carol", rollNumber: "R3", classLevel: null },
     ]);
 
@@ -157,9 +157,9 @@ describe("teacher-scoped students — payload shape", () => {
     await getTeacherScopedStudents({ userAuth: ADMIN }, res);
 
     expect(res.json.mock.calls[0][0].data.students).toEqual([
-      { _id: "s1", name: "Alice", rollNumber: "R1", grade: "9", section: "Boys" },
-      { _id: "s2", name: "Bob", rollNumber: "R2", grade: "10", section: "Girls" },
-      { _id: "s3", name: "Carol", rollNumber: "R3", grade: null, section: null },
+      { _id: "s1", name: "Alice", rollNumber: "R1", grade: "9", section: "Boys", classLevelId: "c1" },
+      { _id: "s2", name: "Bob", rollNumber: "R2", grade: "10", section: "Girls", classLevelId: "c2" },
+      { _id: "s3", name: "Carol", rollNumber: "R3", grade: null, section: null, classLevelId: null },
     ]);
   });
 });

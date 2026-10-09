@@ -31,23 +31,15 @@ const TestResult = require("../../models/Academic/testResult.model");
 
 const asId = (ref) => (ref && ref._id ? String(ref._id) : ref ? String(ref) : null);
 
-// Inclusive upper bound on a student's admission date for them to belong to a
-// test (see services/academic/test.service.js). Day-granular so a same-day
-// admission is never wrongly dropped. Returns null when the test has no usable
-// date — the caller then applies no admission filter.
-function admissionCutoffForTest(testDate) {
-  if (!testDate) return null;
-  const d = new Date(testDate);
-  if (isNaN(d.getTime())) return null;
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
+// A pupil admitted AFTER a test was held is not part of that test's expected
+// marking pool — same rule the mark-entry roster and the teacher dashboard use.
+const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
 
 /** Fetch every past-dated test as one lookup array. */
 async function loadPastDatedTests() {
   return Test.find({ date: { $lt: new Date() } })
     .select("name subject classLevels date")
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .lean();
 }
@@ -57,7 +49,7 @@ async function loadPastDatedTests() {
  */
 async function getPendingMarkingAllTeachers() {
   const [assignments, tests, students, results, teachers] = await Promise.all([
-    Assignment.find().populate("subject", "name").populate("classLevel", "name").lean(),
+    Assignment.find().populate("subject", "name displayName").populate("classLevel", "name").lean(),
     loadPastDatedTests(),
     Student.find({ isWithdrawn: { $ne: true } }).select("_id classLevel dateAdmitted").lean(),
     TestResult.find().select("test student").lean(),
@@ -101,7 +93,9 @@ async function getPendingMarkingAllTeachers() {
     if (!tid || !sid || !cid) return;
     if (a.classLevel && a.classLevel.name) classNameById[cid] = a.classLevel.name;
     const bySubject = duties[tid] || (duties[tid] = {});
-    if (!bySubject[sid]) bySubject[sid] = { name: (a.subject && a.subject.name) || "Unknown", classLevelIds: new Set() };
+    // name here is a display label only (falls back to the internal subject
+    // name); duties are keyed by subject id (sid), never by this string.
+    if (!bySubject[sid]) bySubject[sid] = { name: (a.subject && (a.subject.displayName || a.subject.name)) || "Unknown", classLevelIds: new Set() };
     bySubject[sid].classLevelIds.add(cid);
   });
 
@@ -118,7 +112,7 @@ async function getPendingMarkingAllTeachers() {
         const admissionCutoff = admissionCutoffForTest(t.date);
         const expectedIds = inScope.flatMap((cid) =>
           (studentsByClass[cid] || [])
-            .filter((s) => !admissionCutoff || !s.admitted || new Date(s.admitted) <= admissionCutoff)
+            .filter((s) => isAdmittedByTest(s.admitted, admissionCutoff))
             .map((s) => s.id)
         );
         if (expectedIds.length === 0) return;
@@ -158,7 +152,7 @@ async function getPendingMarkingAllTeachers() {
  */
 async function getTeacherTestMarkingSummary() {
   const [assignments, tests, students, results, teachers] = await Promise.all([
-    Assignment.find().populate("subject", "name").populate("classLevel", "name").lean(),
+    Assignment.find().populate("subject", "name displayName").populate("classLevel", "name").lean(),
     loadPastDatedTests(),
     Student.find({ isWithdrawn: { $ne: true } }).select("_id classLevel dateAdmitted").lean(),
     TestResult.find().select("test student").lean(),
@@ -212,7 +206,7 @@ async function getTeacherTestMarkingSummary() {
         const admissionCutoff = admissionCutoffForTest(t.date);
         const expectedIds = inScope.flatMap((cid) =>
           (studentsByClass[cid] || [])
-            .filter((s) => !admissionCutoff || !s.admitted || new Date(s.admitted) <= admissionCutoff)
+            .filter((s) => isAdmittedByTest(s.admitted, admissionCutoff))
             .map((s) => s.id)
         );
         if (expectedIds.length === 0) return;

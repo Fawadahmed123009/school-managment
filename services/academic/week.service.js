@@ -153,7 +153,7 @@ exports.deleteWeekService = async (id, res) => {
 // Fetch the tests belonging to a week, populated for display.
 async function loadSourceTests(sourceWeekId) {
   return await Test.find({ week: sourceWeekId })
-    .populate("subject", "name")
+    .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .sort({ date: 1 })
     .lean();
@@ -213,7 +213,7 @@ exports.buildCloneWeekPreviewService = async (sourceWeekId, details) => {
     return {
       _id: String(t._id),
       name: t.name,
-      subjectName: t.subject ? t.subject.name : "—",
+      subjectName: t.subject ? (t.subject.displayName || t.subject.name) : "—",
       classLevelNames: (t.classLevels || []).map((c) => c.name).join(", ") || "—",
       totalMarks: t.totalMarks,
       passMarks: t.passMarks,

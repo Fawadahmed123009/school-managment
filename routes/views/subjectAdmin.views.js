@@ -114,10 +114,11 @@ router.get("/subjects/:subjectId/edit", requireAdminOrManager(), async (req, res
 // ── Create ──────────────────────────────────────────────────────
 router.post("/subjects/create", requireAdminOrManager(), async (req, res) => {
   const { name, description, programId } = req.body;
+  const displayName = req.body.displayName;
   const appliesTo = parseAppliesTo(req.body);
   const { res: cap, result } = captureServiceResponse();
   try {
-    await createSubjectService({ name, description, appliesTo }, programId, req.user._id, cap);
+    await createSubjectService({ name, displayName, description, appliesTo }, programId, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/subjects?error=${encodeURIComponent(err.message || "Failed to create subject")}`);
   }
@@ -128,10 +129,11 @@ router.post("/subjects/create", requireAdminOrManager(), async (req, res) => {
 // ── Update ──────────────────────────────────────────────────────
 router.post("/subjects/:subjectId/edit", requireAdminOrManager(), async (req, res) => {
   const { name, description } = req.body;
+  const displayName = req.body.displayName;
   const appliesTo = parseAppliesTo(req.body);
   const { res: cap, result } = captureServiceResponse();
   try {
-    await updateSubjectService({ name, description, appliesTo }, req.params.subjectId, req.user._id, cap);
+    await updateSubjectService({ name, displayName, description, appliesTo }, req.params.subjectId, req.user._id, cap);
   } catch (err) {
     return res.redirect(`/subjects/${req.params.subjectId}/edit?error=${encodeURIComponent(err.message || "Update failed")}`);
   }

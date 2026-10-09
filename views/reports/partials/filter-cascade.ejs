@@ -3,14 +3,18 @@
 // One markup definition shared verbatim by all three report panels (Result
 // Sheet, Session Report Card, Analytics) so their filter UI can never drift.
 // Session → Grade → Section → Student → Subject → Test, every field optional
-// ("All …" = no narrowing). Two independent funnels:
-//   • Grade → Section → Student narrow WHICH PUPILS appear (built from the
-//     student options' data-grade / data-section, resolved server-side per
-//     pupil via GET /pdf-reports/teacher-students).
-//   • Session and Subject → Test narrow WHICH TESTS feed the report (data-session
-//     / data-subject on the test options).
+// ("All …" = no narrowing). ONE chain per panel, driven by real data:
+//   • Session picks the classes its tests cover (Test.classLevels, read from
+//     each test option's data-classes) → Grade / Section / Student list only
+//     what exists inside that covered set (a pupil links in via data-class).
+//   • Grade → Section → Student then narrow each other as usual.
+//   • Subject lists only subjects with a test in the current
+//     session+grade+section scope; Test narrows on session + grade/section +
+//     subject together. Changing any field clears/re-keeps everything below it.
 // Client behaviour lives in public/js/report-filter-cascade.js — it binds the
-// six selects by these exact `<idp>-*` ids.
+// six selects by these exact `<idp>-*` ids and reads the class-scope map
+// (#report-class-scope, classLevelId → {grade, section}) rendered by
+// views/reports/generate.ejs.
 //
 // Locals:
 //   idp     — element-id prefix ('rs' | 'sr' | 'an')
@@ -53,7 +57,7 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
     <select name="<%= namep %>StudentId" id="<%= idp %>-student">
       <option value="">All students</option>
       <% students.forEach(function (s) { %>
-        <option value="<%= s._id %>" data-grade="<%= s.grade || 'none' %>" data-section="<%= s.section || 'none' %>"><%= s.name %> (<%= s.rollNumber %>)</option>
+        <option value="<%= s._id %>" data-grade="<%= s.grade || 'none' %>" data-section="<%= s.section || 'none' %>" data-class="<%= s.classLevelId || '' %>"><%= s.name %> (<%= s.rollNumber %>)</option>
       <% }); %>
     </select>
   </div>
@@ -64,7 +68,7 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
     <select name="<%= namep %>SubjectId" id="<%= idp %>-subject">
       <option value="">All subjects</option>
       <% subjects.forEach(function (s) { %>
-        <option value="<%= s._id %>"><%= s.name %></option>
+        <option value="<%= s._id %>"><%= s.displayName || s.name %></option>
       <% }); %>
     </select>
   </div>
@@ -73,7 +77,7 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
     <select name="<%= namep %>TestId" id="<%= idp %>-test">
       <option value="">All tests</option>
       <% tests.forEach(function (t) { %>
-        <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-subject="<%= catKey(t.subject && t.subject._id) %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
+        <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-subject="<%= catKey(t.subject && t.subject._id) %>" data-classes='<%- JSON.stringify((t.classLevels || []).map(function (cl) { return (cl && cl._id ? String(cl._id) : String(cl)); })) %>'><%= t.name %> — <%= t.subject ? (t.subject.displayName || t.subject.name) : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
       <% }); %>
     </select>
   </div>
