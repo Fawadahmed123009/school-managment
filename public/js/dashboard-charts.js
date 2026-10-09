@@ -276,6 +276,62 @@ document.addEventListener('DOMContentLoaded', function () {
           if (breakdownEmpty) breakdownEmpty.style.display = 'flex';
         }
       }
+
+      // ── Teacher test records: total tests vs marked (admin/manager) ──
+      // Data shape: charts.teacherTests = [{ teacher, total, marked }]
+      // Stacked so each bar's full length is the teacher's total held tests,
+      // split into the part already fully marked and the part still awaiting it.
+      var ttCanvas = document.getElementById('teacherTestsChart');
+      var ttEmpty = document.getElementById('teacherTestsEmpty');
+      if (ttCanvas) {
+        var teacherTests = charts.teacherTests || [];
+        if (teacherTests.length > 0) {
+          new Chart(ttCanvas, {
+            type: 'bar',
+            data: {
+              labels: teacherTests.map(function (d) { return d.teacher; }),
+              datasets: [
+                {
+                  label: 'Marked',
+                  data: teacherTests.map(function (d) { return d.marked; }),
+                  backgroundColor: '#10b981',
+                  stack: 's',
+                },
+                {
+                  label: 'Awaiting marking',
+                  data: teacherTests.map(function (d) { return d.total - d.marked; }),
+                  backgroundColor: '#f59e0b',
+                  stack: 's',
+                }
+              ]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
+                y: { stacked: true, grid: { display: false } }
+              },
+              plugins: {
+                legend: { display: true },
+                tooltip: {
+                  callbacks: {
+                    label: function (ctx) { return ctx.dataset.label + ': ' + ctx.parsed.x + ' test' + (ctx.parsed.x === 1 ? '' : 's'); },
+                    footer: function (items) {
+                      var d = teacherTests[items[0].dataIndex];
+                      return d ? 'Total: ' + d.total + ' · marked ' + d.marked : '';
+                    }
+                  }
+                }
+              }
+            }
+          });
+        } else {
+          ttCanvas.style.display = 'none';
+          if (ttEmpty) ttEmpty.style.display = 'flex';
+        }
+      }
     }
   }
 

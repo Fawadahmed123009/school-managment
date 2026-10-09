@@ -1,30 +1,7 @@
-const { GoogleGenAI } = require("@google/genai");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { removeUploadedFile } = require("../../utils/uploadFactory");
+const { callGemini } = require("../../utils/geminiClient");
 const fs = require("fs");
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-const RETRY_DELAYS_MS = [1000, 3000];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const callGemini = async (params) => {
-  let lastError;
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
-    try {
-      return await ai.models.generateContent(params);
-    } catch (err) {
-      lastError = err;
-      if (err.status === 503 && attempt < RETRY_DELAYS_MS.length) {
-        await sleep(RETRY_DELAYS_MS[attempt]);
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastError;
-};
 
 exports.extractMarksFromImageService = async (filePath, mimeType, res) => {
   // H5: the temp file handed over by multer belongs to this function's scope,
@@ -47,7 +24,7 @@ Return ONLY a JSON array, no other text, no markdown code fences. Each item must
 - "rollNo": the row's roll/serial number as printed, as a string (use null if the sheet has no roll column)
 - "score": the handwritten score as a number (no units, no "/100")
 
-If a handwritten score is genuinely illegible or missing, set "score" to null instead of guessing.
+If a handwritten score is genuinely illegible or the space is left blank, set "score" to null (the pupil is treated as Absent).
 
 Example output:
 [{"name": "John Smith", "rollNo": "12", "score": 78}, {"name": "Jane Doe", "rollNo": null, "score": null}]`;
@@ -62,8 +39,10 @@ Example output:
       ],
     });
   } catch (err) {
-    if (err.status === 503) {
-      return responseStatus(res, 503, "failed", "OCR service is busy, please try again in a moment");
+    // All keys exhausted / cooling down — the wrapper's specific message must
+    // reach the review screen, never an empty result or a generic 500.
+    if (err && err.geminiKeysExhausted) {
+      return responseStatus(res, 503, "failed", err.message);
     }
     throw err;
   }

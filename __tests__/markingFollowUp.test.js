@@ -53,7 +53,7 @@ jest.mock("../models/Students/students.model", () => mockModel("Student"));
 jest.mock("../models/Academic/test.model", () => mockModel("Test"));
 jest.mock("../models/Academic/testResult.model", () => mockModel("TestResult"));
 
-const { getPendingMarkingAllTeachers } = require("../services/academic/markingFollowUp.service");
+const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary } = require("../services/academic/markingFollowUp.service");
 
 // ── Fixture helpers ──────────────────────────────────────────────────────────
 const daysAgo = (n) => new Date(Date.now() - n * 86400000);
@@ -133,6 +133,25 @@ describe("getPendingMarkingAllTeachers", () => {
     expect(bela).toMatchObject({ marked: 1, expected: 3, classes: "Class 1B" });
   });
 
+  it("excludes a pupil admitted after the test's date from the expected pool", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali")];
+    rowsByModel.Assignment = [assignment("t1", "math", "Math", "c1", "Class 1")];
+    // s1 was in the class long before the test; sLate was admitted after it and
+    // must not count towards marking this (older) test.
+    rowsByModel.Student = [
+      Object.assign(student("s1", "c1"), { dateAdmitted: daysAgo(30) }),
+      Object.assign(student("sLate", "c1"), { dateAdmitted: daysAgo(1) }),
+    ];
+    rowsByModel.Test = [test("k1", "math", ["c1"], daysAgo(3))];
+    rowsByModel.TestResult = [result("k1", "s1")]; // the only eligible pupil is done
+
+    const rows = await getPendingMarkingAllTeachers();
+
+    // Fully marked for its in-class roster → the late admission does not keep
+    // this test stuck in pending.
+    expect(rows).toHaveLength(0);
+  });
+
   it("excludes withdrawn students from the expected pool", async () => {
     rowsByModel.Teacher = [teacher("t1", "Ali")];
     rowsByModel.Assignment = [assignment("t1", "math", "Math", "c1", "Class 1")];
@@ -188,5 +207,92 @@ describe("getPendingMarkingAllTeachers", () => {
     rowsByModel.Student = [student("s1", "c1")];
 
     await expect(getPendingMarkingAllTeachers()).resolves.toEqual([]);
+  });
+});
+
+describe("getTeacherTestMarkingSummary", () => {
+  it("reports each teacher's total held tests and how many are fully marked", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali"), teacher("t2", "Bela")];
+    rowsByModel.Assignment = [
+      assignment("t1", "math", "Math", "c1", "Class 1"),
+      assignment("t2", "eng", "English", "c2", "Class 2"),
+    ];
+    rowsByModel.Student = [student("s1", "c1"), student("s2", "c1"), student("s3", "c2")];
+    rowsByModel.Test = [
+      test("k1", "math", ["c1"], daysAgo(3)),
+      test("k2", "math", ["c1"], daysAgo(1)),
+      test("k3", "eng", ["c2"], daysAgo(1)),
+    ];
+    // Ali: k1 fully marked (both pupils), k2 not. Bela: k3 untouched.
+    rowsByModel.TestResult = [result("k1", "s1"), result("k1", "s2")];
+
+    const rows = await getTeacherTestMarkingSummary();
+
+    const ali = rows.find((r) => r.teacher === "Ali");
+    const bela = rows.find((r) => r.teacher === "Bela");
+    expect(ali).toMatchObject({ total: 2, marked: 1 });
+    expect(bela).toMatchObject({ total: 1, marked: 0 });
+  });
+
+  it("counts a shared multi-class test once per teacher, scoped to their classes", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali"), teacher("t2", "Bela")];
+    rowsByModel.Assignment = [
+      assignment("t1", "math", "Math", "c1", "Class 1A"),
+      assignment("t2", "math", "Math", "c2", "Class 1B"),
+    ];
+    rowsByModel.Student = [student("s1", "c1"), student("s2", "c2")];
+    rowsByModel.Test = [test("k1", "math", ["c1", "c2"], daysAgo(4))];
+    rowsByModel.TestResult = [result("k1", "s1"), result("k1", "s2")];
+
+    const rows = await getTeacherTestMarkingSummary();
+
+    expect(rows.find((r) => r.teacher === "Ali")).toMatchObject({ total: 1, marked: 1 });
+    expect(rows.find((r) => r.teacher === "Bela")).toMatchObject({ total: 1, marked: 1 });
+  });
+
+  it("ignores future-dated tests and unassigned subjects", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali")];
+    rowsByModel.Assignment = [assignment("t1", "math", "Math", "c1", "Class 1")];
+    rowsByModel.Student = [student("s1", "c1")];
+    rowsByModel.Test = [
+      test("future", "math", ["c1"], new Date(Date.now() + 5 * 86400000)),
+      test("other-subject", "eng", ["c1"], daysAgo(2)),
+      test("mine", "math", ["c1"], daysAgo(2)),
+    ];
+    rowsByModel.TestResult = [result("mine", "s1")];
+
+    const rows = await getTeacherTestMarkingSummary();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ teacher: "Ali", total: 1, marked: 1 });
+  });
+
+  it("orders teachers by workload (most total tests first)", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali"), teacher("t2", "Bela")];
+    rowsByModel.Assignment = [
+      assignment("t1", "math", "Math", "c1", "Class 1"),
+      assignment("t2", "eng", "English", "c2", "Class 2"),
+    ];
+    rowsByModel.Student = [student("s1", "c1"), student("s2", "c2")];
+    rowsByModel.Test = [
+      test("a1", "math", ["c1"], daysAgo(3)),
+      test("a2", "math", ["c1"], daysAgo(2)),
+      test("a3", "math", ["c1"], daysAgo(1)),
+      test("b1", "eng", ["c2"], daysAgo(1)),
+    ];
+    rowsByModel.TestResult = [];
+
+    const rows = await getTeacherTestMarkingSummary();
+
+    expect(rows.map((r) => r.teacher)).toEqual(["Ali", "Bela"]);
+  });
+
+  it("omits teachers with no held tests in their scope", async () => {
+    rowsByModel.Teacher = [teacher("t1", "Ali")];
+    rowsByModel.Assignment = [assignment("t1", "math", "Math", "c1", "Class 1")];
+    rowsByModel.Student = [student("s1", "c1")];
+    rowsByModel.Test = [test("future", "math", ["c1"], new Date(Date.now() + 5 * 86400000))];
+
+    await expect(getTeacherTestMarkingSummary()).resolves.toEqual([]);
   });
 });

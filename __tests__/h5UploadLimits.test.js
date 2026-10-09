@@ -530,6 +530,9 @@ describe("H5 OCR/import services clean up on failure", () => {
   let importService;
 
   beforeAll(() => {
+    // The shared Gemini wrapper builds its key pool lazily from env; this suite
+    // only exercises cleanup paths, so one dummy key and a mocked SDK suffice.
+    process.env.GEMINI_API_KEY = "h5-test-key";
     jest.isolateModules(() => {
       mockGenerateContent = jest.fn();
       jest.doMock("@google/genai", () => ({
@@ -551,9 +554,17 @@ describe("H5 OCR/import services clean up on failure", () => {
       ocrServices = {
         fees: require("../services/fees/ocr.service"),
         marks: require("../services/academic/marksOcr.service"),
+        gemini: require("../utils/geminiClient"),
       };
       importService = require("../services/students/studentImport.service");
     });
+  });
+
+  beforeEach(() => {
+    // Fresh key pool per case: a 429 cooldown from one test must not make the
+    // next test's call skip the SDK mock entirely.
+    ocrServices.gemini.__resetGeminiPoolForTesting();
+    mockGenerateContent.mockReset();
   });
 
   const mkRes = () => {
@@ -578,7 +589,13 @@ describe("H5 OCR/import services clean up on failure", () => {
     const file = makeUploadTempFile();
     mockGenerateContent.mockRejectedValue(Object.assign(new Error("quota"), { status: 429 }));
 
-    await expect(ocrServices.fees.extractFeesFromImageService(file, "image/png", mkRes())).rejects.toThrow("quota");
+    const res = mkRes();
+    await ocrServices.fees.extractFeesFromImageService(file, "image/png", res);
+
+    // Failover wrapper: the 429 cools the only key down, so the service answers
+    // 503 with the specific quota/busy message — never an empty result.
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json.mock.calls[0][0].message).toMatch(/quota reached or service busy/);
     expect(await fileGone(file)).toBe(true);
   });
 

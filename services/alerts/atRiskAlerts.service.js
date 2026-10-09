@@ -98,7 +98,7 @@ exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy) => {
     // Per-subject score check
     const subjectAgg = {};
     testResults
-      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks)
+      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks && r.absent !== true && r.score > 0)
       .forEach((r) => {
         const subjectName = r.test.subject ? r.test.subject.name : "Unknown";
         const percent = Math.round((r.score / r.test.totalMarks) * 10000) / 100;
@@ -262,7 +262,7 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
     // Per-subject score check — ONLY teacher's subjects
     const subjectAgg = {};
     filteredResults
-      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks)
+      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks && r.absent !== true && r.score > 0)
       .forEach((r) => {
         const subjectName = r.test.subject ? r.test.subject.name : "Unknown";
         const percent = Math.round((r.score / r.test.totalMarks) * 10000) / 100;

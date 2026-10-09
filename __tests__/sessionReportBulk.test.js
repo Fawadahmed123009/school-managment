@@ -262,4 +262,54 @@ describe("session-report single — phase/week period passthrough", () => {
     // Empty strings must not leak through as filters.
     expect(period.weekId).toBeUndefined();
   });
+
+  test("multi-week: forwards a sanitised weekIds array on the period", async () => {
+    mockSingleService.mockResolvedValue({ uuid: "u1", singleStudent: null });
+
+    const W1 = "507f1f77bcf86cd799439061";
+    const W2 = "507f1f77bcf86cd799439062";
+    const res = mockRes();
+    await generateSessionReport(
+      mockReq({ sessionId: SESSION_ID, studentId: "s1", weekIds: [W1, W2, "bogus"] }, ADMIN),
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const period = mockSingleService.mock.calls[0][3];
+    // Only the two valid ObjectIds survive; the forged value is dropped.
+    expect(period.weekIds).toEqual([W1, W2]);
+  });
+
+  test("multi-week: an empty/absent weekIds becomes undefined (no false filter)", async () => {
+    mockSingleService.mockResolvedValue({ uuid: "u1", singleStudent: null });
+
+    const res = mockRes();
+    await generateSessionReport(mockReq({ sessionId: SESSION_ID, studentId: "s1", weekIds: [] }, ADMIN), res);
+
+    const period = mockSingleService.mock.calls[0][3];
+    expect(period.weekIds).toBeUndefined();
+  });
+});
+
+// ── Bulk endpoint: multi-week passthrough ────────────────────────────────────
+describe("session-report bulk — multi-week period passthrough", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test("hands the sanitised weekIds array to the bulk generator", async () => {
+    mockSessionFindById.mockResolvedValue({ _id: SESSION_ID });
+    mockStudentFind.mockResolvedValue([{ _id: "s1" }]);
+    mockBulkService.mockResolvedValue([]);
+
+    const W1 = "507f1f77bcf86cd799439061";
+    const W2 = "507f1f77bcf86cd799439062";
+    const res = mockRes();
+    await generateSessionReportBulk(
+      mockReq({ sessionId: SESSION_ID, scope: "class", classLevelId: CLASS_9A, weekIds: [W1, W2] }, ADMIN),
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    const [args] = mockBulkService.mock.calls[0];
+    expect(args.weekIds).toEqual([W1, W2]);
+  });
 });

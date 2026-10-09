@@ -1,0 +1,81 @@
+<%
+// ── Unified PDF-report filter cascade ───────────────────────────────────────
+// One markup definition shared verbatim by all three report panels (Result
+// Sheet, Session Report Card, Analytics) so their filter UI can never drift.
+// Session → Grade → Section → Student → Subject → Test, every field optional
+// ("All …" = no narrowing). Two independent funnels:
+//   • Grade → Section → Student narrow WHICH PUPILS appear (built from the
+//     student options' data-grade / data-section, resolved server-side per
+//     pupil via GET /pdf-reports/teacher-students).
+//   • Session and Subject → Test narrow WHICH TESTS feed the report (data-session
+//     / data-subject on the test options).
+// Client behaviour lives in public/js/report-filter-cascade.js — it binds the
+// six selects by these exact `<idp>-*` ids.
+//
+// Locals:
+//   idp     — element-id prefix ('rs' | 'sr' | 'an')
+//   namep   — submit-name prefix ('resultSheet' | 'sessionReport' | 'analytics');
+//             unique per panel because all three share ONE <form> and a hidden
+//             input still submits — a shared name would double-post.
+//   sessions, subjects, tests, students — server-rendered option lists,
+//             already role-scoped by the view route.
+// Only the fields each generator actually consumes need to exist server-side;
+// the names are uniform here so every panel posts the same shape.
+const NONE_KEY = 'none';
+const catKey = (value) => (value ? String(value) : NONE_KEY);
+%>
+<div class="field-row">
+  <div class="field">
+    <label for="<%= idp %>-session">Session</label>
+    <select name="<%= namep %>SessionId" id="<%= idp %>-session">
+      <option value="">-- All sessions --</option>
+      <% sessions.forEach(function (s) { %>
+        <option value="<%= s._id %>" data-phases='<%- JSON.stringify((s.phases || []).slice().sort(function (a, b) { return a.order - b.order; })) %>'><%= s.name %></option>
+      <% }); %>
+    </select>
+  </div>
+  <div class="field">
+    <label for="<%= idp %>-grade">Grade</label>
+    <select name="<%= namep %>Grade" id="<%= idp %>-grade">
+      <option value="">All grades</option>
+    </select>
+  </div>
+</div>
+<div class="field-row">
+  <div class="field">
+    <label for="<%= idp %>-section">Section</label>
+    <select name="<%= namep %>Section" id="<%= idp %>-section" disabled>
+      <option value="">All sections</option>
+    </select>
+  </div>
+  <div class="field">
+    <label for="<%= idp %>-student">Student</label>
+    <select name="<%= namep %>StudentId" id="<%= idp %>-student">
+      <option value="">All students</option>
+      <% students.forEach(function (s) { %>
+        <option value="<%= s._id %>" data-grade="<%= s.grade || 'none' %>" data-section="<%= s.section || 'none' %>"><%= s.name %> (<%= s.rollNumber %>)</option>
+      <% }); %>
+    </select>
+  </div>
+</div>
+<div class="field-row">
+  <div class="field">
+    <label for="<%= idp %>-subject">Subject</label>
+    <select name="<%= namep %>SubjectId" id="<%= idp %>-subject">
+      <option value="">All subjects</option>
+      <% subjects.forEach(function (s) { %>
+        <option value="<%= s._id %>"><%= s.name %></option>
+      <% }); %>
+    </select>
+  </div>
+  <div class="field">
+    <label for="<%= idp %>-test">Test</label>
+    <select name="<%= namep %>TestId" id="<%= idp %>-test">
+      <option value="">All tests</option>
+      <% tests.forEach(function (t) { %>
+        <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-subject="<%= catKey(t.subject && t.subject._id) %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
+      <% }); %>
+    </select>
+  </div>
+</div>
+<p class="hint" id="<%= idp %>-test-count"></p>

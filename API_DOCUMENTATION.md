@@ -1090,7 +1090,7 @@ If no password provided, a random one is generated. Response includes the plain-
 | `GET` | `/api/v1/pdf-reports/:uuid` | `isLoggedIn`, `isAdminOrTeacher` | `servePdf` |
 
 **POST /pdf-reports/result-sheet body:** `{ "testId": "ObjectId" }`  
-**POST /pdf-reports/analytics body:** `{ "studentId": "ObjectId?", "subjectId": "ObjectId?", "fromDate": "string?", "toDate": "string?" }`  
+**POST /pdf-reports/analytics body:** `{ "studentId": "ObjectId?", "subjectId": "ObjectId?", "sessionId": "ObjectId?", "phaseId": "ObjectId?", "weekId": "ObjectId?", "weekIds": "ObjectId[]?" }` — the layout adapts to the period scope: one week → flat test list, phase (no week selector) → subject groups of individual tests, 2+ weeks → subject groups with one aggregated row per week.  
 **POST /pdf-reports/session-report body:** `{ "sessionId": "ObjectId", "studentId": "ObjectId" }`
 
 **Success (200):**

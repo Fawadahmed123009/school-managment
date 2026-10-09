@@ -5,7 +5,6 @@ const { requireRole } = require("../../middlewares/authView");
 const pdfReportService = require("../../services/academic/pdfReport.service");
 const { buildSessionIndex, sortTestsByCategory } = require("../../utils/testCategoryIndex");
 const TestSession = require("../../models/Academic/testSession.model");
-const ClassLevel = require("../../models/Academic/class.model");
 const Week = require("../../models/Academic/week.model");
 
 // ─── Public router (mounted BEFORE authView) ────────────────────────────────
@@ -46,7 +45,13 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
   const sessionsRes = await apiFetch("/test-sessions", req.token);
   const sessions = sessionsRes.status === "success" ? sessionsRes.data : [];
 
-  let students = [], subjects = [], tests = [], teacherSubjects = null, teacherClasses = null;
+  // Shared role-scoped student list feeding all three filter cascades:
+  // admin/manager get the whole roster, a plain teacher only the students of
+  // their assigned classes (resolved server-side from Assignments).
+  const studentsRes = await apiFetch("/pdf-reports/teacher-students", req.token);
+  const students = studentsRes.status === "success" ? studentsRes.data.students || [] : [];
+
+  let subjects = [], tests = [], teacherSubjects = null, teacherClasses = null;
 
   if (isTeacher) {
     // Teacher: only their assigned subjects/classes/tests
@@ -73,35 +78,26 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
       const subId = typeof t.subject === "object" ? t.subject._id : t.subject;
       return subjectMap[subId] !== undefined;
     });
-
-    // Students: get from classes the teacher is assigned to
-    // Since /admin/students is admin-only, we leave the list empty for teachers
-    // They can still use the analytics filter with student ID from other sources
-    students = [];
   } else {
     // Admin: unrestricted
-    const [studentsRes, subjectsRes, testsRes] = await Promise.all([
-      apiFetch("/admin/students", req.token),
+    const [subjectsRes, testsRes] = await Promise.all([
       apiFetch("/subject", req.token),
       apiFetch("/tests", req.token),
     ]);
-    students = studentsRes.status === "success" ? (Array.isArray(studentsRes.data) ? studentsRes.data : studentsRes.data?.data || []) : [];
     subjects = subjectsRes.status === "success" ? subjectsRes.data : [];
     tests = testsRes.status === "success" ? testsRes.data : [];
   }
 
-  // Result-sheet picker: Session → Phase → Week, then newest first.
-  const { sessionRank, phaseNames, phaseOrder } = await buildSessionIndex(tests, sessions);
+  // Result-sheet picker: newest tests first.
+  const { sessionRank, phaseOrder } = await buildSessionIndex(tests, sessions);
   sortTestsByCategory(tests, sessionRank, phaseOrder);
 
-  // Session-report bulk pickers: every class/section (grouped by grade in the
-  // view) and the weeks belonging to the listed sessions (cascaded client-
-  // side). Read-only metadata at the same exposure level as the session/phase
+  // Session-report weeks for the period picker (cascaded client-side).
+  // Read-only metadata at the same exposure level as the session/phase
   // index already handed to teachers.
-  const [classes, weeks] = await Promise.all([
-    ClassLevel.find({}).select("name gradeLevel group sectionRef").populate("sectionRef", "name").sort("gradeLevel name").lean(),
-    sessions.length > 0 ? Week.find({ session: { $in: sessions.map((s) => s._id) } }).select("name phase session startDate").sort("startDate").lean() : [],
-  ]);
+  const weeks = sessions.length > 0
+    ? await Week.find({ session: { $in: sessions.map((s) => s._id) } }).select("name phase session startDate").sort("startDate").lean()
+    : [];
 
   res.render("reports/generate", {
     page: "reports",
@@ -110,8 +106,6 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     subjects,
     tests,
     sessions,
-    phaseNames,
-    classes,
     weeks,
     isTeacher,
     teacherSubjects,
@@ -122,13 +116,27 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
 
 // POST /reports/generate — generate PDF and show result
 generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async (req, res) => {
-  const { reportType, testId, studentId, subjectId, fromDate, toDate, sessionId } = req.body;
+  const { reportType } = req.body;
 
   // Session report: three scopes share one picker panel — one student
   // (existing single flow), a whole class, or selected sections (bulk).
   if (reportType === "session-report") {
+    // The unified cascade submits `sessionReport*`-prefixed names (all three
+    // panels share one <form>; hidden ≠ unsubmitted). Only Session + Student
+    // feed this report's endpoints — the backend is unchanged.
+    const sessionId = req.body.sessionReportSessionId;
+    const studentId = req.body.sessionReportStudentId;
     const scope = req.body.scope || "student";
-    const period = { phaseId: req.body.phaseId || undefined, weekId: req.body.weekId || undefined };
+    // Multi-week mode submits weekIds[] (checkbox array); a single week submits
+    // weekId, a phase submits phaseId. Normalise weekIds to an array so a lone
+    // ticked week (browser sends a string, not an array) still filters correctly.
+    const rawWeekIds = req.body.weekIds;
+    const weekIds = Array.isArray(rawWeekIds) ? rawWeekIds.filter(Boolean) : rawWeekIds ? [rawWeekIds] : [];
+    const period = {
+      phaseId: req.body.phaseId || undefined,
+      weekId: req.body.weekId || undefined,
+      weekIds: weekIds.length ? weekIds : undefined,
+    };
 
     if (scope === "class" || scope === "sections") {
       const bulkRes = await apiFetch("/pdf-reports/session-report-bulk", req.token, {
@@ -140,6 +148,7 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
           classLevelIds: req.body.classLevelIds,
           phaseId: period.phaseId,
           weekId: period.weekId,
+          weekIds: period.weekIds,
         }),
       });
       if (bulkRes.status !== "success") {
@@ -165,7 +174,7 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
 
     const singleRes = await apiFetch("/pdf-reports/session-report", req.token, {
       method: "POST",
-      body: JSON.stringify({ sessionId, studentId, phaseId: period.phaseId, weekId: period.weekId }),
+      body: JSON.stringify({ sessionId, studentId, phaseId: period.phaseId, weekId: period.weekId, weekIds: period.weekIds }),
     });
     if (singleRes.status !== "success") {
       return res.redirect(`/reports/generate?error=${encodeURIComponent(singleRes.message || "PDF generation failed")}`);
@@ -194,11 +203,33 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
 
   let endpoint, body;
   if (reportType === "result-sheet") {
+    // A result sheet is scoped to exactly one test; grade/section come from the
+    // unified cascade's pupil funnel and narrow which pupils the sheet lists.
+    // Session/Subject/Student only drive the picker cascade — the generator's
+    // contract (testId + grade + section) is unchanged.
     endpoint = "/pdf-reports/result-sheet";
-    body = { testId };
+    body = {
+      testId: req.body.resultSheetTestId || undefined,
+      grade: req.body.resultSheetGrade || undefined,
+      section: req.body.resultSheetSection || undefined,
+    };
   } else if (reportType === "analytics") {
     endpoint = "/pdf-reports/analytics";
-    body = { studentId: studentId || undefined, subjectId: subjectId || undefined, fromDate, toDate };
+    // Analytics has its own `analytics*`-prefixed field names so it never
+    // collides with the other panels — all three panels live in one <form>,
+    // and a hidden (display:none) input is still submitted, so any shared name
+    // would double-post and poison the sibling panel's values. The picker is a
+    // Session → Grade → Section → Student → Subject → Test cascade: session and
+    // subject/test bound which tests feed the report, grade/section/student scope
+    // which pupils appear. Every field is optional ("All …" = no narrowing).
+    body = {
+      studentId: req.body.analyticsStudentId || undefined,
+      subjectId: req.body.analyticsSubjectId || undefined,
+      sessionId: req.body.analyticsSessionId || undefined,
+      grade: req.body.analyticsGrade || undefined,
+      section: req.body.analyticsSection || undefined,
+      testId: req.body.analyticsTestId || undefined,
+    };
   } else {
     return res.redirect("/reports/generate?error=Invalid+report+type");
   }

@@ -19,57 +19,34 @@
   <div class="panel">
     <div class="panel-head"><h2>1. Choose report type</h2></div>
     <div class="panel-body">
-      <div class="field-row">
-        <div class="field">
-          <label for="reportType">Report Type</label>
-          <select name="reportType" id="reportType" required>
-            <option value="result-sheet">Result Sheet (single test)</option>
-            <option value="analytics">Analytics (multi-test filtered)</option>
-            <option value="session-report">Session Report Card (phase report)</option>
-          </select>
+      <!-- Report type is submitted via this hidden field; the toggle buttons
+           below are the visible control (same pattern as the session-report
+           "Report for" toggle). Only one panel is ever active — the others are
+           hidden (display:none), never removed, so their inactive controls stay
+           in the form but never submit conflicting values. -->
+      <input type="hidden" name="reportType" id="reportType" value="result-sheet" />
+      <div class="field">
+        <label>Report Type</label>
+        <div id="reportType-toggle" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" data-report-type="result-sheet">Result Sheet (single test)</button>
+          <button type="button" class="btn btn-ghost" data-report-type="analytics">Analytics (week / phase scope)</button>
+          <button type="button" class="btn btn-ghost" data-report-type="session-report">Session Report Card (phase report)</button>
         </div>
       </div>
+      <p class="hint">Pick a report type to reveal its options below.</p>
     </div>
   </div>
 
   <!-- Result Sheet fields -->
   <div class="panel report-fields" data-for="result-sheet">
-    <div class="panel-head"><h2>2. Select test</h2></div>
+    <div class="panel-head"><h2>2. Filter results</h2></div>
     <div class="panel-body">
-      <%
-        // Category keys ride on every test option so the three dropdowns below
-        // are built from the tests that can actually be picked (no API
-        // round-trip), exactly like the Manage tests ledger cascade. They carry
-        // no `name` attribute — only testId is submitted.
-        const NONE_KEY = 'none';
-        const catKey = (value) => (value ? String(value) : NONE_KEY);
-      %>
-      <div class="field-row">
-        <div class="field">
-          <label for="rs-session">Session</label>
-          <select id="rs-session"></select>
-        </div>
-        <div class="field">
-          <label for="rs-phase">Phase</label>
-          <select id="rs-phase"></select>
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="rs-week">Week</label>
-          <select id="rs-week"></select>
-        </div>
-        <div class="field">
-          <label for="testId_rs">Test</label>
-          <select name="testId" id="testId_rs">
-            <option value="">-- Select test --</option>
-            <% tests.forEach(function(t) { %>
-              <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-session-name="<%= t.session ? t.session.name : 'Standalone' %>" data-phase="<%= catKey(t.phase) %>" data-phase-name="<%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : 'No phase' %>" data-week="<%= catKey(t.week && t.week._id) %>" data-week-name="<%= t.week ? t.week.name : 'No week' %>"><%= t.name %> — <%= t.subject ? t.subject.name : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
-            <% }); %>
-          </select>
-        </div>
-      </div>
-      <p class="hint" id="rs-test-count"></p>
+      <!-- The unified cascade, identical in every panel. A result sheet is
+           generated for exactly one Test: Session and Subject narrow the test
+           list, Grade and Section scope which pupils the sheet lists (the
+           generator's contract — testId + grade + section — is unchanged). -->
+      <%- include('partials/filter-cascade', { idp: 'rs', namep: 'resultSheet', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
+      <p class="hint">Select one Test — the sheet lists every pupil of that test, narrowed by Grade / Section ("All sections" keeps both). The Student picker only helps locate a pupil's class; it does not reduce the sheet to one pupil.</p>
     </div>
   </div>
 
@@ -77,37 +54,12 @@
   <div class="panel report-fields" data-for="analytics" style="display:none">
     <div class="panel-head"><h2>2. Filter results</h2></div>
     <div class="panel-body">
-      <div class="field-row">
-        <div class="field">
-          <label for="studentId_an">Student</label>
-          <select name="studentId" id="studentId_an">
-            <option value="">All students</option>
-            <% students.forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %> (<%= s.rollNumber %>)</option>
-            <% }); %>
-          </select>
-        </div>
-        <div class="field">
-          <label for="subjectId_an">Subject</label>
-          <select name="subjectId" id="subjectId_an">
-            <option value="">All subjects</option>
-            <% (isTeacher && teacherSubjects ? teacherSubjects : subjects).forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %></option>
-            <% }); %>
-          </select>
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="fromDate_an">From</label>
-          <input type="date" name="fromDate" id="fromDate_an" />
-        </div>
-        <div class="field">
-          <label for="toDate_an">To</label>
-          <input type="date" name="toDate" id="toDate_an" />
-        </div>
-      </div>
-      <p class="hint">Select a student to get a single-student report (enables WhatsApp share).</p>
+      <!-- The same unified cascade. Session, Subject and Test bound which
+           results feed the report; Grade, Section and Student scope the pupils.
+           All six fields submit under unique `analytics*` names (the panels
+           share one <form> and hidden ≠ unsubmitted). -->
+      <%- include('partials/filter-cascade', { idp: 'an', namep: 'analytics', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
+      <p class="hint">Session, Subject and Test bound which results feed the report; Grade, Section and Student scope the pupils. Leave any on its "All …" option to keep it broad — a single Student enables the WhatsApp share, and with no filters the report covers every matching result school-wide.</p>
     </div>
   </div>
 
@@ -115,79 +67,64 @@
   <div class="panel report-fields" data-for="session-report" style="display:none">
     <div class="panel-head"><h2>2. Session report options</h2></div>
     <div class="panel-body">
-      <div class="field-row">
-        <div class="field">
-          <label for="sessionId_sr">Session</label>
-          <select name="sessionId" id="sessionId_sr">
-            <option value="">-- Select session --</option>
-            <% sessions.forEach(function(s) { %>
-              <option value="<%= s._id %>" data-phases='<%- JSON.stringify((s.phases || []).slice().sort(function(a, b) { return a.order - b.order; })) %>'><%= s.name %></option>
-            <% }); %>
-          </select>
-        </div>
-        <div class="field">
-          <label for="sr-scope">Report for</label>
-          <select name="scope" id="sr-scope">
-            <option value="student">Specific student</option>
-            <option value="class">Whole class</option>
-            <option value="sections">Selected sections</option>
-          </select>
+      <!-- Hidden scope is what the server reads: 'student' for one pupil,
+           'sections' for the bulk class/grade paths (both submit a classLevelIds
+           array). The visible mode toggle below rewrites it. Kept enabled so it
+           always submits regardless of the active mode. -->
+      <input type="hidden" name="scope" id="sr-scope" value="student" />
+
+      <!-- The unified cascade, identical to the other panels. A report card is
+           per pupil: Session and Student feed the generator directly (names
+           sessionReportSessionId / sessionReportStudentId); Grade and Section
+           narrow the Student list; Subject and Test are browse-only here — the
+           card always covers every subject of the session. -->
+      <%- include('partials/filter-cascade', { idp: 'sr', namep: 'sessionReport', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
+      <p class="hint">Pick a Session and a Student for one report card. "Whole grade" / "Selected sections" below generate bulk cards per class instead.</p>
+
+      <!-- ── Report mode toggle ─────────────────────────────── -->
+      <div class="field">
+        <label>Report for</label>
+        <div id="sr-mode-toggle" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-primary" data-sr-mode="student">Specific student</button>
+          <button type="button" class="btn btn-ghost" data-sr-mode="grade">Whole grade</button>
+          <button type="button" class="btn btn-ghost" data-sr-mode="sections">Selected sections</button>
         </div>
       </div>
 
-      <div class="field-row sr-scope-field" data-sr-for="student">
-        <div class="field">
-          <label for="studentId_sr">Student</label>
-          <select name="studentId" id="studentId_sr">
-            <option value="">-- Select student --</option>
-            <% students.forEach(function(s) { %>
-              <option value="<%= s._id %>"><%= s.name %> (<%= s.rollNumber %>)</option>
-            <% }); %>
-          </select>
+      <!-- Mode: Whole grade — Grade → Section (Boys/Girls). The chosen grade +
+           section resolve to every matching class; their ids are submitted as a
+           hidden classLevelIds array (bulk 'sections' scope). -->
+      <div class="sr-mode-panel" data-sr-mode-for="grade" style="display:none">
+        <div class="field-row">
+          <div class="field">
+            <label for="sr-grade-grade">Grade</label>
+            <select id="sr-grade-grade"><option value="">-- Select grade --</option></select>
+          </div>
+          <div class="field">
+            <label for="sr-grade-section">Section (Boys/Girls)</label>
+            <select id="sr-grade-section"><option value="">-- Select grade first --</option></select>
+          </div>
         </div>
+        <p class="hint" id="sr-grade-summary">Select a grade and section to include every matching class.</p>
+        <!-- Resolved class ids for the chosen grade + section, filled by
+             report-session-bulk.js. Hidden; submits as classLevelIds[] (bulk
+             'sections' scope) so a grade/section spanning several classes (e.g.
+             grade 9 with multiple groups) generates a card for each. -->
+        <div id="sr-grade-class-holder" style="display:none"></div>
       </div>
 
-      <div class="field-row sr-scope-field" data-sr-for="class" style="display:none">
-        <div class="field">
-          <label for="classLevelId_sr">Class</label>
-          <select name="classLevelId" id="classLevelId_sr">
-            <option value="">-- Select class --</option>
-            <%
-              var srGradeGroups = {};
-              classes.forEach(function(c) { var g = c.gradeLevel || '\u2014'; (srGradeGroups[g] = srGradeGroups[g] || []).push(c); });
-            %>
-            <% Object.keys(srGradeGroups).forEach(function(g) { %>
-              <optgroup label="Grade <%= g %>">
-                <% srGradeGroups[g].forEach(function(c) { %>
-                  <option value="<%= c._id %>"><%= g ? g + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %></option>
-                <% }); %>
-              </optgroup>
-            <% }); %>
-          </select>
+      <!-- Mode: Selected sections — pick a grade, then tick its class/sections.
+           Ticked ids submit as classLevelIds[]. -->
+      <div class="sr-mode-panel" data-sr-mode-for="sections" style="display:none">
+        <div class="field-row">
+          <div class="field">
+            <label for="sr-sec-grade">Grade</label>
+            <select id="sr-sec-grade"><option value="">-- Select grade --</option></select>
+          </div>
         </div>
-      </div>
-
-      <div class="sr-scope-field" data-sr-for="sections" style="display:none">
         <label>Sections</label>
         <div id="sr-class-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
-          <% Object.keys(srGradeGroups).forEach(function(g) { var groupClasses = srGradeGroups[g]; %>
-          <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:10px;">
-            <% if (groupClasses.length > 1) { %>
-              <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
-                <input type="checkbox" class="grade-all-cb" />
-                All sections of grade <%= g %>
-              </label>
-            <% } else { %>
-              <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
-            <% } %>
-            <% groupClasses.forEach(function(c) { %>
-              <label style="display:flex;align-items:center;gap:8px;padding:5px 0 5px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
-                <input type="checkbox" name="classLevelIds" value="<%= c._id %>" class="class-cb" />
-                <%= c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %><%= c.sectionRef ? ' \u00b7 ' + c.sectionRef.name : '' %>
-              </label>
-            <% }); %>
-          </div>
-          <% }); %>
+          <p class="hint" id="sr-sec-empty">Select a grade to list its sections.</p>
         </div>
         <p class="hint">One PDF report card per active student in the ticked class/es.</p>
       </div>
@@ -199,6 +136,7 @@
             <option value="session">Whole session</option>
             <option value="phase">Specific phase</option>
             <option value="week">Specific week</option>
+            <option value="weeks">Selected weeks (combine multiple)</option>
           </select>
         </div>
         <div class="field">
@@ -214,6 +152,25 @@
           </select>
         </div>
       </div>
+
+      <!-- Multi-week picker: shown only for the "Selected weeks" period. A phase
+           is chosen first, then that phase's weeks are ticked individually; the
+           report aggregates ONLY the ticked weeks' tests (never the whole
+           phase). The phase filter is a narrowing control with no `name` — only
+           weekIds[] submits. Built client-side from the embedded session weeks. -->
+      <div class="sr-period-field" data-sr-period-for="weeks" style="display:none">
+        <div class="field-row">
+          <div class="field">
+            <label for="sr-weeks-phase">Phase</label>
+            <select id="sr-weeks-phase"><option value="">-- Select phase first --</option></select>
+          </div>
+        </div>
+        <label>Weeks to include</label>
+        <div id="sr-week-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <p class="hint" id="sr-week-empty">Select a session, then a phase, to choose weeks.</p>
+        </div>
+        <p class="hint">Pick a phase, then tick the specific weeks to combine — results come only from these weeks' tests.</p>
+      </div>
       <p class="hint">Bulk scopes and WhatsApp sending are for admins and managers. Students with no results in the selected period are skipped.</p>
     </div>
   </div>
@@ -223,7 +180,7 @@
 
 <script type="application/json" id="sr-weeks"><%- JSON.stringify(weeks).replace(/</g, '\\u003c') %></script>
 <script src="/js/report-generate.js"></script>
-<script src="/js/report-test-cascade.js"></script>
+<script src="/js/report-filter-cascade.js"></script>
 <script src="/js/report-session-bulk.js"></script>
 
 <%- include('../partials/foot') %>

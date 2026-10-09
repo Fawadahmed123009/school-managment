@@ -447,6 +447,17 @@
     <% } %>
   </div>
 
+  <!-- Teacher test records: tests held vs marked (admin & manager) -->
+  <div class="charts-row">
+    <div class="panel chart-panel chart-panel--wide">
+      <div class="panel-head"><h2>Teacher test records <span class="chart-subtitle">Total tests vs marked · all teachers</span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="teacherTestsChart"></canvas>
+        <div class="chart-empty" id="teacherTestsEmpty" style="display:none;">No test records yet</div>
+      </div>
+    </div>
+  </div>
+
   <% if (user.role === 'admin') { %>
   <div class="charts-row">
     <div class="panel chart-panel chart-panel--wide">

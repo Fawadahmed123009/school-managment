@@ -8,7 +8,79 @@ const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const TeacherDoc = require("../../models/Staff/teachers.model");
+const TestAudit = require("../../models/Academic/testAudit.model");
 const { getAssignedClassLevels } = require("./assignment.service");
+
+// Inclusive upper bound on a student's admission date for them to belong to a
+// test: a pupil admitted on the test's own day (or earlier) was in the class
+// when it was held; anyone admitted later was NOT, so they must not appear on
+// that test's mark-entry roster. Day-granularity (end of the test's day) so a
+// same-day admission is never wrongly hidden by time-of-day differences.
+// Returns null when the test carries no usable date — callers then apply no
+// admission filter at all.
+function admissionCutoffForTest(testDate) {
+  if (!testDate) return null;
+  const d = new Date(testDate);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+// ── Multi-document atomicity (mirrors services/fees/fees.service.js, H6) ─────
+// A test deletion writes MORE THAN ONE document: the append-only audit row plus
+// the cascade removal of the test's TestResult rows and the Test itself. On the
+// replica set (Atlas) those run inside a MongoDB transaction, so a failure at
+// any step aborts and rolls the whole operation back — an audit row can never
+// describe a deletion that did not happen, and a deletion can never happen
+// without its audit row (fail-closed). Standalone deployments (and mocked unit
+// tests) cannot start a session; the helper then degrades to running the steps
+// in order, which still writes the audit FIRST so an untracked delete stays
+// impossible.
+async function withTransaction(body) {
+  let session;
+  try {
+    session = mongoose.connection.client.startSession();
+    session.startTransaction({
+      readConcern: { level: "local" },
+      writeConcern: { w: "majority" },
+      readPreference: "primary",
+      maxCommitTimeMS: 60000,
+    });
+  } catch (err) {
+    if (session) { try { session.endSession(); } catch (_) { /* best effort */ } }
+    return body({ session: null });
+  }
+  try {
+    const result = await body({ session });
+    try {
+      await session.commitTransaction();
+    } catch (commitErr) {
+      if (commitErr.codeName !== "UnknownTransactionCommitResult") throw commitErr;
+      await session.commitTransaction();
+    }
+    return result;
+  } catch (err) {
+    try { await session.abortTransaction(); } catch (_) { /* already aborted */ }
+    throw err;
+  } finally {
+    session.endSession();
+  }
+}
+
+// Resolve the acting admin/manager's display identity from the DATABASE, keyed
+// off the verified token id. Never trusts any role carried by the caller.
+async function resolveAuditActor(actorId) {
+  const Admin = require("../../models/Staff/admin.model");
+  const admin = await Admin.findById(actorId).select("name role").lean();
+  if (admin && admin.role === "admin") {
+    return { actorRole: "admin", actorName: admin.name || null };
+  }
+  const teacher = await TeacherDoc.findById(actorId).select("name isAttendanceManager").lean();
+  if (teacher && teacher.isAttendanceManager) {
+    return { actorRole: "manager", actorName: teacher.name || null };
+  }
+  return { actorRole: null, actorName: teacher ? teacher.name || null : null };
+}
 
 // ── Shared create/update validators ──────────────────────────────────────────
 // Editing a test must never be able to produce a state that creation would
@@ -653,7 +725,15 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
   }
 
-  const students = await Student.find({ classLevel: { $in: assignedClassLevels } })
+  // Build the roster query. A pupil admitted AFTER the test was held was not in
+  // the class yet and must not appear on its mark-entry roster. `$not $gt` keeps
+  // students with no recorded admission date visible (mirrors the day-granular
+  // cutoff used by the write path, the marks audit and marking follow-up).
+  const rosterQuery = { classLevel: { $in: assignedClassLevels } };
+  const admissionCutoff = admissionCutoffForTest(test.date);
+  if (admissionCutoff) rosterQuery.dateAdmitted = { $not: { $gt: admissionCutoff } };
+
+  const students = await Student.find(rosterQuery)
     .select("name studentId rollNumber classLevel fatherName parent")
     .populate("parent", "name");
 
@@ -664,6 +744,9 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
   existing.forEach((r) => {
     existingMap[r.student.toString()] = {
       score: r.score,
+      // Legacy rows predate the absent flag and recorded an absence as a bare
+      // score 0, so treat both the flag and a 0 as absent for display ("A").
+      absent: r.absent === true || r.score === 0,
       markedAt: r.updatedAt || r.createdAt || null,
       firstMarkedAt: r.createdAt || null,
       markedByName: r.markedBy && r.markedBy.name ? r.markedBy.name : null,
@@ -681,6 +764,8 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
       // linked Parent record when present, otherwise the student's fatherName.
       parentName: (s.parent && s.parent.name) || s.fatherName || '',
       score: prev ? prev.score : null,
+      // Whether the saved row is an absence — the roster renders "A" for these.
+      absent: prev ? prev.absent : false,
       markedAt: prev ? prev.markedAt : null,
       firstMarkedAt: prev ? prev.firstMarkedAt : null,
       markedByName: prev ? prev.markedByName : null,
@@ -698,9 +783,20 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  // Reject any score that is negative or exceeds the test's totalMarks.
-  const invalidScores = records.filter(
-    (r) => typeof r.score !== "number" || isNaN(r.score) || r.score < 0 || r.score > test.totalMarks
+  // An empty mark (null / undefined / "") means the pupil was ABSENT for this
+  // test. Absences are stored as score 0 + absent true so the numeric column
+  // stays intact for every legacy reader, while the flag lets the UI show "A"
+  // and the analytics exclude the row from all averages. A typed 0 is treated
+  // the same way (0 has always meant "absent" in this system's marks audit).
+  const normalized = records.map((r) => {
+    const blank = r.score === null || r.score === undefined || r.score === "";
+    const score = blank ? 0 : Number(r.score);
+    return { student: r.student, score, absent: blank || score === 0 };
+  });
+
+  // Reject any present score that is negative or exceeds the test's totalMarks.
+  const invalidScores = normalized.filter(
+    (r) => !r.absent && (typeof r.score !== "number" || isNaN(r.score) || r.score < 0 || r.score > test.totalMarks)
   );
   if (invalidScores.length > 0) {
     const details = invalidScores
@@ -737,11 +833,34 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
     return responseStatus(res, 403, "failed", "You can only submit scores for students in the sections you are assigned to");
   }
 
+  // Same rule as the roster, enforced on the write path: a pupil admitted AFTER
+  // the test was held is not on its roster, so their score cannot be recorded
+  // either (via the UI or a direct API call). `$gt` on the day-granular cutoff
+  // only rejects strictly-later admissions, leaving students with no recorded
+  // admission date untouched.
+  const admissionCutoff = admissionCutoffForTest(test.date);
+  if (admissionCutoff) {
+    const admittedLate = await Student.find({
+      _id: { $in: submittedIds },
+      dateAdmitted: { $gt: admissionCutoff },
+    }).select("_id name");
+    if (admittedLate.length > 0) {
+      return responseStatus(
+        res,
+        403,
+        "failed",
+        `Cannot record scores for students admitted after this test's date: ${admittedLate
+          .map((s) => s.name)
+          .join(", ")}`
+      );
+    }
+  }
+
   const results = [];
-  for (const r of records) {
+  for (const r of normalized) {
     const updated = await TestResult.findOneAndUpdate(
       { test: testId, student: r.student },
-      { test: testId, student: r.student, score: r.score, markedBy: teacherId },
+      { test: testId, student: r.student, score: r.score, absent: r.absent, markedBy: teacherId },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     results.push(updated);
@@ -809,27 +928,30 @@ exports.getMarksAuditService = async (query, res) => {
   // classLevel) → teacher. A test spanning several classes may map to several
   // teachers; we surface each one's name + saved WhatsApp number.
   const asRefId = (ref) => (ref && ref._id ? String(ref._id) : ref ? String(ref) : null);
-  const [assignments, teachers, studentCounts] = await Promise.all([
+  const [assignments, teachers, admissionsByClass] = await Promise.all([
     Assignment.find().select("teacher subject classLevel").lean(),
     TeacherDoc.find().select("name whatsappNumber").lean(),
-    // Roster size per class — how many score rows a test needs to be
-    // "marked". Same active-student convention as the fees and alerts
-    // services (inactive / graduated / withdrawn pupils are skipped).
+    // Roster membership per class — the pupils a test is measured against to be
+    // "marked". Same active-student convention as the fees and alerts services
+    // (inactive / graduated / withdrawn pupils are skipped). Each class keeps
+    // the list of its pupils' admission dates so the completion count can drop
+    // anyone admitted AFTER a given test's date (they weren't in the class yet
+    // and can never be expected to have a score for it).
     Student.find({
       classLevel: { $exists: true, $ne: null },
       status: { $ne: "inactive" },
       isGraduated: { $ne: true },
       isWithdrawn: { $ne: true },
     })
-      .select("classLevel")
+      .select("classLevel dateAdmitted")
       .lean()
       .then((rows) => {
-        const counts = {};
+        const byClass = {};
         rows.forEach((s) => {
           const cid = asRefId(s.classLevel);
-          if (cid) counts[cid] = (counts[cid] || 0) + 1;
+          if (cid) (byClass[cid] || (byClass[cid] = [])).push(s.dateAdmitted || null);
         });
-        return counts;
+        return byClass;
       }),
   ]);
   const teacherInfo = {};
@@ -891,14 +1013,23 @@ exports.getMarksAuditService = async (query, res) => {
       if (r.markedBy && r.markedBy._id) markerMap.set(String(r.markedBy._id), r.markedBy.name || "");
     });
 
-    // Marking completion: every active student of the test's classes must have
-    // a score row (a 0 = absent is still a submitted entry). Distinct pupils
-    // are counted, not raw rows, and overspill (rows for students who left the
-    // class after being marked) must not keep a test stuck as unmarked.
-    const expectedCount = (t.classLevels || []).reduce(
-      (n, c) => n + (studentCounts[asRefId(c)] || 0),
-      0
-    );
+    // Marking completion: every active student of the test's classes who had
+    // already been admitted by the test's date must have a score row (a 0 =
+    // absent is still a submitted entry). Distinct pupils are counted, not raw
+    // rows, and overspill (rows for students who left the class after being
+    // marked) must not keep a test stuck as unmarked. A pupil admitted AFTER the
+    // test was held is not part of this test's roster and is never expected.
+    const testAdmissionCutoff = admissionCutoffForTest(t.date);
+    const expectedCount = (t.classLevels || []).reduce((n, c) => {
+      const admissions = admissionsByClass[asRefId(c)] || [];
+      return (
+        n +
+        admissions.filter(
+          (admitted) =>
+            !testAdmissionCutoff || !admitted || new Date(admitted) <= testAdmissionCutoff
+        ).length
+      );
+    }, 0);
     const markedStudentIds = new Set(rs.map((r) => String(r.student)));
     const fullyMarked = expectedCount > 0 && markedStudentIds.size >= expectedCount;
 
@@ -1284,7 +1415,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     studentClassMap[String(s._id)] = s;
   });
 
-  const scores = results.map((r) => r.score);
+  const scores = results.filter((r) => !r.absent && r.score > 0).map((r) => r.score);
   const currentStats = computeStats(scores, test);
 
   // Attach student details to results for the table
@@ -1297,6 +1428,9 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
       rollNumber: s.rollNumber,
       className: s.classLevel ? s.classLevel.name : "—",
       score: r.score,
+      // Absent pupils (blank mark, stored as score 0 + absent) are shown as "A"
+      // in the table and excluded from the stats above.
+      absent: r.absent === true || r.score === 0,
     };
   }).sort((a, b) => {
     if (sortBy === "rollAsc") {
@@ -1337,7 +1471,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
         else prevResultQuery.student = { $in: [] }; // no match
       }
       const prevResults = await TestResult.find(prevResultQuery).lean();
-      const prevScores = prevResults.map((r) => r.score);
+      const prevScores = prevResults.filter((r) => !r.absent && r.score > 0).map((r) => r.score);
       previousStats = computeStats(prevScores, prevTest);
       previousStats.testName = prevTest.name;
       previousStats.testDate = prevTest.date;
@@ -1457,9 +1591,11 @@ exports.getTestTrendService = async (filters, res) => {
       })
       .lean();
 
-    // Filter by subject if requested
+    // Filter by subject if requested; drop absences (blank mark, stored as a
+    // score 0 + absent) so they never appear as a false 0% dip in the trend.
     const filtered = results.filter((r) => {
       if (!r.test) return false;
+      if (r.absent === true || r.score === 0) return false;
       if (subjectId && r.test.subject && r.test.subject._id.toString() !== subjectId) return false;
       return true;
     });
@@ -1540,6 +1676,9 @@ exports.getTestTrendService = async (filters, res) => {
     const bucket = {};   // "classId|testId" -> [percent,...]
     const allBucket = {}; // testId -> [percent,...]
     results.forEach((r) => {
+      // Absent pupils (blank mark, stored as score 0 + absent) must not drag a
+      // class-average trend line down — they are excluded from the bucket.
+      if (r.absent === true || r.score === 0) return;
       const tid = String(r.test);
       const t = testById[tid];
       if (!t || !t.totalMarks) return;
@@ -1838,17 +1977,74 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
   });
 };
 
-exports.deleteTestService = async (testId, res) => {
-  const test = await Test.findById(testId);
+/**
+ * Delete a test (admin/manager). Cascades to the test's submitted scores.
+ *
+ * Audited and fail-closed: the deletion, the removal of every TestResult and
+ * the append-only audit row run inside a single MongoDB transaction (mirroring
+ * the fee soft-delete guarantee). If the audit row cannot be written, the whole
+ * operation aborts and NOTHING is deleted — so a manager-deleted test that had
+ * submitted scores is always traceable (who, when, what, how many scores lost).
+ *
+ * @param {string} testId
+ * @param {string} actorId – verified token id of the admin/manager (resolved to
+ *                           a DB identity for the audit; never taken from a role
+ *                           claim on the request).
+ */
+exports.deleteTestService = async (testId, actorId, res) => {
+  if (!actorId) throw new Error("Test deletion requires an actor — refusing unattributed delete");
+
+  // Pre-image with human-readable subject/class names so the audit trail is
+  // self-describing even after the documents are gone.
+  const test = await Test.findById(testId)
+    .populate("subject", "name")
+    .populate("classLevels", "name");
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  // Cascade: remove all TestResult documents tied to this test, then the test itself.
-  const deletedResults = await TestResult.deleteMany({ test: testId });
-  await Test.deleteOne({ _id: testId });
+  const actor = await resolveAuditActor(actorId);
+
+  const snapshot = {
+    name: test.name,
+    subject: test.subject ? test.subject.name || test.subject._id : null,
+    classLevels: (test.classLevels || []).map((c) => c.name || c._id),
+    session: test.session || null,
+    phase: test.phase || null,
+    week: test.week || null,
+    date: test.date || null,
+    totalMarks: test.totalMarks,
+    passMarks: test.passMarks,
+    createdBy: test.createdBy || null,
+  };
+
+  const resultsRemoved = await TestResult.countDocuments({ test: testId });
+
+  await withTransaction(async ({ session }) => {
+    const opts = session ? { session } : {};
+    // Audit FIRST and inside the same transaction as the deletes: a failure to
+    // record the action rolls the deletion back (fail-closed), never the
+    // reverse.
+    await TestAudit.create(
+      [
+        {
+          action: "delete",
+          test: test._id,
+          actor: actorId,
+          actorName: actor.actorName,
+          actorRole: actor.actorRole,
+          snapshot,
+          resultsRemoved,
+          note: "Test deleted (scores cascade-removed)",
+        },
+      ],
+      opts
+    );
+    await TestResult.deleteMany({ test: testId }, opts);
+    await Test.deleteOne({ _id: testId }, opts);
+  });
 
   return responseStatus(res, 200, "success", {
     test: test.name,
-    deletedResults: deletedResults.deletedCount,
+    deletedResults: resultsRemoved,
   });
 };
 

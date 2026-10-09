@@ -57,13 +57,25 @@ exports.getAllTestsController = async (req, res) => {
   }
 };
 
-// Admin sees all tests; teacher sees only tests for their assigned subjects/classes.
+// Admin and manager see ALL tests school-wide; a regular (non-manager) teacher
+// sees only tests for their assigned subjects/classes.
+//
+// CRITICAL: manager status is resolved from the DATABASE, keyed off the verified
+// token id (req.userAuth.id). The API JWT carries only `{ id }` — there is no
+// role/manager claim on the token at all — so req.userAuth.role / req.user.role
+// can never be trusted here (and would be absent or forgeable). This mirrors the
+// resolveCaller / resolveIdentityFromDb pattern used by every other role fix.
 exports.getTestsByRoleController = async (req, res) => {
   try {
     const Teacher = require("../../models/Staff/teachers.model");
-    const isTeacherUser = await Teacher.findById(req.userAuth.id);
+    const teacher = await Teacher.findById(req.userAuth.id)
+      .select("isAttendanceManager")
+      .lean();
 
-    if (isTeacherUser) {
+    // Manager (teacher with isAttendanceManager) → full school-wide list,
+    // exactly like an admin. Regular teacher → assignment-scoped list.
+    // Non-teacher (an admin id) → full list.
+    if (teacher && !teacher.isAttendanceManager) {
       await getTeacherScopedTestsService(req.userAuth.id, res);
     } else {
       await getAllTestsService(res);
@@ -159,7 +171,9 @@ exports.getTestTrendController = async (req, res) => {
 
 exports.deleteTestController = async (req, res) => {
   try {
-    await deleteTestService(req.params.testId, res);
+    // req.userAuth.id is the verified token id (the API JWT carries only `{ id }`);
+    // the service resolves the acting identity from the DB for the audit trail.
+    await deleteTestService(req.params.testId, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

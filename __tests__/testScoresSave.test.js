@@ -92,11 +92,11 @@ function buildHarness({ totalMarks = "25", rows = 3 } = {}) {
     },
   };
 
-  const sandbox = { document, window: {}, alert: jest.fn(), Number, String, JSON, Math, Array };
+  const sandbox = { document, window: {}, alert: jest.fn(), confirm: jest.fn(() => true), Number, String, JSON, Math, Array };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
-  return { run: () => vm.runInContext(SRC, sandbox, { filename: "test-scores.js" }), fire, scoreInputs, pctCells, enteredCount, saveBtn, recordsInput, scoresForm, totalMarksInput };
+  return { run: () => vm.runInContext(SRC, sandbox, { filename: "test-scores.js" }), fire, scoreInputs, pctCells, enteredCount, saveBtn, recordsInput, scoresForm, totalMarksInput, confirm: sandbox.confirm };
 }
 
 describe("test-scores.js (mark a test — Save scores)", () => {
@@ -105,18 +105,21 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     expect(() => h.run()).not.toThrow();
   });
 
-  test("clicking Save scores fills records-input and submits the form", () => {
+  test("clicking Save scores submits EVERY row — blanks become Absent (null), typed values numeric", () => {
     const h = buildHarness();
     h.run();
 
     h.scoreInputs[0].value = "18";
-    h.scoreInputs[2].value = "0"; // a legit zero must be saved, not dropped
+    // row 1 stays blank → absence (null, server stores as A / excluded from avg)
+    h.scoreInputs[2].value = "0"; // a typed zero is also an absence
+
     h.fire(h.saveBtn, "click");
 
     expect(h.scoresForm.submit).toHaveBeenCalledTimes(1);
     const records = JSON.parse(h.recordsInput.value);
     expect(records).toEqual([
       { student: "stu-0", score: 18 },
+      { student: "stu-1", score: null },
       { student: "stu-2", score: 0 },
     ]);
   });
@@ -139,9 +142,27 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     expect(h.scoresForm.submit).not.toHaveBeenCalled();
   });
 
-  test("with no scores entered nothing is submitted", () => {
+  test("with no scores entered every pupil is still saved as Absent (blank → A)", () => {
     const h = buildHarness();
     h.run();
+    h.fire(h.saveBtn, "click");
+
+    // Blanks are an explicit absence, not a silent skip — the form submits.
+    expect(h.scoresForm.submit).toHaveBeenCalledTimes(1);
+    const records = JSON.parse(h.recordsInput.value);
+    expect(records).toEqual([
+      { student: "stu-0", score: null },
+      { student: "stu-1", score: null },
+      { student: "stu-2", score: null },
+    ]);
+  });
+
+  test("cancelling the absence confirmation aborts the save", () => {
+    const h = buildHarness();
+    h.run();
+    h.scoreInputs[0].value = "18";
+    h.confirm.mockImplementation(() => false); // teacher declines marking the rest absent
+
     h.fire(h.saveBtn, "click");
     expect(h.scoresForm.submit).not.toHaveBeenCalled();
   });

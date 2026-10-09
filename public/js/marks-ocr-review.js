@@ -153,7 +153,7 @@
           </td>
           <td><span class="mono roll-cell" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
           <td><span class="mono sheet-roll-cell" data-roll="${esc(sheetRoll)}" style="font-size:12px;${rollMismatch ? 'color:var(--error);font-weight:600;' : 'color:var(--ink-soft);'}" title="${rollMismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet'}">${sheetRoll ? esc(sheetRoll) : ''}</span></td>
-          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" placeholder="Absent → 0" /></td>
+          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" placeholder="Absent (A)" /></td>
           <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"></span></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
@@ -272,9 +272,10 @@
       const studentId = sel.value;
       const score = scores[i].value;
       // A confirmed student with no readable score counts as ABSENT — saved
-      // as 0 instead of being dropped (blank was previously skipped silently).
+      // as Absent (A) instead of being dropped (blank was previously skipped
+      // silently). The server stores the absence and excludes it from average.
       if (studentId) {
-        if (score === '') { absentCount++; records.push({ student: studentId, score: 0 }); }
+        if (score === '') { absentCount++; records.push({ student: studentId, score: null }); }
         else { records.push({ student: studentId, score: Number(score) }); }
       } else {
         // No student resolved for this row — it cannot be saved; count it so
@@ -297,7 +298,7 @@
       return;
     }
 
-    if (absentCount > 0 && !confirm(`${absentCount} row(s) have no score — they will be saved as Absent (0 marks). Continue?`)) {
+    if (absentCount > 0 && !confirm(`${absentCount} row(s) have no score — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
       return;
     }
 

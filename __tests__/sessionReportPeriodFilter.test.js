@@ -66,6 +66,31 @@ describe("filterTestsByPeriod", () => {
     expect(filterTestsByPeriod(populated, { weekId: WEEK_1A })).toHaveLength(1);
     expect(filterTestsByPeriod(populated, { phaseId: PHASE_1 })).toHaveLength(1);
   });
+
+  // ── Feature 2: multi-week ("Selected weeks") combination ────────────────
+  test("weekIds keeps ONLY the ticked weeks' tests, not the whole phase", () => {
+    // WEEK_1A and WEEK_2A are both in PHASE_1 here. Ticking the two of them
+    // must yield exactly those two tests — a phase tick would have widened it.
+    const out = filterTestsByPeriod(tests, { weekIds: [WEEK_1A, WEEK_2A] });
+    expect(out.map((t) => t._id)).toEqual(["t1", "t2"]);
+  });
+
+  test("weekIds selecting one of several weeks narrows to that week alone", () => {
+    const out = filterTestsByPeriod(tests, { weekIds: [WEEK_1A] });
+    expect(out.map((t) => t._id)).toEqual(["t1"]);
+  });
+
+  test("weekIds beats a single weekId and phaseId when all are present", () => {
+    // Even if a stale phase/week is sent alongside the week set, the explicit
+    // (narrowest) week set must win — never widen back to the phase.
+    const out = filterTestsByPeriod(tests, { phaseId: PHASE_1, weekId: WEEK_1A, weekIds: [WEEK_2A] });
+    expect(out.map((t) => t._id)).toEqual(["t2"]);
+  });
+
+  test("an empty weekIds array is ignored (falls through to no filter)", () => {
+    // Guards against a browser posting weekIds=[] and wiping the whole report.
+    expect(filterTestsByPeriod(tests, { weekIds: [] })).toHaveLength(4);
+  });
 });
 
 // ── Row shaping ──────────────────────────────────────────────────────────────

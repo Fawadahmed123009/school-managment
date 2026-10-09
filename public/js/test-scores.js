@@ -79,19 +79,26 @@
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       const records = [];
+      let absentCount = 0;
       // Re-query rows from the DOM so we pick up the current (possibly sorted) order.
       // Each row carries data-student, so score→student binding is per-row, not positional.
       const currentRows = document.querySelectorAll('#roster-body tr');
       currentRows.forEach(function (row) {
         const studentId = row.dataset.student;
         const input = row.querySelector('.score-input');
-        if (input.value !== '') {
+        if (input.value === '') {
+          // A blank box means the pupil was absent for this test. Send null so
+          // the server records an absence (shown as "A", excluded from average)
+          // instead of silently dropping the row as "unmarked".
+          absentCount++;
+          records.push({ student: studentId, score: null });
+        } else {
           records.push({ student: studentId, score: Number(input.value) });
         }
       });
 
       if (records.length === 0) {
-        alert('Enter at least one score before saving.');
+        alert('No pupils to save — the roster is empty.');
         return;
       }
 
@@ -99,11 +106,18 @@
       // readable message instead of a round-trip rejection from the API.
       const max = currentMax();
       if (max !== null) {
-        const over = records.filter(function (r) { return r.score > max; });
+        const over = records.filter(function (r) { return r.score !== null && r.score > max; });
         if (over.length > 0) {
           alert('Scores must be between 0 and ' + max + '. Adjust ' + over.length + ' entered value(s) (or save the new total marks first).');
           return;
         }
+      }
+
+      // Make the automatic absence explicit before committing — a blank box is
+      // saved as Absent (A), so the teacher confirms that's intended.
+      if (absentCount > 0 &&
+        !confirm(absentCount + ' pupil(s) left blank will be saved as Absent (A) and excluded from the class average. Continue?')) {
+        return;
       }
 
       saveBtn.disabled = true;

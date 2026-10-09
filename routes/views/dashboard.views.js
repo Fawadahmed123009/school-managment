@@ -9,7 +9,7 @@ const Test = require("../../models/Academic/test.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const { getAtRiskStudentsAdmin, getAtRiskStudentsTeacher, THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
-const { getPendingMarkingAllTeachers } = require("../../services/academic/markingFollowUp.service");
+const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary } = require("../../services/academic/markingFollowUp.service");
 const logger = require("../../config/logger");
 
 // ── Helper: start-of-month date for MongoDB queries ──
@@ -38,7 +38,7 @@ router.get("/dashboard", async (req, res) => {
   }
 
   const stats = { students: 0, staff: 0, collected: 0, outstanding: 0 };
-  const charts = { attendanceTrend: [], feeCollection: [], feeBreakdown: [] };
+  const charts = { attendanceTrend: [], feeCollection: [], feeBreakdown: [], teacherTests: [] };
   let atRisk = null;
   let alertThresholds = THRESHOLDS;
 
@@ -437,7 +437,12 @@ router.get("/dashboard", async (req, res) => {
     // ── Admin/Manager: marking follow-up across ALL teachers ──
     // Same scoping as each teacher's own panel above, aggregated per teacher.
     if (req.user.role === "admin" || req.user.isManager) {
-      stats.marking = await getPendingMarkingAllTeachers();
+      const [pendingMarking, teacherTests] = await Promise.all([
+        getPendingMarkingAllTeachers(),
+        getTeacherTestMarkingSummary(),
+      ]);
+      stats.marking = pendingMarking;
+      charts.teacherTests = teacherTests;
     }
   } catch (err) {
     logger.warn("Dashboard stats error", { error: err.message, userId: req.user?._id });
