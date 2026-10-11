@@ -1,6 +1,7 @@
 const Week = require("../../models/Academic/week.model");
 const TestSession = require("../../models/Academic/testSession.model");
 const Test = require("../../models/Academic/test.model");
+const TestResult = require("../../models/Academic/testResult.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -137,11 +138,33 @@ exports.deleteWeekService = async (id, res) => {
   const week = await Week.findById(id);
   if (!week) return responseStatus(res, 404, "failed", "Week not found");
 
-  // Unlink any tests referencing this week (set week to null)
-  await Test.updateMany({ week: id }, { $set: { week: null } });
+  // Deleting a week used to UNLINK every one of its tests (week → null), which
+  // silently orphans them: a "delete the week and re-clone it" cycle left the
+  // old cloned tests behind on week:null, so the ledger showed the pre-edit and
+  // post-edit copies of the same test on one date. Now:
+  //   • unmarked tests (the usual cloned scaffolding) are DELETED with the week;
+  //   • tests that already have submitted scores are preserved by unlinking, so
+  //     no real result data is ever lost.
+  const tests = await Test.find({ week: id }).select("_id").lean();
+  const testIds = tests.map((t) => t._id);
+
+  let markedIds = [];
+  if (testIds.length) {
+    const distinctMarked = await TestResult.distinct("test", { test: { $in: testIds } });
+    markedIds = distinctMarked.map((v) => String(v));
+  }
+
+  const unmarkedIds = testIds.filter((t) => !markedIds.includes(String(t)));
+
+  if (unmarkedIds.length) await Test.deleteMany({ _id: { $in: unmarkedIds } });
+  if (markedIds.length) await Test.updateMany({ _id: { $in: markedIds } }, { $set: { week: null } });
 
   await Week.findByIdAndDelete(id);
-  return responseStatus(res, 200, "success", "Week deleted");
+  return responseStatus(res, 200, "success", {
+    message: "Week deleted",
+    testsDeleted: unmarkedIds.length,
+    testsUnlinked: markedIds.length,
+  });
 };
 
 // ── Clone a week's tests into a brand-new week ─────────────────────────────
@@ -254,6 +277,23 @@ exports.executeCloneWeekService = async (sourceWeekId, details, userId) => {
 
   const tests = await loadSourceTests(sourceWeekId);
   if (tests.length === 0) throw new Error("Source week has no tests to clone");
+
+  // Idempotency: a double-submitted "Confirm and clone" posts identical details
+  // twice. Without this guard it would create two weeks carrying the same cloned
+  // tests on the same dates. If a week with this exact identity already exists,
+  // the clone has already run — refuse rather than duplicate.
+  const existingWeek = await Week.findOne({
+    session: sourceWeek.session,
+    phase: sourceWeek.phase,
+    name,
+    startDate: start,
+    endDate: end,
+  });
+  if (existingWeek) {
+    throw new Error(
+      `A week named "${name}" with these dates already exists — the clone was not repeated.`
+    );
+  }
 
   const shiftDays = shiftDaysBetween(sourceWeek.startDate, start);
 

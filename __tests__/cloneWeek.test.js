@@ -11,6 +11,7 @@
 
 const mockWeekFindById = jest.fn();
 const mockWeekCreate = jest.fn();
+const mockWeekFindOne = jest.fn();
 const mockTestFind = jest.fn();
 const mockTestInsertMany = jest.fn();
 
@@ -27,6 +28,7 @@ jest.mock("../models/Academic/week.model", () => {
   const Model = function () {};
   Model.findById = (...a) => mockWeekFindById(...a);
   Model.create = (...a) => mockWeekCreate(...a);
+  Model.findOne = (...a) => mockWeekFindOne(...a);
   Model.find = jest.fn();
   Model.findByIdAndUpdate = jest.fn();
   Model.findByIdAndDelete = jest.fn();
@@ -98,6 +100,8 @@ beforeEach(() => {
     lean: jest.fn().mockResolvedValue(MOCK_SOURCE_WEEK),
   });
   mockTestFind.mockReturnValue(findChain(sourceTests()));
+  // Idempotency guard looks for an identical existing week; default to none.
+  mockWeekFindOne.mockResolvedValue(null);
 });
 
 describe("Clone week preview", () => {
@@ -177,6 +181,23 @@ describe("Execute clone", () => {
     expect(cloned[0]).not.toHaveProperty("results");
     expect(cloned[0]).not.toHaveProperty("submissions");
     expect(cloned[0]).not.toHaveProperty("scores");
+  });
+
+  test("refuses to re-clone when an identical week already exists (double-submit guard)", async () => {
+    mockWeekFindById.mockReturnValue(MOCK_SOURCE_WEEK);
+    // An identical target week is already present → the guard must bail out.
+    mockWeekFindOne.mockResolvedValue({ _id: "week-existing" });
+
+    await expect(
+      executeCloneWeekService(
+        SOURCE_WEEK_ID,
+        { name: "Week 3", startDate: "2025-10-13", endDate: "2025-10-17" },
+        ADMIN_ID
+      )
+    ).rejects.toThrow(/already exists|not repeated/i);
+
+    expect(mockWeekCreate).not.toHaveBeenCalled();
+    expect(mockTestInsertMany).not.toHaveBeenCalled();
   });
 
   test("throws on empty source week (no week created)", async () => {

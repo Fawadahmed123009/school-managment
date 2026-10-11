@@ -8,9 +8,13 @@
  *     (latest updatedAt) and WHICH teacher made that last change
  *   • unmarked tests still appear (markedCount 0) so the admin sees gaps
  *   • search filters by test / subject / class name; the teacher filter
- *     keeps only the tests a given marker (by id or name) entered
+ *     keeps only the tests a given marker entered, matching their id or any
+ *     part of their name (the audit page's typeahead sends a typed fragment)
  *   • the session / phase / week cascade filters rows by category id (with
  *     "none" matching tests missing that level); rows carry category labels
+ *     plus the phase's `order`, the week's start date and the subject id, which
+ *     the page's five-level cascade (session → grade → phase → week → subject)
+ *     uses to list phases and weeks chronologically and to filter by subject
  *   • the grade / class cascade keys off each test's ClassLevels: a test is
  *     kept when ANY of its classes matches, and rows expose gradeLevels +
  *     classLevels so the page can build the dependent dropdowns
@@ -84,17 +88,24 @@ function chainQuery(docs) {
 const TEACHER_A = { _id: "t-a", name: "Ms. Ayesha" };
 const TEACHER_B = { _id: "t-b", name: "Mr. Bilal" };
 
+// Test dates are relative to "now" on purpose: the urgency tiers (overdue past
+// 3 days, critical past 5) are measured against the clock, so absolute fixture
+// dates would silently change tier every day the suite kept running — and the
+// ordering assertions below rely on test-1 / test-2 being critical while
+// test-3 is merely overdue.
+const daysAgo = (n) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
 const TEST_ONE = {
   _id: "test-1",
   name: "Weekly Test 1",
   subject: { _id: "s1", name: "Math" },
   classLevels: [{ _id: "c1", name: "Grade 5 — Blue", gradeLevel: "5" }],
-  date: new Date("2026-09-10T00:00:00Z"),
+  date: daysAgo(18),
   totalMarks: 50,
   passMarks: 20,
   session: { _id: "sess-1", name: "Fall 2026" },
   phase: "ph-1",
-  week: { _id: "w-1", name: "Week 3" },
+  week: { _id: "w-1", name: "Week 3", startDate: new Date("2026-09-08T00:00:00Z") },
 };
 
 const TEST_TWO = {
@@ -102,19 +113,20 @@ const TEST_TWO = {
   name: "Weekly Test 2",
   subject: { _id: "s1", name: "Math" },
   classLevels: [{ _id: "c1", name: "Grade 5 — Blue", gradeLevel: "5" }],
-  date: new Date("2026-09-17T00:00:00Z"),
+  date: daysAgo(11),
   totalMarks: 40,
   passMarks: 16,
 };
 
 // A test in an empty class — it can never be "marked", so its flags stay live
-// no matter how the other rosters fill up.
+// no matter how the other rosters fill up. Recent enough to be overdue only,
+// which is what puts it between the two critical tests and the marked one.
 const TEST_THREE = {
   _id: "test-3",
   name: "Weekly Test 3",
   subject: { _id: "s1", name: "Math" },
   classLevels: [{ _id: "c3", name: "Grade 6 — Red", gradeLevel: "6" }],
-  date: new Date("2026-09-24T00:00:00Z"),
+  date: daysAgo(4),
   totalMarks: 30,
   passMarks: 12,
 };
@@ -228,6 +240,12 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
     await getMarksAuditService({ teacher: "ms. ayesha" }, byName);
     expect(auditRows(byName).map((r) => r.testId)).toEqual(["test-1"]);
 
+    // Any part of the name is enough — the page's typeahead sends what the
+    // admin actually typed ("ayesha" must find "Ms. Ayesha").
+    const byFragment = mockRes();
+    await getMarksAuditService({ teacher: "AYESHA" }, byFragment);
+    expect(auditRows(byFragment).map((r) => r.testId)).toEqual(["test-1"]);
+
     // An unknown teacher matches nothing — even the unmarked tests are excluded.
     const none = mockRes();
     await getMarksAuditService({ teacher: "t-none" }, none);
@@ -308,12 +326,15 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
     expect(categorised.phaseName).toBe("Midterm");
     expect(categorised.week).toBe("w-1");
     expect(categorised.weekName).toBe("Week 3");
+    // Its calendar start travels too — the page orders its week dropdown by it.
+    expect(new Date(categorised.weekStart).toISOString()).toBe("2026-09-08T00:00:00.000Z");
 
     // test-2 is a standalone test — null keys, empty labels.
     const standalone = rows.find((r) => r.testId === "test-2");
     expect(standalone.session).toBeNull();
     expect(standalone.phase).toBeNull();
     expect(standalone.week).toBeNull();
+    expect(standalone.weekStart).toBeNull();
     expect(standalone.sessionName).toBe("");
   });
 });
@@ -483,6 +504,91 @@ describe("getMarksAuditService — grade / class cascade filters", () => {
     const empty = mockRes();
     await getMarksAuditService({ session: "sess-1", grade: "6" }, empty);
     expect(auditRows(empty)).toEqual([]);
+  });
+});
+
+// ── Subject cascade (last level) ─────────────────────────────────────────────
+describe("getMarksAuditService — subject filter", () => {
+  // Two subjects under the same session/grade, one of them also outside it, so
+  // the filter can be checked on its own and composed with the levels above.
+  const TEST_MATH = { ...TEST_ONE, _id: "test-1", subject: { _id: "s1", name: "Math" } };
+  const TEST_BIO = {
+    ...TEST_ONE,
+    _id: "test-bio",
+    name: "Weekly Test 1 (Biology)",
+    subject: { _id: "s2", name: "Bio", displayName: "Biology" },
+  };
+  const TEST_BIO_OTHER = {
+    ...TEST_TWO,
+    _id: "test-bio-2",
+    name: "Weekly Test 2 (Biology)",
+    subject: { _id: "s2", name: "Bio", displayName: "Biology" },
+    classLevels: [{ _id: "c3", name: "Grade 6 — Red", gradeLevel: "6" }],
+  };
+
+  beforeEach(() => {
+    mockTestFind.mockReturnValue(chainQuery([TEST_MATH, TEST_BIO, TEST_BIO_OTHER]));
+  });
+
+  test("rows expose subjectId and the phase's order for the cascade", async () => {
+    const res = mockRes();
+    await getMarksAuditService({ limit: "all" }, res);
+
+    const row = auditRows(res).find((r) => r.testId === "test-bio");
+    // The id keys the filter; the label stays the display name.
+    expect(row.subjectId).toBe("s2");
+    expect(row.subject).toBe("Biology");
+    // `order` comes from the owning session's phases subdoc.
+    expect(row.phaseOrder).toBe(1);
+
+    // A standalone test has no subject-less quirk here, but no phase either.
+    const standalone = auditRows(res).find((r) => r.testId === "test-bio-2");
+    expect(standalone.subjectId).toBe("s2");
+    expect(standalone.phaseOrder).toBeNull();
+  });
+
+  test("subject filter matches the id, or any part of its label", async () => {
+    const byId = mockRes();
+    await getMarksAuditService({ subject: "s2", limit: "all" }, byId);
+    expect(auditRows(byId).map((r) => r.testId).sort()).toEqual(["test-bio", "test-bio-2"]);
+
+    // Direct API queries by name stay usable (case-insensitive substring).
+    const byName = mockRes();
+    await getMarksAuditService({ subject: "biolog", limit: "all" }, byName);
+    expect(auditRows(byName).map((r) => r.testId).sort()).toEqual(["test-bio", "test-bio-2"]);
+
+    const unknown = mockRes();
+    await getMarksAuditService({ subject: "s999" }, unknown);
+    expect(auditRows(unknown)).toEqual([]);
+  });
+
+  test("subject composes with the session and grade levels above it", async () => {
+    const res = mockRes();
+    await getMarksAuditService(
+      { session: "sess-1", grade: "5", phase: "ph-1", subject: "s2", limit: "all" },
+      res
+    );
+    expect(auditRows(res).map((r) => r.testId)).toEqual(["test-bio"]);
+
+    // Biology's other test sits in grade 6 → this combination is empty.
+    const empty = mockRes();
+    await getMarksAuditService({ grade: "6", subject: "s1", limit: "all" }, empty);
+    expect(auditRows(empty)).toEqual([]);
+  });
+
+  test("week narrows the level below it (subject) as well", async () => {
+    // Both fixtures under Week 3 carry Biology, the standalone one does not.
+    const res = mockRes();
+    await getMarksAuditService(
+      { session: "sess-1", grade: "5", phase: "ph-1", week: "w-1", subject: "s2", limit: "all" },
+      res
+    );
+    expect(auditRows(res).map((r) => r.testId)).toEqual(["test-bio"]);
+
+    // "none" keeps the week-less test — the very one the week above excludes.
+    const noWeek = mockRes();
+    await getMarksAuditService({ subject: "s2", week: "none", limit: "all" }, noWeek);
+    expect(auditRows(noWeek).map((r) => r.testId)).toEqual(["test-bio-2"]);
   });
 });
 

@@ -58,6 +58,9 @@ jest.mock("../models/Academic/assignment.model", () => ({
 
 jest.mock("../models/Academic/test.model", () => ({
   create: (...a) => mockTestCreate(...a),
+  // createTestService runs a duplicate lookup (Test.find(query).lean()); these
+  // tests focus on scope validation, so always report "no existing duplicate".
+  find: () => ({ lean: async () => [] }),
 }));
 
 jest.mock("../models/Academic/testSession.model", () => ({

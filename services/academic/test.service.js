@@ -142,6 +142,22 @@ async function validateSubjectClassScope(subject, classLevels) {
   return null;
 }
 
+/**
+ * Duplicate-detection: an existing test that occupies the same slot as the one
+ * being written — same week, same subject, same calendar date, and the same set
+ * of class levels. This is the shape a double-submitted "Create" or "Confirm
+ * clone" produces (two byte-identical tests on one date), so both the create and
+ * edit write paths reject it. `excludeId` lets an in-place edit ignore its own
+ * document (only a collision with a *different* test is a problem).
+ * Returns the duplicate document (with `name`) or null.
+ */
+async function findDuplicateTest({ subject, classLevels, date, week }, excludeId = null) {
+  const query = { subject, date: new Date(date), week: week || null };
+  if (excludeId) query._id = { $ne: excludeId };
+  const candidates = await Test.find(query).lean();
+  return candidates.find((c) => sameClassScope(c.classLevels, classLevels)) || null;
+}
+
 exports.createTestService = async (data, adminId, res) => {
   const { name, subject, classLevels, date, totalMarks, passMarks, session, phase, week } = data;
 
@@ -157,6 +173,18 @@ exports.createTestService = async (data, adminId, res) => {
   const scopeError = await validateSubjectClassScope(subject, classLevels);
   if (scopeError) {
     return responseStatus(res, scopeError.code, "failed", scopeError.message);
+  }
+
+  // Block an identical test in the same slot (see findDuplicateTest). A double
+  // click on "Create test" would otherwise post two byte-identical documents.
+  const dupe = await findDuplicateTest({ subject, classLevels, date, week });
+  if (dupe) {
+    return responseStatus(
+      res,
+      409,
+      "failed",
+      `A test for the same subject, classes and date already exists here ("${dupe.name}"). Duplicate blocked — edit the existing test instead.`
+    );
   }
 
   const test = await Test.create({
@@ -296,6 +324,23 @@ exports.updateTestService = async (testId, data, res) => {
         `Cannot lower total marks below ${total} — ${tooHigh.length} entered score(s) exceed it (${details}${tooHigh.length > 5 ? ", …" : ""}). Remove or correct those scores first.`
       );
     }
+  }
+
+  // Editing must not push this test onto a slot another identical test already
+  // occupies (same week/subject/date/classes). Its own document is excluded, so
+  // saving unchanged or renaming is always allowed — only a genuine collision is
+  // blocked. This is the "keep only the edited one" guarantee.
+  const dupe = await findDuplicateTest(
+    { subject, classLevels, date, week: placement.week },
+    testId
+  );
+  if (dupe) {
+    return responseStatus(
+      res,
+      409,
+      "failed",
+      `Another test for the same subject, classes and date already exists here ("${dupe.name}"). Edit that test instead of creating a duplicate.`
+    );
   }
 
   test.name = String(name).trim();
@@ -874,38 +919,56 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
  * `unmarked`. Only unmarked tests are flagged — `overdue` past
  * {@link OVERDUE_MS} and `critical` past {@link CRITICAL_MS} since the test
  * date — so a finished test never shows a reminder. Optional filters:
- * `search` (test / subject / class), `teacher` — a marker's id or name,
- * keeping only the tests that teacher marked — `status` (marked / unmarked),
- * the category cascade `session` / `phase` / `week` (ids; "none" keeps only
- * tests missing that category) and the class cascade `grade` (a ClassLevel
- * gradeLevel string, e.g. "5" or "PG") / `classLevel` (a ClassLevel id) — a
- * test can target several classes, so it matches when ANY of its classes sits
- * in the chosen grade or is the chosen class, and "none" keeps tests whose
- * classes carry no grade / no class at all. Rows are ordered by urgency: critical,
+ * `search` (test / subject / class), `teacher` — a marker's id, or any part of
+ * the marker's name (the audit page's typeahead sends a typed name) — keeping
+ * only the tests that teacher marked — `status` (marked / unmarked), the
+ * category cascade `session` / `phase` / `week` (ids; "none" keeps only tests
+ * missing that category), the class cascade `grade` (a ClassLevel gradeLevel
+ * string, e.g. "5" or "PG") / `classLevel` (a ClassLevel id) — a test can
+ * target several classes, so it matches when ANY of its classes sits in the
+ * chosen grade or is the chosen class, and "none" keeps tests whose classes
+ * carry no grade / no class at all — and `subject` (a Subject id, or part of
+ * its display label). The audit page stacks these as
+ * session → grade → phase → week → subject. Rows are ordered by urgency: critical,
  * then overdue, then the rest most-recently-touched first, fully marked
  * tests last. Response is paginated (`page` / `limit`, max 100; `limit=all`
  * returns every row) and carries a `pagination` envelope with the
  * unpaginated total. Read-only, admin/manager only.
  */
 exports.getMarksAuditService = async (query, res) => {
-  const { search, teacher, status, session, phase, week, grade, classLevel, page, limit } =
-    query || {};
+  const {
+    search,
+    teacher,
+    status,
+    session,
+    phase,
+    week,
+    grade,
+    classLevel,
+    subject,
+    page,
+    limit,
+  } = query || {};
 
   const tests = await Test.find({})
     .populate("subject", "name displayName")
     .populate("classLevels", "name gradeLevel group")
     .populate("session", "name")
-    .populate("week", "name")
+    .populate("week", "name startDate")
     .sort({ date: -1 })
     .lean();
 
   // A Test stores `phase` as a bare subdocument id (no ref), so its name has
-  // to be resolved from the owning TestSession's phases array.
+  // to be resolved from the owning TestSession's phases array. The subdoc's
+  // `order` travels with it so the audit page can list phases chronologically
+  // instead of in ledger (urgency) order.
   const sessionsForPhases = await TestSession.find({}).select("phases").lean();
   const phaseNames = {};
+  const phaseOrders = {};
   sessionsForPhases.forEach((s) =>
     (s.phases || []).forEach((p) => {
       phaseNames[String(p._id)] = p.name;
+      phaseOrders[String(p._id)] = Number.isFinite(p.order) ? p.order : null;
     })
   );
 
@@ -973,9 +1036,9 @@ exports.getMarksAuditService = async (query, res) => {
 
   const round2 = (n) => Math.round(n * 100) / 100;
 
-  // Class keys per test for the session → grade → class cascade. A test can
-  // target several ClassLevels, so each row carries all of them (id + grade
-  // level + group) — the filter matches when ANY one of them is chosen.
+  // Class keys per test for the grade / class filters. A test can target
+  // several ClassLevels, so each row carries all of them (id + grade
+  // level + group) — a filter matches when ANY one of them is chosen.
   const classKeysFor = (t) =>
     (t.classLevels || []).map((c) => ({
       id: asRefId(c) || "",
@@ -1068,15 +1131,24 @@ exports.getMarksAuditService = async (query, res) => {
       // Display label only — falls back to the internal name. Grouping/scoping
       // above keys off subject ids, never this string.
       subject: t.subject ? (t.subject.displayName || t.subject.name) : "",
+      // Subject id for the cascade's last level — the label above is for
+      // display only, never for matching.
+      subjectId: t.subject && t.subject._id ? String(t.subject._id) : null,
       classes: (t.classLevels || []).map((c) => c.name).join(", "),
       // Category keys + labels for the session/phase/week cascade filters.
       session: t.session ? String(t.session._id) : null,
       sessionName: t.session ? t.session.name : "",
       phase: t.phase ? String(t.phase) : null,
       phaseName: t.phase ? phaseNames[String(t.phase)] || "" : "",
+      phaseOrder: t.phase ? phaseOrders[String(t.phase)] ?? null : null,
       week: t.week ? String(t.week._id) : null,
       weekName: t.week ? t.week.name : "",
-      // Grade / class keys for the session → grade → class cascade filters.
+      // Calendar start of the week: the audit page lists its week dropdown
+      // chronologically instead of in ledger (urgency) order.
+      weekStart: t.week && t.week.startDate ? t.week.startDate : null,
+      // Grade / class keys: the page's cascade filters by grade (a test is kept
+      // when ANY of its classes sits in it); the class keys back the `classLevel`
+      // API filter and each row's own class scoping.
       gradeLevels: [...new Set(classKeys.map((c) => c.gradeLevel).filter(Boolean))],
       classLevels: classKeys,
       totalMarks: t.totalMarks,
@@ -1119,14 +1191,15 @@ exports.getMarksAuditService = async (query, res) => {
     );
   }
 
-  // Teacher filter: exact match on the marker's id OR name (the dropdown
-  // submits ids; name queries make the API usable directly). Tests the
-  // teacher never marked — including unmarked ones — are excluded.
+  // Teacher filter: the marker's id exactly, or any part of the marker's name
+  // (case-insensitive) — the audit page offers a typeahead, so a typed "ayesha"
+  // has to find "Ms. Ayesha". Tests the teacher never marked — including
+  // unmarked ones — are excluded.
   if (teacher && String(teacher).trim()) {
     const tq = String(teacher).trim().toLowerCase();
     rows = rows.filter(
       (r) =>
-        r.markers.some((m) => m.id.toLowerCase() === tq || (m.name || "").toLowerCase() === tq)
+        r.markers.some((m) => m.id.toLowerCase() === tq || (m.name || "").toLowerCase().includes(tq))
     );
   }
 
@@ -1152,6 +1225,15 @@ exports.getMarksAuditService = async (query, res) => {
     (r) =>
       anyMatch(r.gradeLevels, grade) && anyMatch(r.classLevels.map((c) => c.id), classLevel)
   );
+
+  // Subject filter: a Subject id (what the cascade dropdown submits), or any
+  // part of its display label when the API is queried directly by name.
+  if (subject && String(subject).trim()) {
+    const sq = String(subject).trim().toLowerCase();
+    rows = rows.filter(
+      (r) => String(r.subjectId || "").toLowerCase() === sq || (r.subject || "").toLowerCase().includes(sq)
+    );
+  }
 
   // Marking-status filter: "marked" = every student's marks are uploaded,
   // "unmarked" = anything still outstanding (including partially marked).

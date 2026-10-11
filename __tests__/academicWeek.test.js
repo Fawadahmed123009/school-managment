@@ -8,7 +8,8 @@
  * 3. Session-based test creation (with session+phase) requires a week
  *    that belongs to the correct session+phase.
  * 4. Week CRUD works within session context.
- * 5. Deleting a week unlinks tests (sets week: null) rather than deleting them.
+ * 5. Deleting a week removes its unmarked tests (and only unlinks ones that
+ *    already have submitted scores, so no result data is ever lost).
  */
 
 // ── Model mocks ──────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ const mockTestFindOne = jest.fn();
 const mockTestFindOneAndUpdate = jest.fn();
 const mockTestUpdateMany = jest.fn();
 const mockTestDeleteOne = jest.fn();
+const mockTestDeleteMany = jest.fn();
 
 const mockWeekCreate = jest.fn();
 const mockWeekFind = jest.fn();
@@ -31,11 +33,13 @@ const mockSubjectFindById = jest.fn();
 const mockClassLevelFindById = jest.fn();
 
 const mockTestResultDeleteMany = jest.fn();
+const mockTestResultDistinct = jest.fn();
 
 // Chainable mock helpers
 const chainable = (returnVal) => {
   const obj = {};
   obj.populate = jest.fn().mockReturnValue(obj);
+  obj.select = jest.fn().mockReturnValue(obj);
   obj.sort = jest.fn().mockReturnValue(obj);
   obj.lean = jest.fn().mockResolvedValue(returnVal);
   obj.then = (resolve) => resolve(returnVal);
@@ -46,19 +50,23 @@ jest.mock("../models/Academic/test.model", () => {
   const Model = function () {};
   Model.create = (...a) => mockTestCreate(...a);
   Model.find = (...a) => {
+    // createTestService runs a duplicate lookup (Test.find(query).lean()); when a
+    // test has not scripted mockTestFind, fall back to "no candidates".
     const r = mockTestFind(...a);
-    return r;
+    return r || chainable([]);
   };
   Model.findOne = (...a) => mockTestFindOne(...a);
   Model.findOneAndUpdate = (...a) => mockTestFindOneAndUpdate(...a);
   Model.updateMany = (...a) => mockTestUpdateMany(...a);
   Model.deleteOne = (...a) => mockTestDeleteOne(...a);
+  Model.deleteMany = (...a) => mockTestDeleteMany(...a);
   Model.aggregate = jest.fn().mockResolvedValue([]);
   return Model;
 });
 
 jest.mock("../models/Academic/testResult.model", () => ({
   deleteMany: (...a) => mockTestResultDeleteMany(...a),
+  distinct: (...a) => mockTestResultDistinct(...a),
   find: jest.fn().mockReturnValue(chainable([])),
 }));
 
@@ -393,20 +401,38 @@ describe("Existing week-less tests (week: null) remain valid", () => {
   });
 });
 
-// ─── 5. Deleting a week unlinks tests ───────────────────────────────────────
-describe("Deleting a week unlinks tests", () => {
-  test("deleteWeekService unlinks tests and deletes the week", async () => {
-    const chain = chainable({ _id: WEEK_ID, name: "Week 3" });
-    mockWeekFindById.mockReturnValue(chain);
+// ─── 5. Deleting a week removes its unmarked tests ──────────────────────────
+describe("Deleting a week removes its unmarked tests", () => {
+  test("deletes unmarked tests, unlinks marked ones (scores preserved), removes week", async () => {
+    mockWeekFindById.mockReturnValue(chainable({ _id: WEEK_ID, name: "Week 3" }));
+    mockTestFind.mockReturnValue(chainable([{ _id: "t-clean" }, { _id: "t-marked" }]));
+    mockTestResultDistinct.mockResolvedValue(["t-marked"]); // only t-marked has scores
+    mockTestDeleteMany.mockResolvedValue({ deletedCount: 1 });
+    mockTestUpdateMany.mockResolvedValue({ modifiedCount: 1 });
     mockWeekFindByIdAndDelete.mockResolvedValue({ _id: WEEK_ID });
-    mockTestUpdateMany.mockResolvedValue({ modifiedCount: 2 });
 
     await deleteWeekService(WEEK_ID, fakeRes);
 
+    // Unmarked test is deleted with the week — no orphan left behind.
+    expect(mockTestDeleteMany).toHaveBeenCalledWith({ _id: { $in: ["t-clean"] } });
+    // Marked test is only unlinked, so its submitted scores survive.
     expect(mockTestUpdateMany).toHaveBeenCalledWith(
-      { week: WEEK_ID },
+      { _id: { $in: ["t-marked"] } },
       { $set: { week: null } }
     );
+    expect(mockWeekFindByIdAndDelete).toHaveBeenCalledWith(WEEK_ID);
+    expect(fakeRes._statusCode).toBe(200);
+  });
+
+  test("an empty week deletes nothing but still removes the week", async () => {
+    mockWeekFindById.mockReturnValue(chainable({ _id: WEEK_ID, name: "Empty" }));
+    mockTestFind.mockReturnValue(chainable([]));
+    mockWeekFindByIdAndDelete.mockResolvedValue({ _id: WEEK_ID });
+
+    await deleteWeekService(WEEK_ID, fakeRes);
+
+    expect(mockTestDeleteMany).not.toHaveBeenCalled();
+    expect(mockTestUpdateMany).not.toHaveBeenCalled();
     expect(mockWeekFindByIdAndDelete).toHaveBeenCalledWith(WEEK_ID);
     expect(fakeRes._statusCode).toBe(200);
   });

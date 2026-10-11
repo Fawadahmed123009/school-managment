@@ -34,7 +34,12 @@ const chainPromise = (value) => {
 
 jest.mock("../models/Academic/test.model", () => ({
   findById: (...a) => chainPromise(mockTestFindById(...a)),
+  // Duplicate-check lookup (findDuplicateTest). Default: no other test occupies
+  // the slot, so the happy-path edit assertions are unaffected. Individual tests
+  // can override mockTestFind if they want to exercise the collision guard.
+  find: (...a) => mockTestFind(...a),
 }));
+const mockTestFind = jest.fn(() => ({ lean: async () => [] }));
 jest.mock("../models/Academic/testResult.model", () => ({
   countDocuments: (...a) => mockResultCountDocuments(...a),
   find: (...a) => chainPromise(mockResultFind(...a)),
@@ -150,6 +155,9 @@ beforeEach(() => {
     gradeLevel: "9",
   }));
   mockWeekFindById.mockResolvedValue({ _id: WEEK_ID, session: SESSION_ID, phase: PHASE_ID });
+  // Duplicate lookup default: no other test occupies the slot. Re-asserted every
+  // test because clearAllMocks() does not drop mockReturnValue overrides.
+  mockTestFind.mockImplementation(() => ({ lean: async () => [] }));
 });
 
 const statusOf = () => res.status.mock.calls[res.status.mock.calls.length - 1][0];
@@ -557,5 +565,51 @@ describe("edit routes are gated on admin OR manager", () => {
       "utf8"
     );
     expect(view).toMatch(/href="\/tests\/<%=\s*t\._id\s*%>\/edit"/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Duplicate-slot guard — a double-submitted create/clone must not leave two
+// byte-identical tests on one date ("2 tests on same date").
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Make the duplicate lookup return one colliding candidate (same class scope). */
+function collideWithExisting() {
+  mockTestFind.mockImplementation(() => ({
+    lean: async () => [{ _id: "other-1", name: "Quiz 1", classLevels: [CLASS_ID] }],
+  }));
+}
+
+describe("duplicate-slot guard (create + edit)", () => {
+  test("createTestService rejects an identical test in the same slot", async () => {
+    collideWithExisting();
+
+    await createTestService(body(), "admin-1", res);
+
+    expect(statusOf()).toBe(409);
+    expect(bodyOf().message).toMatch(/already exists/i);
+  });
+
+  test("updateTestService rejects an edit that collides with ANOTHER test", async () => {
+    const doc = makeTestDoc();
+    mockTestFindById.mockReturnValue(doc);
+    collideWithExisting();
+
+    await updateTestService(TEST_ID, body(), res);
+
+    expect(statusOf()).toBe(409);
+    expect(bodyOf().message).toMatch(/already exists/i);
+    expect(doc.save).not.toHaveBeenCalled();
+  });
+
+  test("updateTestService still allows a plain rename (no collision)", async () => {
+    const doc = makeTestDoc();
+    mockTestFindById.mockReturnValue(doc);
+    // Default mockTestFind → no candidates → guard passes.
+
+    await updateTestService(TEST_ID, body(), res);
+
+    expect(statusOf()).toBe(200);
+    expect(doc.save).toHaveBeenCalledTimes(1);
   });
 });
