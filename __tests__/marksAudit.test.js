@@ -11,6 +11,9 @@
  *     keeps only the tests a given marker (by id or name) entered
  *   • the session / phase / week cascade filters rows by category id (with
  *     "none" matching tests missing that level); rows carry category labels
+ *   • the grade / class cascade keys off each test's ClassLevels: a test is
+ *     kept when ANY of its classes matches, and rows expose gradeLevels +
+ *     classLevels so the page can build the dependent dropdowns
  *   • marking status is derived from the class rosters: `marked` only when
  *     every active student of the test's classes has a score row; marked
  *     tests drop the overdue/critical flags and sort to the bottom
@@ -85,7 +88,7 @@ const TEST_ONE = {
   _id: "test-1",
   name: "Weekly Test 1",
   subject: { _id: "s1", name: "Math" },
-  classLevels: [{ _id: "c1", name: "Grade 5 — Blue" }],
+  classLevels: [{ _id: "c1", name: "Grade 5 — Blue", gradeLevel: "5" }],
   date: new Date("2026-09-10T00:00:00Z"),
   totalMarks: 50,
   passMarks: 20,
@@ -98,7 +101,7 @@ const TEST_TWO = {
   _id: "test-2",
   name: "Weekly Test 2",
   subject: { _id: "s1", name: "Math" },
-  classLevels: [{ _id: "c1", name: "Grade 5 — Blue" }],
+  classLevels: [{ _id: "c1", name: "Grade 5 — Blue", gradeLevel: "5" }],
   date: new Date("2026-09-17T00:00:00Z"),
   totalMarks: 40,
   passMarks: 16,
@@ -110,7 +113,7 @@ const TEST_THREE = {
   _id: "test-3",
   name: "Weekly Test 3",
   subject: { _id: "s1", name: "Math" },
-  classLevels: [{ _id: "c3", name: "Grade 6 — Red" }],
+  classLevels: [{ _id: "c3", name: "Grade 6 — Red", gradeLevel: "6" }],
   date: new Date("2026-09-24T00:00:00Z"),
   totalMarks: 30,
   passMarks: 12,
@@ -389,6 +392,97 @@ describe("getMarksAuditService — session/phase/week filters and pagination", (
     await getMarksAuditService({}, res);
     expect(auditRows(res)).toHaveLength(3);
     expect(res.json.mock.calls[0][0].data.pagination.page).toBe(1);
+  });
+});
+
+// ── Grade / class cascade ────────────────────────────────────────────────────
+describe("getMarksAuditService — grade / class cascade filters", () => {
+  // A test spanning two grades (the cascade must keep it under BOTH) and one
+  // whose class carries no grade level at all (only "none" may keep it).
+  const TEST_MULTI = {
+    ...TEST_ONE,
+    _id: "test-multi",
+    classLevels: [
+      { _id: "c1", name: "Grade 5 — Blue", gradeLevel: "5" },
+      { _id: "c9", name: "Class Nine", gradeLevel: "9", group: "Pre-Engineering" },
+    ],
+  };
+  const TEST_NOGRADE = {
+    ...TEST_TWO,
+    _id: "test-nograde",
+    classLevels: [{ _id: "cx", name: "Legacy Class" }],
+  };
+
+  beforeEach(() => {
+    mockTestFind.mockReturnValue(chainQuery([TEST_ONE, TEST_MULTI, TEST_NOGRADE]));
+  });
+
+  test("rows expose gradeLevels and classLevels keys", async () => {
+    const res = mockRes();
+    await getMarksAuditService({ limit: "all" }, res);
+
+    const multi = auditRows(res).find((r) => r.testId === "test-multi");
+    expect(multi.gradeLevels).toEqual(["5", "9"]);
+    expect(multi.classLevels).toEqual([
+      { id: "c1", name: "Grade 5 — Blue", gradeLevel: "5", group: "" },
+      { id: "c9", name: "Class Nine", gradeLevel: "9", group: "Pre-Engineering" },
+    ]);
+
+    // A class with no grade level still keys the class filter, but is grade-less.
+    const noGrade = auditRows(res).find((r) => r.testId === "test-nograde");
+    expect(noGrade.gradeLevels).toEqual([]);
+    expect(noGrade.classLevels.map((c) => c.id)).toEqual(["cx"]);
+  });
+
+  test("grade keeps a test when ANY of its classes sits in that grade", async () => {
+    const nine = mockRes();
+    await getMarksAuditService({ grade: "9", limit: "all" }, nine);
+    expect(auditRows(nine).map((r) => r.testId)).toEqual(["test-multi"]);
+
+    const five = mockRes();
+    await getMarksAuditService({ grade: "5", limit: "all" }, five);
+    expect(auditRows(five).map((r) => r.testId).sort()).toEqual(["test-1", "test-multi"]);
+
+    // A grade nobody uses matches nothing.
+    const none = mockRes();
+    await getMarksAuditService({ grade: "12" }, none);
+    expect(auditRows(none)).toEqual([]);
+  });
+
+  test("classLevel filter matches on the class id", async () => {
+    const shared = mockRes();
+    await getMarksAuditService({ classLevel: "c1", limit: "all" }, shared);
+    expect(auditRows(shared).map((r) => r.testId).sort()).toEqual(["test-1", "test-multi"]);
+
+    const alone = mockRes();
+    await getMarksAuditService({ classLevel: "cx", limit: "all" }, alone);
+    expect(auditRows(alone).map((r) => r.testId)).toEqual(["test-nograde"]);
+  });
+
+  test('"none" keeps grade-less rows and nothing for class-less ones', async () => {
+    const noGrade = mockRes();
+    await getMarksAuditService({ grade: "none", limit: "all" }, noGrade);
+    expect(auditRows(noGrade).map((r) => r.testId)).toEqual(["test-nograde"]);
+
+    // Every row here has at least one class, so "no class" is empty.
+    const noClass = mockRes();
+    await getMarksAuditService({ classLevel: "none", limit: "all" }, noClass);
+    expect(auditRows(noClass)).toEqual([]);
+  });
+
+  test("grade / class compose with the session filter", async () => {
+    // test-1 and test-multi belong to the session; test-nograde does not.
+    const res = mockRes();
+    await getMarksAuditService(
+      { session: "sess-1", grade: "5", classLevel: "c1", limit: "all" },
+      res
+    );
+    expect(auditRows(res).map((r) => r.testId).sort()).toEqual(["test-1", "test-multi"]);
+
+    // Grade 6 exists in the fixture set only outside this session → empty.
+    const empty = mockRes();
+    await getMarksAuditService({ session: "sess-1", grade: "6" }, empty);
+    expect(auditRows(empty)).toEqual([]);
   });
 });
 

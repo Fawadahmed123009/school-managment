@@ -875,16 +875,21 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
  * {@link OVERDUE_MS} and `critical` past {@link CRITICAL_MS} since the test
  * date — so a finished test never shows a reminder. Optional filters:
  * `search` (test / subject / class), `teacher` — a marker's id or name,
- * keeping only the tests that teacher marked — `status` (marked / unmarked)
- * and the category cascade `session` / `phase` / `week` (ids; "none" keeps
- * only tests missing that category). Rows are ordered by urgency: critical,
+ * keeping only the tests that teacher marked — `status` (marked / unmarked),
+ * the category cascade `session` / `phase` / `week` (ids; "none" keeps only
+ * tests missing that category) and the class cascade `grade` (a ClassLevel
+ * gradeLevel string, e.g. "5" or "PG") / `classLevel` (a ClassLevel id) — a
+ * test can target several classes, so it matches when ANY of its classes sits
+ * in the chosen grade or is the chosen class, and "none" keeps tests whose
+ * classes carry no grade / no class at all. Rows are ordered by urgency: critical,
  * then overdue, then the rest most-recently-touched first, fully marked
  * tests last. Response is paginated (`page` / `limit`, max 100; `limit=all`
  * returns every row) and carries a `pagination` envelope with the
  * unpaginated total. Read-only, admin/manager only.
  */
 exports.getMarksAuditService = async (query, res) => {
-  const { search, teacher, status, session, phase, week, page, limit } = query || {};
+  const { search, teacher, status, session, phase, week, grade, classLevel, page, limit } =
+    query || {};
 
   const tests = await Test.find({})
     .populate("subject", "name displayName")
@@ -968,6 +973,17 @@ exports.getMarksAuditService = async (query, res) => {
 
   const round2 = (n) => Math.round(n * 100) / 100;
 
+  // Class keys per test for the session → grade → class cascade. A test can
+  // target several ClassLevels, so each row carries all of them (id + grade
+  // level + group) — the filter matches when ANY one of them is chosen.
+  const classKeysFor = (t) =>
+    (t.classLevels || []).map((c) => ({
+      id: asRefId(c) || "",
+      name: (c && c.name) || "",
+      gradeLevel: (c && c.gradeLevel) || "",
+      group: (c && c.group) || "",
+    }));
+
   let rows = tests.map((t) => {
     const rs = byTest[String(t._id)] || [];
     const scores = rs.map((r) => r.score).filter((s) => typeof s === "number" && !isNaN(s));
@@ -1044,6 +1060,8 @@ exports.getMarksAuditService = async (query, res) => {
       .filter((ti) => ti.name || ti.whatsapp)
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
+    const classKeys = classKeysFor(t);
+
     return {
       testId: t._id,
       name: t.name,
@@ -1058,6 +1076,9 @@ exports.getMarksAuditService = async (query, res) => {
       phaseName: t.phase ? phaseNames[String(t.phase)] || "" : "",
       week: t.week ? String(t.week._id) : null,
       weekName: t.week ? t.week.name : "",
+      // Grade / class keys for the session → grade → class cascade filters.
+      gradeLevels: [...new Set(classKeys.map((c) => c.gradeLevel).filter(Boolean))],
+      classLevels: classKeys,
       totalMarks: t.totalMarks,
       passMarks: t.passMarks,
       testDate: t.date,
@@ -1117,6 +1138,19 @@ exports.getMarksAuditService = async (query, res) => {
   };
   rows = rows.filter(
     (r) => catMatch(r.session, session) && catMatch(r.phase, phase) && catMatch(r.week, week)
+  );
+
+  // Grade / class filters: a test targets a LIST of classes, so it is kept
+  // when ANY of them matches. "none" keeps rows whose list is empty (a test
+  // with no grade level, or with no classes at all).
+  const anyMatch = (values, value) => {
+    if (!value || !String(value).trim()) return true;
+    const v = String(value).trim().toLowerCase();
+    return v === "none" ? values.length === 0 : values.some((x) => String(x).toLowerCase() === v);
+  };
+  rows = rows.filter(
+    (r) =>
+      anyMatch(r.gradeLevels, grade) && anyMatch(r.classLevels.map((c) => c.id), classLevel)
   );
 
   // Marking-status filter: "marked" = every student's marks are uploaded,

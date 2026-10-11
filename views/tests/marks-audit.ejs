@@ -19,8 +19,11 @@
     <%
       // Server-side GET filters (like the teacher dropdown above): each
       // category select submits the form on change. Options are rendered
-      // server-side from the full row set; the sentinel value "none" keeps
-      // only tests missing that category (mirrors the Manage tests cascade).
+      // server-side from the full row set, narrowed by the choice above them
+      // (grades only of the picked session, classes only of session+grade);
+      // the sentinel value "none" keeps tests missing that level.
+      // marks-audit-cascade.js clears the levels BELOW a changed select before
+      // submitting, so a stale grade / class is never sent with a new session.
       const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       const catOptionTags = (list, selected) => list.map(function (o) {
         return '<option value="' + escAttr(o.id) + '"' + (String(o.id).toLowerCase() === String(selected || '').toLowerCase() ? ' selected' : '') + '>' + escAttr(o.name || o.id) + '</option>';
@@ -33,23 +36,23 @@
       ];
       const categorySelects = [
         { name: 'session', all: 'All sessions', opts: sessions, sel: session },
-        { name: 'phase', all: 'All phases', opts: phases, sel: phase },
-        { name: 'week', all: 'All weeks', opts: weeks, sel: week },
+        { name: 'grade', all: 'All grades', opts: grades, sel: grade },
+        { name: 'classLevel', all: 'All classes', opts: classes, sel: classLevel },
       ];
     %>
-    <form method="GET" action="/tests/marks-audit" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <select name="status" onchange="this.form.submit()" style="<%= selectStyle %>">
+    <form id="marks-audit-filter" method="GET" action="/tests/marks-audit" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <select name="status" style="<%= selectStyle %>">
         <% statusOptions.forEach(function (s) { %>
           <option value="<%= s.v %>" <%= String(status || '') === s.v ? 'selected' : '' %>><%= s.l %></option>
         <% }); %>
       </select>
       <% categorySelects.forEach(function (c) { %>
-        <select name="<%= c.name %>" onchange="this.form.submit()" style="<%= selectStyle %>">
+        <select name="<%= c.name %>" data-cascade="<%= c.name %>" style="<%= selectStyle %>">
           <option value=""><%= c.all %></option>
           <%- catOptionTags(c.opts, c.sel) %>
         </select>
       <% }); %>
-      <select name="teacher" onchange="this.form.submit()" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; max-width:190px;">
+      <select name="teacher" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px; max-width:190px;">
         <option value="">All teachers</option>
         <% markers.forEach(function(m) { %>
           <option value="<%= m.id %>" <%= String(m.id).toLowerCase() === String(teacher || '').toLowerCase() ? 'selected' : '' %>><%= m.name || m.id %></option>
@@ -57,7 +60,7 @@
       </select>
       <input type="search" name="search" value="<%= search %>" placeholder="Search test, subject or class…" style="padding:6px 10px; border:1px solid var(--border); border-radius:8px;" />
       <button type="submit" class="btn btn-primary" style="padding:6px 14px;">Search</button>
-      <% if (search || teacher || status || session || phase || week) { %><a href="/tests/marks-audit" class="btn btn-ghost" style="padding:6px 14px;">Clear</a><% } %>
+      <% if (search || teacher || status || session || grade || classLevel) { %><a href="/tests/marks-audit" class="btn btn-ghost" style="padding:6px 14px;">Clear</a><% } %>
     </form>
   </div>
   <div class="attend-filters" style="padding:0 16px 4px;">
@@ -66,8 +69,9 @@
     use the <strong>WhatsApp</strong> button to remind the assigned teacher (numbers are set in Staff &rarr; Edit).
     A test counts as <em>marked</em> once <strong>all</strong> its students' marks are uploaded — marked tests lose the overdue flag and sink to the
     bottom of the list; one that passes <strong>5 days</strong> of its test date still unmarked turns <em>critical</em> (red).
-    The <em>Marked by</em> filter keeps only the tests that teacher entered; the <em>session / phase / week</em> dropdowns narrow the ledger to that category.</p>
-    <% var anyFilter = search || teacher || status || session || phase || week; %>
+    The <em>Marked by</em> filter keeps only the tests that teacher entered; the <em>session / grade / class</em> dropdowns are a cascade — picking a session
+    lists only the grades that session's tests cover, and a grade lists only its own classes (changing a level clears the ones below it).</p>
+    <% var anyFilter = search || teacher || status || session || grade || classLevel; %>
     <p class="hint" style="margin:6px 0 0; color:var(--ink-soft); font-size:13px;">
       <% if (pagination.pages > 1) { %>
         Page <%= pagination.page %> of <%= pagination.pages %> &middot; showing <%= rows.length %> of <%= pagination.total %> test<%= pagination.total !== 1 ? 's' : '' %><%= anyFilter ? ' matching the filters' : '' %>.
@@ -87,6 +91,7 @@
       <tr>
         <th>Test</th>
         <th>Subject</th>
+        <th>Class</th>
         <th class="num">Total marks</th>
         <th>Test date</th>
         <th class="num">Marked</th>
@@ -129,6 +134,14 @@
           <% } %>
         </td>
         <td><%= r.subject %></td>
+        <td style="font-size:12px;">
+          <% // A test can target several classes; list each as "grade — name (group)"
+             // so the class shown always matches what the cascade filtered on.
+             var classCells = (r.classLevels || []).map(function (c) {
+            return (c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '') + (c.name || c.id) + (c.group ? ' (' + c.group + ')' : '');
+          }); %>
+          <%= classCells.length ? classCells.join(', ') : '—' %>
+        </td>
         <td class="num mono"><%= r.totalMarks %></td>
         <td><%= r.testDate ? new Date(r.testDate).toLocaleDateString() : '—' %></td>
         <td class="num">
@@ -193,7 +206,7 @@
        filters (and a non-default page size) so changing pages never drops
        them. */
     var filterQs = '';
-    var qsPairs = [['search', search], ['teacher', teacher], ['status', status], ['session', session], ['phase', phase], ['week', week]];
+    var qsPairs = [['search', search], ['teacher', teacher], ['status', status], ['session', session], ['grade', grade], ['classLevel', classLevel]];
     if (pagination.limit != 25) qsPairs.push(['limit', pagination.limit]);
     qsPairs.forEach(function (pair) {
       if (pair[1]) filterQs += '&' + pair[0] + '=' + encodeURIComponent(pair[1]);
@@ -235,5 +248,7 @@
   <% } %>
   <% } %>
 </div>
+
+<script src="/js/marks-audit-cascade.js"></script>
 
 <%- include('../partials/foot') %>
