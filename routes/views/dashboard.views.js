@@ -11,6 +11,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const { getAtRiskStudentsAdmin, getAtRiskStudentsTeacher, THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
 const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary } = require("../../services/academic/markingFollowUp.service");
 const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
+const { dateKeyStage, localDateKey } = require("../../utils/localDateKey");
 const logger = require("../../config/logger");
 
 // ── Helper: start-of-month date for MongoDB queries ──
@@ -74,7 +75,7 @@ router.get("/dashboard", async (req, res) => {
         { $match: { date: { $gte: thirtyDaysAgo } } },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+            _id: dateKeyStage(),
             present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
             absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
             late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
@@ -193,7 +194,7 @@ router.get("/dashboard", async (req, res) => {
 
       const attByDate = {};
       myAtt.forEach((r) => {
-        const key = r.date.toISOString().slice(0, 10);
+        const key = localDateKey(r.date);
         attByDate[key] = r.status;
       });
       charts.attendanceTrend = Object.entries(attByDate).map(([date, status]) => ({
@@ -288,7 +289,7 @@ router.get("/dashboard", async (req, res) => {
           },
           {
             $group: {
-              _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+              _id: dateKeyStage(),
               present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
               absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
               late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
