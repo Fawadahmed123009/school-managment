@@ -1,7 +1,8 @@
 /**
  * @deprecated This model is superseded by the TestResult model (testResult.model.js).
- * It is retained only for backward compatibility with the legacy marks system
- * (marks.service.js). New features should use TestResult.
+ * It is retained only for backward compatibility with the legacy exam-results flow
+ * (services/academic/results.service.js; its routes are retired under routes/_retired/)
+ * and for historical Student.examResults data. New features should use TestResult.
  */
 const mongoose = require("mongoose");
 

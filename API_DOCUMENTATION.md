@@ -871,15 +871,18 @@ Client                          Server
 
 ## 7. Marks (Legacy Exam System)
 
+The manual mark-entry endpoints (`POST /api/v1/marks` and `POST /api/v1/marks/bulk`)
+were retired — marking now goes through the Test system (`POST /api/v1/tests/:testId/results`
+and the OCR flow below). The legacy term-report endpoint
+(`GET /api/v1/marks/student/:studentId/term/:academicTermId`) and its orphaned view route
+(`GET /marks/report/:studentId/:academicTermId`) were also retired: they were linked by no UI,
+untested, and read from the deprecated `ExamResult`/`Exam` model, which no longer has any write
+path. Only the OCR-extract endpoint remains.
+
 | Method | Path | Middleware | Controller |
 |--------|------|------------|------------|
-| `POST` | `/api/v1/marks` | `isLoggedIn`, `isTeacher`, `isAssignedToSubject` | `createMarkController` |
-| `POST` | `/api/v1/marks/bulk` | `isLoggedIn`, `isTeacher`, `isAssignedToSubject` | `bulkCreateMarksController` |
-| `GET` | `/api/v1/marks/student/:studentId/term/:academicTermId` | `isLoggedIn`, `isTeacher` | `getStudentTermReportController` |
 | `POST` | `/api/v1/marks/ocr/extract` | `isLoggedIn`, `isTeacher` | `extractMarksFromImageController` |
 
-**POST /marks body:** Mark data with exam reference  
-**POST /marks/bulk body:** `{ "marks": [<mark objects>] }`  
 **POST /marks/ocr/extract:** `multipart/form-data` with `image` field
 
 ---

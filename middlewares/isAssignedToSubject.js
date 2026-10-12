@@ -2,17 +2,16 @@
  * Teacher subject-assignment authorization middleware.
  *
  * Verifies that the logged-in teacher is assigned (via the Assignment model)
- * to the subject + class of the resource being accessed.
+ * to the subject + class of the Test being accessed.
  *
- * Supports multiple data-source strategies (auto-detected per request):
+ * The legacy manual mark-entry routes (POST /marks and POST /marks/bulk, which
+ * gated on req.body.exam / req.body.marks[]) have been retired, so the only
+ * supported strategy is:
  *
  *   1. req.params.testId  →  loads Test, checks (test.subject, each test.classLevel)
- *   2. req.body.marks[]   →  loads each legacy Exam by exam id (bulk legacy route)
- *   3. req.body.exam      →  loads legacy Exam (single legacy mark route)
  *
  * For test-based routes the teacher must be assigned to the test's subject for
- * AT LEAST ONE of the test's class levels.  For legacy exam routes the teacher
- * must be assigned to the exact (subject, classLevel) pair.
+ * AT LEAST ONE of the test's class levels.
  *
  * Existing service-level checks are kept as defense-in-depth; this middleware
  * is the primary gate that rejects unauthorised requests before they reach
@@ -22,7 +21,6 @@
 const responseStatus = require("../handlers/responseStatus.handler");
 const { denySuspendedApi } = require("../handlers/suspendedGate.handler");
 const Test = require("../models/Academic/test.model");
-const Exam = require("../models/Academic/exams.model");
 const Assignment = require("../models/Academic/assignment.model");
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -30,18 +28,22 @@ const Assignment = require("../models/Academic/assignment.model");
 /**
  * Returns true when the teacher has at least one Assignment record that
  * matches `subjectId` and one of the `classLevelIds`.
+ *
+ * Single round-trip: all class levels are checked in one query via `$in`
+ * (the compound index on { teacher, subject, classLevel } covers it).
+ * Falls back to false for an empty/undefined class-level list, matching the
+ * old per-iteration loop's behavior.
  */
 async function teacherMatchesAnyAssignment(teacherId, subjectId, classLevelIds) {
-  const ids = Array.isArray(classLevelIds) ? classLevelIds : [classLevelIds];
-  for (const classId of ids) {
-    const found = await Assignment.findOne({
-      teacher: teacherId,
-      subject: subjectId,
-      classLevel: classId,
-    });
-    if (found) return true;
-  }
-  return false;
+  const ids = (Array.isArray(classLevelIds) ? classLevelIds : [classLevelIds])
+    .filter((id) => id !== undefined && id !== null);
+  if (ids.length === 0) return false;
+  const found = await Assignment.findOne({
+    teacher: teacherId,
+    subject: subjectId,
+    classLevel: { $in: ids },
+  });
+  return Boolean(found);
 }
 
 // ── API middleware (Bearer-token routes) ─────────────────────────────────────
@@ -49,10 +51,8 @@ async function teacherMatchesAnyAssignment(teacherId, subjectId, classLevelIds) 
 /**
  * Express middleware for API routes (uses req.userAuth.id from JWT).
  *
- * Auto-detects what to check:
- *   • req.params.testId present  → Test-based check
- *   • req.body.marks[] present   → Legacy bulk-exam check (every exam in array)
- *   • req.body.exam present      → Legacy single-exam check
+ * Checks:
+ *   • req.params.testId present  → Test-based assignment check
  *   • otherwise                  → passes through (let service handle it)
  */
 const isAssignedToSubject = async (req, res, next) => {
@@ -80,65 +80,6 @@ const isAssignedToSubject = async (req, res, next) => {
           403,
           "failed",
           "You are not assigned to teach this subject for any class in this test"
-        );
-      }
-      return next();
-    }
-
-    // ── Strategy 2: Legacy bulk marks — req.body.marks[].exam ─────────────
-    if (req.body.marks && Array.isArray(req.body.marks)) {
-      const examIds = [
-        ...new Set(
-          req.body.marks
-            .map((m) => m.exam)
-            .filter(Boolean)
-        ),
-      ];
-
-      if (examIds.length === 0) {
-        return responseStatus(res, 400, "failed", "No exam references found in marks data");
-      }
-
-      for (const examId of examIds) {
-        const exam = await Exam.findById(examId);
-        if (!exam) {
-          return responseStatus(res, 404, "failed", `Exam ${examId} not found`);
-        }
-        const ok = await teacherMatchesAnyAssignment(
-          teacherId,
-          exam.subject,
-          exam.classLevel
-        );
-        if (!ok) {
-          return responseStatus(
-            res,
-            403,
-            "failed",
-            `You are not assigned to teach "${exam.name}" for its class`
-          );
-        }
-      }
-      return next();
-    }
-
-    // ── Strategy 3: Legacy single mark — req.body.exam ────────────────────
-    if (req.body.exam) {
-      const exam = await Exam.findById(req.body.exam);
-      if (!exam) {
-        return responseStatus(res, 404, "failed", "Exam not found");
-      }
-
-      const ok = await teacherMatchesAnyAssignment(
-        teacherId,
-        exam.subject,
-        exam.classLevel
-      );
-      if (!ok) {
-        return responseStatus(
-          res,
-          403,
-          "failed",
-          "You are not assigned to teach this subject for this class"
         );
       }
       return next();

@@ -4,27 +4,38 @@
  * Verifies that:
  *   • A teacher assigned to (Subject A, Class 9) CAN access a test for Subject A / Class 9.
  *   • The same teacher CANNOT access a test for Subject B / Class 10.
- *   • The middleware correctly handles the legacy Exam-based bulk marks route.
  *   • The middleware passes through when no identifiable resource is found.
+ *
+ * The legacy Exam-based mark-entry strategies (req.body.exam / req.body.marks[])
+ * were retired alongside the /marks and /marks/bulk routes, so their tests were
+ * removed with them.
  */
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 const mockAssignmentFindOne = jest.fn();
 const mockTestFindById = jest.fn();
-const mockExamFindById = jest.fn();
+const mockTeacherFindById = jest.fn();
 
 jest.mock("../models/Academic/assignment.model", () => ({
-  findOne: mockAssignmentFindOne,
+  findOne: (...a) => mockAssignmentFindOne(...a),
 }));
 jest.mock("../models/Academic/test.model", () => ({
-  findById: mockTestFindById,
+  findById: (...a) => mockTestFindById(...a),
 }));
-jest.mock("../models/Academic/exams.model", () => ({
-  findById: mockExamFindById,
+// isAssignedToTestView reads the Teacher doc to detect the manager bypass.
+jest.mock("../models/Staff/teachers.model", () => ({
+  findById: (...a) => {
+    const q = {
+      select: () => q,
+      lean: () => Promise.resolve(mockTeacherFindById(...a)),
+    };
+    return q;
+  },
 }));
 
 const isAssignedToSubject = require("../middlewares/isAssignedToSubject");
+const { isAssignedToTestView } = require("../middlewares/isAssignedToSubject");
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -39,22 +50,6 @@ function mockReqWithTest(testId) {
   return {
     params: { testId },
     body: {},
-    userAuth: { id: "teacher-abc-123" },
-  };
-}
-
-function mockReqWithExam(examId) {
-  return {
-    params: {},
-    body: { exam: examId },
-    userAuth: { id: "teacher-abc-123" },
-  };
-}
-
-function mockReqWithBulkMarks(examIds) {
-  return {
-    params: {},
-    body: { marks: examIds.map((eid) => ({ exam: eid, student: "s1", score: 80 })) },
     userAuth: { id: "teacher-abc-123" },
   };
 }
@@ -138,6 +133,60 @@ describe("isAssignedToSubject middleware (Test-based routes)", () => {
     expect(res.status).toHaveBeenCalledWith(403);
   });
 
+  // ── N+1 regression: one Assignment query regardless of classLevels length ──
+
+  test("N+1: issues exactly ONE Assignment.findOne with classLevel $in for multi-class tests", async () => {
+    const testDoc = {
+      _id: "test-n1",
+      subject: SUBJECT_A,
+      classLevels: [CLASS_9, CLASS_10, "cls-11", "cls-12"],
+    };
+    mockTestFindById.mockResolvedValue(testDoc);
+    mockAssignmentFindOne.mockResolvedValue({ _id: "assign-1" });
+
+    const req = mockReqWithTest("test-n1");
+    const res = mockRes();
+    const next = jest.fn();
+
+    await isAssignedToSubject(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(mockAssignmentFindOne).toHaveBeenCalledTimes(1);
+    const query = mockAssignmentFindOne.mock.calls[0][0];
+    expect(query.teacher).toBe(TEACHER_ID);
+    expect(query.subject).toBe(SUBJECT_A);
+    expect(query.classLevel).toEqual({ $in: [CLASS_9, CLASS_10, "cls-11", "cls-12"] });
+  });
+
+  test("N+1: multi-class miss still costs exactly ONE Assignment.findOne (no per-class loop)", async () => {
+    const testDoc = { _id: "test-n2", subject: SUBJECT_A, classLevels: [CLASS_9, CLASS_10] };
+    mockTestFindById.mockResolvedValue(testDoc);
+    mockAssignmentFindOne.mockResolvedValue(null);
+
+    const req = mockReqWithTest("test-n2");
+    const res = mockRes();
+    const next = jest.fn();
+
+    await isAssignedToSubject(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockAssignmentFindOne).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns false (403) without querying when test has no classLevels", async () => {
+    mockTestFindById.mockResolvedValue({ _id: "test-5", subject: SUBJECT_A, classLevels: [] });
+
+    const req = mockReqWithTest("test-5");
+    const res = mockRes();
+    const next = jest.fn();
+
+    await isAssignedToSubject(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(mockAssignmentFindOne).not.toHaveBeenCalled();
+  });
+
   test("returns 404 when testId does not exist", async () => {
     mockTestFindById.mockResolvedValue(null);
 
@@ -163,92 +212,6 @@ describe("isAssignedToSubject middleware (Test-based routes)", () => {
   });
 });
 
-describe("isAssignedToSubject middleware (Legacy Exam-based single mark route)", () => {
-  const TEACHER_ID = "teacher-abc-123";
-  const SUBJECT_A = "sub-a";
-  const CLASS_9 = "cls-9";
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test("ALLOWS teacher when assigned to the exam's subject/class", async () => {
-    const examDoc = { _id: "exam-1", subject: SUBJECT_A, classLevel: CLASS_9, name: "Math Quiz" };
-    mockExamFindById.mockResolvedValue(examDoc);
-    mockAssignmentFindOne.mockResolvedValueOnce({ _id: "assign-1" });
-
-    const req = mockReqWithExam("exam-1");
-    const res = mockRes();
-    const next = jest.fn();
-
-    await isAssignedToSubject(req, res, next);
-
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
-  test("REJECTS teacher when NOT assigned to the exam's subject/class", async () => {
-    const examDoc = { _id: "exam-2", subject: "sub-b", classLevel: "cls-10", name: "Bio Quiz" };
-    mockExamFindById.mockResolvedValue(examDoc);
-    mockAssignmentFindOne.mockResolvedValueOnce(null);
-
-    const req = mockReqWithExam("exam-2");
-    const res = mockRes();
-    const next = jest.fn();
-
-    await isAssignedToSubject(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(403);
-  });
-});
-
-describe("isAssignedToSubject middleware (Legacy bulk marks route)", () => {
-  const TEACHER_ID = "teacher-abc-123";
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  test("REJECTS if ANY exam in the bulk payload belongs to an unassigned subject/class", async () => {
-    // Two exams: one assigned, one not
-    mockExamFindById
-      .mockResolvedValueOnce({ _id: "exam-ok", subject: "sub-a", classLevel: "cls-9", name: "Math" })
-      .mockResolvedValueOnce({ _id: "exam-bad", subject: "sub-b", classLevel: "cls-10", name: "Bio" });
-
-    // Teacher IS assigned to first exam
-    mockAssignmentFindOne.mockResolvedValueOnce({ _id: "assign-1" });
-    // Teacher is NOT assigned to second exam
-    mockAssignmentFindOne.mockResolvedValueOnce(null);
-
-    const req = mockReqWithBulkMarks(["exam-ok", "exam-bad"]);
-    const res = mockRes();
-    const next = jest.fn();
-
-    await isAssignedToSubject(req, res, next);
-
-    expect(next).not.toHaveBeenCalled();
-    expect(res.status).toHaveBeenCalledWith(403);
-  });
-
-  test("ALLOWS if ALL exams in the bulk payload match teacher's assignments", async () => {
-    mockExamFindById
-      .mockResolvedValueOnce({ _id: "exam-1", subject: "sub-a", classLevel: "cls-9", name: "Math Q1" })
-      .mockResolvedValueOnce({ _id: "exam-2", subject: "sub-a", classLevel: "cls-9", name: "Math Q2" });
-
-    mockAssignmentFindOne.mockResolvedValue({ _id: "assign-1" });
-
-    const req = mockReqWithBulkMarks(["exam-1", "exam-2"]);
-    const res = mockRes();
-    const next = jest.fn();
-
-    await isAssignedToSubject(req, res, next);
-
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.status).not.toHaveBeenCalled();
-  });
-});
-
 describe("isAssignedToSubject middleware (pass-through)", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -263,5 +226,80 @@ describe("isAssignedToSubject middleware (pass-through)", () => {
 
     expect(next).toHaveBeenCalledTimes(1);
     expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+// ── View-route middleware (cookie-session auth, /tests/mark/:testId) ─────────
+
+describe("isAssignedToTestView middleware (view routes)", () => {
+  const SUBJECT_A = "sub-a";
+  const CLASS_9 = "cls-9";
+  const CLASS_10 = "cls-10";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function viewMockRes() {
+    const res = {};
+    res.locals = { schoolName: "Test School" };
+    res.status = jest.fn().mockReturnValue(res);
+    res.render = jest.fn().mockReturnValue(res);
+    res.redirect = jest.fn();
+    return res;
+  }
+
+  function viewReq(testId) {
+    return { params: { testId }, user: { _id: "teacher-view-1", isSuspended: false } };
+  }
+
+  test("GRANTS access when teacher is assigned to one of the test's class levels", async () => {
+    mockTeacherFindById.mockResolvedValue({ isAttendanceManager: false });
+    mockTestFindById.mockResolvedValue({ _id: "t1", subject: SUBJECT_A, classLevels: [CLASS_9, CLASS_10] });
+    mockAssignmentFindOne.mockResolvedValue({ _id: "assign-1" });
+
+    const req = viewReq("t1");
+    const res = viewMockRes();
+    const next = jest.fn();
+
+    await isAssignedToTestView(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.render).not.toHaveBeenCalled();
+    // Single round-trip via $in, even for a two-class test
+    expect(mockAssignmentFindOne).toHaveBeenCalledTimes(1);
+    expect(mockAssignmentFindOne.mock.calls[0][0].classLevel).toEqual({ $in: [CLASS_9, CLASS_10] });
+  });
+
+  test("DENIES (403) when teacher is assigned to none of the test's class levels", async () => {
+    mockTeacherFindById.mockResolvedValue({ isAttendanceManager: false });
+    mockTestFindById.mockResolvedValue({ _id: "t2", subject: SUBJECT_A, classLevels: [CLASS_9, CLASS_10] });
+    mockAssignmentFindOne.mockResolvedValue(null);
+
+    const req = viewReq("t2");
+    const res = viewMockRes();
+    const next = jest.fn();
+
+    await isAssignedToTestView(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.render).toHaveBeenCalledWith("error", expect.objectContaining({
+      message: expect.stringMatching(/not assigned/i),
+    }));
+    expect(mockAssignmentFindOne).toHaveBeenCalledTimes(1);
+  });
+
+  test("manager bypass skips the assignment query entirely", async () => {
+    mockTeacherFindById.mockResolvedValue({ isAttendanceManager: true });
+
+    const req = viewReq("t3");
+    const res = viewMockRes();
+    const next = jest.fn();
+
+    await isAssignedToTestView(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(mockAssignmentFindOne).not.toHaveBeenCalled();
   });
 });

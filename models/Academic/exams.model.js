@@ -1,7 +1,9 @@
 /**
  * @deprecated This model is superseded by the Test model (test.model.js).
- * It is retained only for backward compatibility with the legacy marks system
- * (marks.service.js, isAssignedToSubject.js). New features should use Test/TestResult.
+ * It is retained only for backward compatibility with the legacy exam-results flow
+ * (services/academic/results.service.js; its routes are retired under routes/_retired/)
+ * and for historical Exam/ExamResult data referenced by maintenance scripts.
+ * New features should use Test/TestResult.
  */
 const mongoose = require("mongoose");
 
