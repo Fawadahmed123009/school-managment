@@ -380,6 +380,75 @@ describe("Finding A-1: generateAnalytics — teacher query is intersection-scope
   });
 });
 
+// ── Tests: full-phase analytics is always exactly one subject, for every role ─
+describe("generateAnalytics — full-phase requires exactly one subject (all roles)", () => {
+  const PHASE_ID = "507f1f77bcf86cd799439055";
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  test("REJECTS a full-phase request with no subject — plain teacher (400)", async () => {
+    mockAssignmentFind.mockResolvedValue([{ subject: SUBJECT_MATH, classLevel: CLASS_9A }]);
+
+    const req = mockReq({ phaseId: PHASE_ID }, { id: TEACHER_A, role: "teacher", isManager: false });
+    const res = mockRes();
+
+    await generateAnalytics(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json.mock.calls[0][0].message).toMatch(/subject is required/i);
+    expect(pdfReportService.generateAnalyticsPDF).not.toHaveBeenCalled();
+  });
+
+  test("REJECTS a full-phase request with no subject — admin/manager (400)", async () => {
+    const req = mockReq({ phaseId: PHASE_ID }, { id: "admin-1", role: "admin", isManager: false });
+    const res = mockRes();
+
+    await generateAnalytics(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(pdfReportService.generateAnalyticsPDF).not.toHaveBeenCalled();
+  });
+
+  test("ACCEPTS a full-phase request WITH a single assigned subject (200)", async () => {
+    mockAssignmentFind.mockResolvedValue([{ subject: SUBJECT_MATH, classLevel: CLASS_9A }]);
+
+    const req = mockReq({ phaseId: PHASE_ID, subjectId: SUBJECT_MATH }, { id: TEACHER_A, role: "teacher", isManager: false });
+    const res = mockRes();
+
+    await generateAnalytics(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    // The subject must reach the service so gatherAnalytics' own guard is satisfied.
+    const filters = pdfReportService.generateAnalyticsPDF.mock.calls[0][0];
+    expect(filters.subjectId).toBe(SUBJECT_MATH);
+    expect(filters.period.phaseId).toBe(PHASE_ID);
+  });
+
+  test("a non-full-phase period (e.g. a week) still allows omitting the subject (200)", async () => {
+    mockAssignmentFind.mockResolvedValue([{ subject: SUBJECT_MATH, classLevel: CLASS_9A }]);
+
+    const req = mockReq({ weekId: "507f1f77bcf86cd799439066" }, { id: TEACHER_A, role: "teacher", isManager: false });
+    const res = mockRes();
+
+    await generateAnalytics(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+
+  test("a phase AND a week picked together is not treated as full-phase (200, no subject required)", async () => {
+    mockAssignmentFind.mockResolvedValue([{ subject: SUBJECT_MATH, classLevel: CLASS_9A }]);
+
+    const req = mockReq({ phaseId: PHASE_ID, weekId: "507f1f77bcf86cd799439066" }, { id: TEACHER_A, role: "teacher", isManager: false });
+    const res = mockRes();
+
+    await generateAnalytics(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+  });
+});
+
 // ── Tests: Finding B-1 — session-report PDF had NO teacher access control. ───
 describe("Finding B-1: generateSessionReport — teacher blocked, admin/manager allowed", () => {
   const SESSION_ID = "session-1";

@@ -3,7 +3,9 @@
  *
  * The analytics report reshapes itself around the chosen period scope:
  *   • single-week: results live in one week  → flat test list;
- *   • full-phase : phaseId set, no week selector → subject groups of tests;
+ *   • full-phase : phaseId set, no week selector → exactly one subject, one
+ *                  row per student and one column per test (the pivot), subject
+ *                  name printed once above the table;
  *   • multi-week : 2+ weeks in the results → subject groups, ONE aggregated
  *                  row per week (scores + out-of summed);
  *   • percentages use (score / outOf * 100).toFixed(1), "N/A" when out-of is 0.
@@ -36,10 +38,11 @@ jest.mock("../models/Academic/week.model", () => ({
 const pdfReport = require("../services/academic/pdfReport.service");
 const {
   detectAnalyticsMode,
+  isFullPhasePeriod,
   analyticsPercentLabel,
   groupRowsByStudent,
   buildSubjectWeekGroups,
-  buildSubjectTestGroups,
+  buildFullPhasePivot,
 } = pdfReport._analyticsInternals;
 
 const SESSION = "507f1f77bcf86cd799439000";
@@ -163,22 +166,77 @@ describe("buildSubjectWeekGroups", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Full-phase grouping: every individual test under each subject
+// Full-phase guard: which period shape requires exactly one subject
 // ═════════════════════════════════════════════════════════════════════════════
-describe("buildSubjectTestGroups", () => {
-  test("one row per test in date order, with totals and percentage", () => {
-    const groups = buildSubjectTestGroups([
-      row({ subject: "Math", test: "Test Late", date: new Date("2026-03-09"), score: 50, totalMarks: 100 }),
-      row({ subject: "Math", test: "Test Early", date: new Date("2026-03-02"), score: 40, totalMarks: 50 }),
-      row({ subject: "English", test: "Test Eng", date: new Date("2026-03-05"), score: 20, totalMarks: 40 }),
+describe("isFullPhasePeriod", () => {
+  test("a phase picked with no week narrowing is full-phase", () => {
+    expect(isFullPhasePeriod({ phaseId: PHASE_1 })).toBe(true);
+  });
+
+  test("a single week or a ticked week set is never full-phase", () => {
+    expect(isFullPhasePeriod({ phaseId: PHASE_1, weekId: WEEK_A })).toBe(false);
+    expect(isFullPhasePeriod({ phaseId: PHASE_1, weekIds: [WEEK_A, WEEK_B] })).toBe(false);
+  });
+
+  test("no period at all is not full-phase", () => {
+    expect(isFullPhasePeriod({})).toBe(false);
+    expect(isFullPhasePeriod()).toBe(false);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Full-phase pivot: one row per student, one column per test
+// ═════════════════════════════════════════════════════════════════════════════
+describe("buildFullPhasePivot", () => {
+  test("columns are tests in date order labelled Test 1 / Test 2; rows are students in roll order", () => {
+    const pivot = buildFullPhasePivot([
+      row({ studentName: "Alice", studentId: "S1", rollNumber: "1", testId: "t1", test: "Test Late", date: new Date("2026-03-09"), score: 50, totalMarks: 100 }),
+      row({ studentName: "Alice", studentId: "S1", rollNumber: "1", testId: "t0", test: "Test Early", date: new Date("2026-03-02"), score: 40, totalMarks: 50 }),
+      row({ studentName: "Two", studentId: "S2", rollNumber: "2", testId: "t0", test: "Test Early", date: new Date("2026-03-02"), score: 30, totalMarks: 50 }),
     ]);
-    expect(groups.map((g) => g.subject)).toEqual(["English", "Math"]);
-    const math = groups[1];
-    expect(math.lines.map((l) => l.test)).toEqual(["Test Early", "Test Late"]);
-    expect(math.lines[0].percent).toBe("80.0%");
-    expect(math.totalScore).toBe(90);
-    expect(math.totalOutOf).toBe(150);
-    expect(math.percent).toBe("60.0%");
+
+    expect(pivot.columns.map((c) => c.label)).toEqual(["Test 1", "Test 2"]); // date order
+    expect(pivot.columns.map((c) => c.test)).toEqual(["Test Early", "Test Late"]);
+    expect(pivot.students.map((s) => s.rollNumber)).toEqual(["1", "2"]); // roster order
+
+    const alice = pivot.students[0];
+    expect(alice.cells).toMatchObject({ t0: { obtained: 40, outOf: 50 }, t1: { obtained: 50, outOf: 100 } });
+    expect(alice.totalObtained).toBe(90);
+    expect(alice.totalOutOf).toBe(150);
+
+    // A student missing a test entirely has no cell for it at all (the renderer
+    // draws a dash), rather than a 0/0 that would wrongly count toward a total.
+    const two = pivot.students[1];
+    expect(two.cells["t1"]).toBeUndefined();
+    expect(two.totalObtained).toBe(30);
+    expect(two.totalOutOf).toBe(50);
+  });
+
+  test("two distinct tests sharing a name stay separate columns (keyed off testId, never name)", () => {
+    const pivot = buildFullPhasePivot([
+      row({ testId: "tA", test: "Quiz", date: new Date("2026-03-02") }),
+      row({ testId: "tB", test: "Quiz", date: new Date("2026-03-05") }),
+    ]);
+    expect(pivot.columns).toHaveLength(2);
+    expect(pivot.columns.map((c) => c.key)).toEqual(["tA", "tB"]);
+  });
+
+  test("two distinct students sharing a studentId stay separate rows (keyed off the Mongo _id, never the id string)", () => {
+    const pivot = buildFullPhasePivot([
+      row({ studentRefId: "r1", studentId: "S1", studentName: "Alice", testId: "t1", score: 20, totalMarks: 40 }),
+      row({ studentRefId: "r2", studentId: "S1", studentName: "Alicia", testId: "t1", score: 30, totalMarks: 40 }),
+    ]);
+    // Same human studentId "S1" but two Mongo identities → two roster rows, each
+    // carrying only its own obtained/out-of (NOT a merged total).
+    expect(pivot.students).toHaveLength(2);
+    expect(pivot.students.map((s) => s.totalObtained).sort()).toEqual([20, 30]);
+    expect(pivot.students.every((s) => s.totalOutOf === 40)).toBe(true);
+  });
+
+  test("a zero total out-of is carried as 0 so the renderer can label it N/A", () => {
+    const pivot = buildFullPhasePivot([row({ testId: "t1", score: 0, totalMarks: 0 })]);
+    expect(pivot.students[0].totalOutOf).toBe(0);
+    expect(analyticsPercentLabel(pivot.students[0].totalObtained, pivot.students[0].totalOutOf)).toBe("N/A");
   });
 });
 
@@ -234,18 +292,44 @@ describe("generateAnalyticsPDF — period scope pipeline", () => {
     mockWeekFindById.mockReturnValue(asQuery({ _id: oid(WEEK_A), name: "Week A", phase: PHASE_1 }));
   });
 
-  test("phase scope renders the full-phase layout (2+ weeks, per-test rows)", async () => {
+  test("phase scope renders the full-phase pivot (2+ weeks, one row per student)", async () => {
     testsIn([testDoc("t1", WEEK_A), testDoc("t2", WEEK_B)]);
     resultsIn([resultDoc("R1", testDoc("t1", WEEK_A)), resultDoc("R1", testDoc("t2", WEEK_B))]);
 
     const out = await pdfReport.generateAnalyticsPDF(
-      { studentId: undefined, subjectId: undefined, period: { sessionId: SESSION, phaseId: PHASE_1 } },
+      { studentId: undefined, subjectId: "sub1", period: { sessionId: SESSION, phaseId: PHASE_1 } },
       "Avenir Academy",
       null
     );
     expect(out.studentCount).toBe(2);
     // The session filter must reach the Test query.
     expect(mockTestFind.mock.calls[0][0].session).toBe(SESSION);
+    // The one-subject requirement must reach the Test query too.
+    expect(mockTestFind.mock.calls[0][0].subject).toBe("sub1");
+  });
+
+  test("phase scope WITHOUT a subject fails closed instead of falling back to every subject (admin/manager, no scope)", async () => {
+    testsIn([testDoc("t1", WEEK_A), testDoc("t2", WEEK_B)]);
+    await expect(
+      pdfReport.generateAnalyticsPDF(
+        { subjectId: undefined, period: { sessionId: SESSION, phaseId: PHASE_1 } },
+        "Avenir Academy",
+        null
+      )
+    ).rejects.toThrow(/one subject/i);
+  });
+
+  test("phase scope WITHOUT a subject fails closed instead of falling back to every assigned subject (teacher scope)", async () => {
+    testsIn([testDoc("t1", WEEK_A), testDoc("t2", WEEK_B)]);
+    await expect(
+      pdfReport.generateAnalyticsPDF(
+        { subjectId: undefined, period: { sessionId: SESSION, phaseId: PHASE_1 } },
+        "Avenir Academy",
+        { subjectClassMap: {}, teacherSubjectIds: ["sub1", "sub2"] }
+      )
+    ).rejects.toThrow(/one subject/i);
+    // It must never even reach the Test query — the guard runs first.
+    expect(mockTestFind).not.toHaveBeenCalled();
   });
 
   test("ticked two-week scope narrows tests and renders the multi-week layout", async () => {
@@ -278,17 +362,17 @@ describe("generateAnalyticsPDF — period scope pipeline", () => {
     expect(out.singleStudent).toEqual({ name: "R1", whatsapp: undefined });
   });
 
-  test("multi-week mode with several students renders one section per student", async () => {
+  test("full-phase pivot with several students renders one row per student", async () => {
     const tA = testDoc("t1", WEEK_A);
     const tB = testDoc("t2", WEEK_B);
     testsIn([tA, tB]);
     resultsIn([resultDoc("10", tA), resultDoc("10", tB), resultDoc("2", tA), resultDoc("2", tB)]);
 
     const out = await pdfReport.generateAnalyticsPDF(
-      { period: { sessionId: SESSION, phaseId: PHASE_1 } },
+      { subjectId: "sub1", period: { sessionId: SESSION, phaseId: PHASE_1 } },
       "Avenir Academy",
       null
     );
-    expect(out.studentCount).toBe(4); // 2 pupils × 2 weeks, grouped 2-per-student in the PDF
+    expect(out.studentCount).toBe(4); // 2 pupils × 2 tests, pivoted 1-row-per-pupil in the PDF
   });
 });

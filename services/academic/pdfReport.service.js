@@ -98,6 +98,17 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
   if (testId) testQuery._id = testId;
   if (subjectId) {
     testQuery.subject = subjectId;
+  } else if (isFullPhasePeriod(period)) {
+    // A full-phase report is always exactly one subject — the new pivot layout
+    // (one row per student, one column per test) has no subject grouping, so a
+    // multi-subject result set would render several unrelated subjects' tests
+    // side by side as one meaningless table. This fails closed for BOTH paths
+    // that could otherwise fall through to a broad query: a teacher with no
+    // explicit subject (which used to fall back to every assigned subject) and
+    // an admin/manager with no scope at all. Never reached from the app's own
+    // picker (the view route/controller require a subject first) — this is the
+    // service's own guard for direct/API callers.
+    throw new Error("A full-phase analytics report must resolve to exactly one subject");
   } else if (scope) {
     // No explicit subject but a teacher scope: restrict to the teacher's own subjects.
     testQuery.subject = { $in: scope.teacherSubjectIds };
@@ -156,11 +167,17 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
     return {
       studentName: r.student.name,
       studentId: r.student.studentId,
+      // Mongo identity for the full-phase pivot ROW key — two distinct pupils
+      // sharing a human studentId or name must never merge into one row.
+      studentRefId: String(r.student._id),
       rollNumber: r.student.rollNumber,
       whatsappNumber: r.student.whatsappNumber,
       test: r.test.name,
+      // Stable per-test identity for the full-phase pivot columns — two distinct
+      // tests sharing a name must never collapse into one column.
+      testId: String(r.test._id),
       // `subject` stays the raw internal name — it is the grouping key for
-      // buildSubjectWeekGroups/buildSubjectTestGroups. `subjectDisplay` is the
+      // buildSubjectWeekGroups. `subjectDisplay` is the
       // simplified label (falls back to name) used only when PRINTING rows.
       subject: r.test.subject ? r.test.subject.name : "Unknown",
       subjectDisplay: r.test.subject ? r.test.subject.displayName || r.test.subject.name : "Unknown",
@@ -331,8 +348,10 @@ function overallAverageOf(phases) {
 // ─── Analytics report modes ──────────────────────────────────────────────────
 // The analytics PDF reshapes itself around how wide the chosen period is:
 //   • single-week — results live in one week: a flat test list, nothing grouped;
-//   • full-phase  — a phase was picked with no week narrowing: group by subject
-//                    and list every individual test under it;
+//   • full-phase  — a phase was picked with no week narrowing: exactly one
+//                    subject (enforced — see gatherAnalytics' isFullPhasePeriod
+//                    guard) rendered as a pivot, one row per student and one
+//                    column per test, subject name printed once above the table;
 //   • multi-week  — two or more weeks (ticked set or whole session): group by
 //                    subject with ONE aggregated row per week under each subject.
 // Mode + grouping are pure functions over the gathered rows so unit tests can
@@ -346,6 +365,16 @@ function analyticsPercentLabel(score, outOf) {
 }
 
 const NO_WEEK_KEY = "\u0000no-week"; // bucket key for tests outside any week
+
+// The period shape that identifies a full-phase request: a phase was chosen
+// with no week narrowing. Kept separate from detectAnalyticsMode (which also
+// needs the gathered rows to rule out a single-week result set) so validation
+// can run BEFORE any query is made — a full-phase request must never fall
+// through to a broad, multi-subject gather.
+function isFullPhasePeriod(period = {}) {
+  const hasWeekSet = Array.isArray(period.weekIds) && period.weekIds.length > 0;
+  return !!(period.phaseId && !period.weekId && !hasWeekSet);
+}
 
 function detectAnalyticsMode(rows, period = {}) {
   const weeks = new Set(rows.map((r) => (r.weekId ? String(r.weekId) : NO_WEEK_KEY)));
@@ -406,32 +435,58 @@ function buildSubjectWeekGroups(rows) {
     });
 }
 
-// Full-phase shape: subject → one row per individual test (name, date, score,
-// out-of) in date order, totals + percentage bottomed.
-function buildSubjectTestGroups(rows) {
-  const bySubject = new Map();
+// Full-phase shape: exactly one subject (guarded upstream), so no grouping by
+// subject is needed — the whole result set pivots into ONE table instead: one
+// row per student, one column per test in the phase. Columns are keyed off the
+// test's own id (never its display name) so two different tests sharing a name
+// can't collapse into one column; ordered by date, name as tie-breaker, then
+// labelled "Test 1", "Test 2", … across the phase. Rows are roster-ordered by
+// roll number (natural numeric compare, name as tie-breaker) exactly like the
+// other grouped layouts. Each cell is "obtained/outOf"; a student missing a
+// test entirely shows a dash. The final two columns are the Grand Total
+// (totalObtained/totalOutOf across every test the student has) and the Grand
+// Percentage — analyticsPercentLabel returns "N/A" whenever totalOutOf is 0.
+function buildFullPhasePivot(rows) {
+  const colMap = new Map();
   rows.forEach((r) => {
-    const subj = String(r.subject || "Unknown");
-    if (!bySubject.has(subj)) bySubject.set(subj, []);
-    bySubject.get(subj).push(r);
+    const key = r.testId ? String(r.testId) : `name:${r.test}`;
+    if (!colMap.has(key)) colMap.set(key, { key, test: r.test, date: r.date });
   });
-  return [...bySubject.entries()]
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
-    .map(([subject, list]) => {
-      const lines = list
-        .slice()
-        .sort((a, b) => new Date(a.date) - new Date(b.date))
-        .map((r) => ({
-          test: r.test,
-          date: r.date,
-          score: Number(r.score) || 0,
-          outOf: Number(r.totalMarks) || 0,
-          percent: analyticsPercentLabel(Number(r.score) || 0, Number(r.totalMarks) || 0),
-        }));
-      const totalScore = lines.reduce((s, l) => s + l.score, 0);
-      const totalOutOf = lines.reduce((s, l) => s + l.outOf, 0);
-      return { subject, lines, totalScore, totalOutOf, percent: analyticsPercentLabel(totalScore, totalOutOf) };
-    });
+  const columns = [...colMap.values()]
+    .sort((a, b) => new Date(a.date) - new Date(b.date) || String(a.test).localeCompare(String(b.test)))
+    .map((c, i) => ({ ...c, label: `Test ${i + 1}` }));
+
+  const stuMap = new Map();
+  rows.forEach((r) => {
+    // Row key is the pupil's Mongo identity (studentRefId). Two distinct students
+    // that happen to share a human studentId or name must stay separate rows;
+    // the id/name fallbacks keep the grouping stable for synthetic callers.
+    const key = String(r.studentRefId || r.studentId || r.studentName || "");
+    if (!stuMap.has(key)) {
+      stuMap.set(key, {
+        name: r.studentName,
+        rollNumber: r.rollNumber,
+        studentId: r.studentId,
+        cells: {},
+        totalObtained: 0,
+        totalOutOf: 0,
+      });
+    }
+    const stu = stuMap.get(key);
+    const colKey = r.testId ? String(r.testId) : `name:${r.test}`;
+    const obtained = Number(r.score) || 0;
+    const outOf = Number(r.totalMarks) || 0;
+    stu.cells[colKey] = { obtained, outOf };
+    stu.totalObtained += obtained;
+    stu.totalOutOf += outOf;
+  });
+  const students = [...stuMap.values()].sort(
+    (a, b) =>
+      String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true, sensitivity: "base" }) ||
+      String(a.name || "").localeCompare(String(b.name || ""), undefined, { numeric: true, sensitivity: "base" })
+  );
+
+  return { columns, students };
 }
 
 async function gatherSessionReport(sessionId, studentId, period = {}) {
@@ -657,21 +712,27 @@ function generateResultSheetPDF(data, schoolName) {
 }
 
 // ─── Analytics PDF layouts ───────────────────────────────────────────────────
-// Single-week stays a simple flat table (nothing grouped). Multi-week and
-// full-phase render one section per student: for every subject a bordered
-// table of week rows (aggregated) or test rows (individual), closed by a
-// Total line with total score, total out-of and the percentage. All drawing
-// reuses the shared card primitives, so the report keeps the system's
-// black-on-white visual language.
-function drawAnalyticsGroupedTables(doc, startY, rows, mode, chrome) {
+// Single-week stays a simple flat table (nothing grouped). Multi-week renders
+// one section per student: for every subject a bordered table of week rows
+// (aggregated), closed by a Total line with total score, total out-of and the
+// percentage; besides the per-row Obtained/Total Marks each row also carries
+// RUNNING cumulative columns — "Total Obtained", "Total Out Of" and "Total %" —
+// so a reader can see the pupil's accumulating score and percentage as of every
+// week. Full-phase is a different shape entirely — see
+// drawAnalyticsFullPhasePivot below (single subject, students as rows, tests as
+// columns) — so it never reaches this function. All drawing reuses the shared
+// card primitives, so every report keeps the system's black-on-white visual
+// language.
+function drawAnalyticsGroupedTables(doc, startY, rows, chrome) {
   const bottomLimit = () => doc.page.height - 92;
   const sections = groupRowsByStudent(rows);
   const multiStudent = sections.length > 1;
 
-  const tableShape =
-    mode === "multi-week"
-      ? { headers: ["Week", "Obtained", "Total Marks", "%"], colWidths: [255, 80, 80, 80], aligns: ["left", "center", "center", "center"] }
-      : { headers: ["Test", "Date", "Obtained", "Total Marks", "%"], colWidths: [205, 80, 65, 70, 75], aligns: ["left", "center", "center", "center", "center"] };
+  const tableShape = {
+    headers: ["Week", "Obtained", "Total Marks", "Total Obtained", "Total Out Of", "Total %"],
+    colWidths: [135, 60, 62, 76, 70, 92],
+    aligns: ["left", "center", "center", "center", "center", "center"],
+  };
 
   let y = startY;
   sections.forEach((sec) => {
@@ -684,7 +745,7 @@ function drawAnalyticsGroupedTables(doc, startY, rows, mode, chrome) {
       doc.font("Helvetica-Bold").fontSize(10).fillColor(CARD_BLACK).text(clipCardLine(doc, label, CARD_TABLE_W, "Helvetica-Bold", 10), CARD_TABLE_X, y);
       y += 20;
     }
-    const groups = mode === "multi-week" ? buildSubjectWeekGroups(sec.rows) : buildSubjectTestGroups(sec.rows);
+    const groups = buildSubjectWeekGroups(sec.rows);
     // Groups stay keyed by internal name; print the simplified label instead.
     const subjectDisp = buildSubjectDisplayMap(sec.rows);
     groups.forEach((g) => {
@@ -695,19 +756,86 @@ function drawAnalyticsGroupedTables(doc, startY, rows, mode, chrome) {
       }
       doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK).text(subjectDisp.get(g.subject) || g.subject, CARD_TABLE_X, y);
       y += 16;
-      const lines = g.lines.map((l) =>
-        mode === "multi-week"
-          ? [l.label, String(l.score), String(l.outOf), l.percent]
-          : [l.test, new Date(l.date).toLocaleDateString(), String(l.score), String(l.outOf), l.percent]
-      );
-      const totalsRow =
-        mode === "multi-week"
-          ? ["Total", String(g.totalScore), String(g.totalOutOf), g.percent]
-          : ["Total", "", String(g.totalScore), String(g.totalOutOf), g.percent];
+      // Running cumulative totals across the subject's rows (weeks are already
+      // in calendar order), so each row shows the score, out-of and percentage
+      // accumulated UP TO and including that row.
+      let cumScore = 0;
+      let cumOutOf = 0;
+      const lines = g.lines.map((l) => {
+        cumScore += l.score;
+        cumOutOf += l.outOf;
+        const cumPct = analyticsPercentLabel(cumScore, cumOutOf);
+        return [l.label, String(l.score), String(l.outOf), String(cumScore), String(cumOutOf), cumPct];
+      });
+      // Total line: the per-row pair carries the subject totals; the
+      // cumulative columns end on the same figures, so they stay blank there
+      // and the final "Total %" shows the overall percentage.
+      const totalsRow = ["Total", String(g.totalScore), String(g.totalOutOf), "", "", g.percent];
       y = drawCardTable(doc, y, { ...tableShape, rows: [...lines, totalsRow], chrome });
       y += 14;
     });
   });
+  return y;
+}
+
+// ─── Full-phase analytics pivot ──────────────────────────────────────────────
+// Exactly one subject (guaranteed upstream by gatherAnalytics' isFullPhasePeriod
+// guard) across a whole phase, so there is nothing left to group by: the subject
+// name is printed ONCE as a header above the table, never repeated as a row or
+// group label. Below it, one row per student (roster-ordered by roll number) and
+// one column per test in date order ("Test 1", "Test 2", …), each cell the
+// pupil's score as "obtained/outOf". A final Grand Total column
+// (totalObtained/totalOutOf) and Grand Percentage column
+// ((totalObtained / totalOutOf * 100).toFixed(1)%, "N/A" when totalOutOf is 0)
+// close the table. Column widths shrink as the phase accumulates more tests so
+// the table never breaks the fixed card width, mirroring the session card's
+// own full-phase matrix sizing.
+function drawAnalyticsFullPhasePivot(doc, startY, rows, chrome) {
+  const bottomLimit = () => doc.page.height - 92;
+  const { columns, students } = buildFullPhasePivot(rows);
+  let y = startY;
+
+  // Subject name — printed once, above the table, never repeated below it.
+  // gatherAnalytics guarantees a single subject here, so any row carries it.
+  const subjectLabel = rows.length > 0 ? rows[0].subjectDisplay || rows[0].subject : null;
+  if (subjectLabel) {
+    if (y + 22 > bottomLimit()) {
+      doc.addPage();
+      y = chrome.y;
+    }
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK)
+      .text(clipCardLine(doc, subjectLabel, CARD_TABLE_W, "Helvetica-Bold", 11), CARD_TABLE_X, y);
+    y += 20;
+  }
+
+  if (columns.length === 0) {
+    doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK).text("No results recorded for this filter.", CARD_TABLE_X, y);
+    return y + 20;
+  }
+
+  const nCols = columns.length;
+  const nameW = nCols <= 6 ? 108 : nCols <= 10 ? 88 : 72;
+  const rollW = 40;
+  const grandW = 58;
+  const pctW = 50;
+  const testW = (CARD_TABLE_W - nameW - rollW - grandW - pctW) / nCols;
+  const fontSize = nCols <= 6 ? 9 : nCols <= 10 ? 8 : 7;
+
+  const headers = ["Student", "Roll No", ...columns.map((c) => c.label), "Grand Total", "Grand %"];
+  const colWidths = [nameW, rollW, ...columns.map(() => testW), grandW, pctW];
+  const aligns = ["left", "center", ...columns.map(() => "center"), "center", "center"];
+  const tableRows = students.map((stu) => [
+    stu.name || CARD_DASH,
+    stu.rollNumber || CARD_DASH,
+    ...columns.map((c) => {
+      const cell = stu.cells[c.key];
+      return cell ? `${cell.obtained}/${cell.outOf}` : CARD_DASH;
+    }),
+    `${stu.totalObtained}/${stu.totalOutOf}`,
+    analyticsPercentLabel(stu.totalObtained, stu.totalOutOf),
+  ]);
+
+  y = drawCardTable(doc, y, { headers, rows: tableRows, colWidths, aligns, fontSize, chrome });
   return y;
 }
 
@@ -767,8 +895,10 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
   if (rows.length === 0) {
     doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK).text("No results recorded for this filter.", CARD_TABLE_X, y);
     y += 20;
-  } else if (mode !== "single-week") {
-    y = drawAnalyticsGroupedTables(doc, y, rows, mode, chrome);
+  } else if (mode === "full-phase") {
+    y = drawAnalyticsFullPhasePivot(doc, y, rows, chrome);
+  } else if (mode === "multi-week") {
+    y = drawAnalyticsGroupedTables(doc, y, rows, chrome);
   } else if (studentName) {
     // Single week, one pupil: a flat test list — subject/date ordering only
     // groups like-subjects visually, no merged cells, no totals.
@@ -1229,10 +1359,11 @@ exports._sessionReportInternals = { filterTestsByPeriod, buildPhaseBlocks, build
 // sections, subject group aggregation and the percentage/N-A formatting).
 exports._analyticsInternals = {
   detectAnalyticsMode,
+  isFullPhasePeriod,
   analyticsPercentLabel,
   groupRowsByStudent,
   buildSubjectWeekGroups,
-  buildSubjectTestGroups,
+  buildFullPhasePivot,
 };
 
 exports.getPdfPath = (uuid) => {

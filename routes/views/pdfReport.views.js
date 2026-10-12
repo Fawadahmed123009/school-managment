@@ -42,8 +42,14 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
   // Manager gets admin-scoped (unrestricted) access, not teacher-scoped
   const isTeacher = req.user.role === "teacher" && !req.user.isManager;
 
-  const sessionsRes = await apiFetch("/test-sessions", req.token);
-  const sessions = sessionsRes.status === "success" ? sessionsRes.data : [];
+  // GET /test-sessions is admin/manager-only, so a plain teacher must not call
+  // it (403 → empty picker). Their session list is derived below from the
+  // sessions their own assigned tests belong to instead.
+  let sessions = [];
+  if (!isTeacher) {
+    const sessionsRes = await apiFetch("/test-sessions", req.token);
+    sessions = sessionsRes.status === "success" ? sessionsRes.data : [];
+  }
 
   // Shared role-scoped student list feeding all three filter cascades:
   // admin/manager get the whole roster, a plain teacher only the students of
@@ -78,6 +84,18 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
       const subId = typeof t.subject === "object" ? t.subject._id : t.subject;
       return subjectMap[subId] !== undefined;
     });
+
+    // Session picker = only the sessions that actually contain one of the
+    // teacher's tests (getTeacherScopedTestsService populates session {name}).
+    const sessionMap = {};
+    tests.forEach((t) => {
+      if (t.session && t.session._id) {
+        sessionMap[t.session._id] = { _id: t.session._id, name: t.session.name || "Session", phases: [] };
+      }
+    });
+    sessions = Object.values(sessionMap).sort((a, b) =>
+      String(a.name).localeCompare(String(b.name))
+    );
   } else {
     // Admin: unrestricted
     const [subjectsRes, testsRes] = await Promise.all([
@@ -246,9 +264,16 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
     // collides with the other panels — all three panels live in one <form>,
     // and a hidden (display:none) input is still submitted, so any shared name
     // would double-post and poison the sibling panel's values. The picker is a
-    // Session → Grade → Section → Student → Subject → Test cascade: session and
-    // subject/test bound which tests feed the report, grade/section/student scope
-    // which pupils appear. Every field is optional ("All …" = no narrowing).
+    // Session → Grade → Section → Student → Subject → Test cascade plus its own
+    // period picker (Single week / Full phase / Multi-week, wired by
+    // public/js/report-analytics-period.js): session, subject/test and the
+    // period bound which results feed the report and in which layout;
+    // grade/section/student scope which pupils appear. Subject/period stay
+    // optional here ("All …" = no narrowing) — except Full phase, which the API
+    // requires a single subject for (400s otherwise; the client guard mirrors
+    // that before submitting).
+    const rawWeekIds = req.body.analyticsWeekIds;
+    const weekIds = Array.isArray(rawWeekIds) ? rawWeekIds.filter(Boolean) : rawWeekIds ? [rawWeekIds] : [];
     body = {
       studentId: req.body.analyticsStudentId || undefined,
       subjectId: req.body.analyticsSubjectId || undefined,
@@ -256,6 +281,9 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
       grade: req.body.analyticsGrade || undefined,
       section: req.body.analyticsSection || undefined,
       testId: req.body.analyticsTestId || undefined,
+      phaseId: req.body.analyticsPhaseId || undefined,
+      weekId: req.body.analyticsWeekId || undefined,
+      weekIds: weekIds.length ? weekIds : undefined,
     };
   } else {
     return res.redirect("/reports/generate?error=Invalid+report+type");

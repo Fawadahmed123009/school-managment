@@ -30,10 +30,13 @@
         <div id="reportType-toggle" style="display:flex; gap:8px; flex-wrap:wrap;">
           <button type="button" class="btn btn-primary" data-report-type="result-sheet">Result Sheet (single test)</button>
           <button type="button" class="btn btn-ghost" data-report-type="analytics">Analytics (week / phase scope)</button>
+          <% if (!isTeacher) { %>
           <button type="button" class="btn btn-ghost" data-report-type="session-report">Session Report Card (phase report)</button>
+          <% } %>
         </div>
       </div>
       <p class="hint">Pick a report type to reveal its options below.</p>
+      <% if (isTeacher) { %><p class="hint">You can generate marks reports for the subjects and classes you are assigned to — every picker below only lists your own tests and students.</p><% } %>
     </div>
   </div>
 
@@ -59,11 +62,67 @@
            All six fields submit under unique `analytics*` names (the panels
            share one <form> and hidden ≠ unsubmitted). -->
       <%- include('partials/filter-cascade', { idp: 'an', namep: 'analytics', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
+
+      <!-- ── Period scope — drives the analytics PDF's layout mode ─────── -->
+      <!-- Same shape as the Session Report Card's picker above, namespaced to
+           the Analytics panel (`analytics*` names, `an-*` ids) so the three
+           panels sharing one <form> never collide. Only the picker the chosen
+           period actually needs stays enabled and submits — a disabled control
+           is never sent, so the server sees at most one of analyticsPhaseId /
+           analyticsWeekId / analyticsWeekIds[]. Wired by
+           public/js/report-analytics-period.js. -->
+      <div class="field-row">
+        <div class="field">
+          <label for="an-period">Period</label>
+          <select id="an-period">
+            <option value="">-- Select period --</option>
+            <option value="week">Single week</option>
+            <option value="phase">Full phase</option>
+            <option value="weeks">Multi-week (select weeks)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="an-phaseId">Phase</label>
+          <select name="analyticsPhaseId" id="an-phaseId" disabled>
+            <option value="">-- Select session first --</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="an-weekId">Week</label>
+          <select name="analyticsWeekId" id="an-weekId" disabled>
+            <option value="">-- Select session first --</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Multi-week picker: shown only for "Multi-week (select weeks)". A phase
+           is chosen first, then that phase's weeks are ticked individually; the
+           report aggregates ONLY the ticked weeks' tests. The phase filter is a
+           narrowing control with no `name` — only analyticsWeekIds[] submits.
+           Built client-side from the same embedded session weeks the Session
+           Report Card panel uses (#sr-weeks below). -->
+      <div class="an-period-field" data-an-period-for="weeks" style="display:none">
+        <div class="field-row">
+          <div class="field">
+            <label for="an-weeks-phase">Phase</label>
+            <select id="an-weeks-phase"><option value="">-- Select phase first --</option></select>
+          </div>
+        </div>
+        <label>Weeks to include</label>
+        <div id="an-week-checkbox-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px 16px;background:#fafbfd;">
+          <p class="hint" id="an-week-empty">Select a session, then a phase, to choose weeks.</p>
+        </div>
+        <p class="hint">Pick a phase, then tick the specific weeks to combine — results come only from these weeks' tests.</p>
+      </div>
+
       <p class="hint">Session, Subject and Test bound which results feed the report; Grade, Section and Student scope the pupils. Leave any on its "All …" option to keep it broad — a single Student enables the WhatsApp share, and with no filters the report covers every matching result school-wide.</p>
+      <p class="hint"><strong>Full phase</strong> always covers exactly one subject across the whole phase — one row per student, one column per test, subject name once at the top; the Subject picker must be set to a single subject (not "All subjects") to generate it. <strong>Single week</strong> and <strong>Multi-week</strong> keep their existing layouts. Leave <strong>Period</strong> unset to let the report auto-detect its layout from the chosen filters, exactly as before.</p>
     </div>
   </div>
 
-  <!-- Session Report fields -->
+  <!-- Session Report fields — admin/manager only (the server 403s plain
+       teachers on both session-report endpoints, so the panel is not shown). -->
+  <% if (!isTeacher) { %>
   <div class="panel report-fields" data-for="session-report" style="display:none">
     <div class="panel-head"><h2>2. Session report options</h2></div>
     <div class="panel-body">
@@ -174,6 +233,7 @@
       <p class="hint">Bulk scopes and WhatsApp sending are for admins and managers. Students with no results in the selected period are skipped.</p>
     </div>
   </div>
+  <% } %>
 
   <button type="submit" class="btn btn-primary" style="margin-top:16px">Generate PDF</button>
 </form>
@@ -182,6 +242,7 @@
 <script type="application/json" id="report-class-scope"><%- JSON.stringify(classScope || {}).replace(/</g, '\\u003c') %></script>
 <script src="/js/report-generate.js"></script>
 <script src="/js/report-filter-cascade.js"></script>
+<script src="/js/report-analytics-period.js"></script>
 <script src="/js/report-session-bulk.js"></script>
 
 <%- include('../partials/foot') %>

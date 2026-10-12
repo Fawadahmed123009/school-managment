@@ -99,13 +99,14 @@ exports.generateResultSheet = async (req, res) => {
 // POST /pdf-reports/analytics
 exports.generateAnalytics = async (req, res) => {
   try {
-    const { studentId, subjectId } = req.body;
+    const { studentId } = req.body;
+    const subjectId = sanitizeIds(req.body.subjectId)[0];
 
     // Period scope (mirrors the session-report picker): the analytics PDF picks
     // its layout mode from how wide the period is — one week → flat list,
-    // phase → per-test subject groups, 2+ weeks → per-week subject groups.
-    // Only well-formed ObjectIds survive; everything else falls through as
-    // unset (legacy unscoped report).
+    // phase → single-subject pivot (see below), 2+ weeks → per-week subject
+    // groups. Only well-formed ObjectIds survive; everything else falls through
+    // as unset (legacy unscoped report).
     const period = {
       sessionId: sanitizeIds(req.body.sessionId)[0],
       phaseId: sanitizeIds(req.body.phaseId)[0],
@@ -113,6 +114,17 @@ exports.generateAnalytics = async (req, res) => {
       weekIds: sanitizeIds(req.body.weekIds),
     };
     if (!period.weekIds.length) delete period.weekIds;
+
+    // A full-phase report is always exactly ONE subject — its pivot layout has
+    // no subject grouping, so it must never fall through to the old
+    // "all subjects" gather (a teacher's whole assignment list, or a
+    // school-wide query for admin/manager). This applies to every role the same
+    // way, not just teachers; mirrors isFullPhasePeriod's own guard inside
+    // gatherAnalytics, which catches direct/API callers that bypass this route.
+    const isFullPhase = period.phaseId && !period.weekId && !period.weekIds;
+    if (isFullPhase && !subjectId) {
+      return responseStatus(res, 400, "failed", "Subject is required for a full-phase analytics report");
+    }
 
     // Grade / Section scope which pupils appear (same whitelisted values the
     // result sheet accepts); testId narrows the report to a single test. All are
