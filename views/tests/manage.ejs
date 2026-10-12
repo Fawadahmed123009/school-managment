@@ -98,18 +98,37 @@
         { id: 'filter-session', label: 'Session', all: 'All sessions' },
         { id: 'filter-phase', label: 'Phase', all: 'All phases' },
         { id: 'filter-week', label: 'Week', all: 'All weeks' },
+        { id: 'filter-grade', label: 'Grade', all: 'All grades' },
+        { id: 'filter-subject', label: 'Subject', all: 'All subjects' },
       ];
     %>
     <div class="panel-body" style="padding-bottom:8px;">
       <div class="field-row" style="align-items:flex-end;margin-bottom:0;">
         <% categoryOptions.forEach(function(c) { %>
-          <div class="field" style="flex:0 1 220px;min-width:170px;">
+          <div class="field" style="flex:0 1 180px;min-width:150px;">
             <label for="<%= c.id %>"><%= c.label %></label>
             <select id="<%= c.id %>">
               <option value=""><%= c.all %></option>
             </select>
           </div>
         <% }); %>
+        <div class="field" style="flex:0 1 210px;min-width:170px;">
+          <label for="filter-sort">Sort by date</label>
+          <select id="filter-sort">
+            <option value="">Default (session → phase → week)</option>
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+          </select>
+        </div>
+        <div class="field" style="flex:0 0 auto;min-width:0;">
+          <label for="filter-limit">Per page</label>
+          <select id="filter-limit">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
         <div class="field" style="flex:0 0 auto;min-width:0;">
           <button type="button" id="filter-reset" class="btn btn-ghost" style="display:none;">Clear filters</button>
         </div>
@@ -118,7 +137,7 @@
     </div>
     <div class="table-wrap">
     <table class="ledger">
-      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Session</th><th>Phase</th><th>Week</th><th class="num">Total</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Subject</th><th>Classes</th><th>Session</th><th>Phase</th><th>Week</th><th>Date</th><th class="num">Total</th><th></th></tr></thead>
       <tbody id="tests-tbody">
         <% tests.forEach(function(t) { %>
           <tr
@@ -128,6 +147,10 @@
             data-phase-name="<%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : 'No phase' %>"
             data-week="<%= catKey(t.week && t.week._id) %>"
             data-week-name="<%= t.week ? t.week.name : 'No week' %>"
+            data-grades="<%= Array.from(new Set((t.classLevels || []).map(function(c) { return c.gradeLevel; }).filter(Boolean))).join(',') %>"
+            data-subject="<%= catKey(t.subject && t.subject._id) %>"
+            data-subject-name="<%= t.subject ? (t.subject.displayName || t.subject.name) : 'No subject' %>"
+            data-date="<%= t.date ? new Date(t.date).getTime() : 0 %>"
           >
             <td><strong><%= t.name %></strong></td>
             <td><%= t.subject ? (t.subject.displayName || t.subject.name) : '—' %></td>
@@ -135,6 +158,7 @@
             <td><%= t.session ? t.session.name : 'Standalone' %></td>
             <td><%= t.phase && phaseNames[t.phase] ? phaseNames[t.phase] : '—' %></td>
             <td><%= t.week ? t.week.name : '—' %></td>
+            <td style="font-size:12px;color:var(--ink-soft);"><%= t.date ? new Date(t.date).toLocaleDateString() : '—' %></td>
             <td class="num mono"><%= t.totalMarks %></td>
             <td style="display:flex;gap:6px;justify-content:flex-end;">
               <a href="/tests/<%= t._id %>/edit" class="btn btn-ghost" style="padding:4px 10px;">Edit</a>
@@ -149,7 +173,13 @@
       </tbody>
     </table>
     </div>
-    <div class="empty" id="filter-empty" style="display:none;"><div class="display">No tests in this category</div>Try a broader session, phase or week selection.</div>
+    <% /* Client-side pagination bar — test-manage-filter.js fills the info
+         line and page links over the rows matching the cascade above. */ %>
+    <div class="pagination-bar" id="filter-pagination" style="display:none;">
+      <span class="pagination-info" id="filter-pagination-info"></span>
+      <div class="pagination-links" id="filter-pagination-links"></div>
+    </div>
+    <div class="empty" id="filter-empty" style="display:none;"><div class="display">No tests in this category</div>Try a broader session, phase, week, grade or subject selection.</div>
   <% } %>
 </div>
 
