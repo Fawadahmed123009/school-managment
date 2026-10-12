@@ -93,6 +93,9 @@ exports.getDailyCollectionData = async (query) => {
     dateFilter = { datePaid: { $gte: today, $lt: tomorrow } };
   }
 
+  // Read-only report feed: the rows below are only property-read and folded
+  // into fresh plain objects, so hydrating full Mongoose documents (and the
+  // deep student→classLevel populate) is pure overhead.
   const fees = await Fees.find({ status: "paid", ...dateFilter })
     .populate({
       path: "student",
@@ -100,7 +103,8 @@ exports.getDailyCollectionData = async (query) => {
       populate: { path: "classLevel", select: "name gradeLevel group section" },
     })
     .populate("feeHead", "name")
-    .sort({ datePaid: 1 });
+    .sort({ datePaid: 1 })
+    .lean();
 
   const byClass = {};
   let grandTotal = 0;
@@ -175,7 +179,8 @@ exports.getDefaulterListData = async (query) => {
       select: "name classLevel rollNumber whatsappNumber fatherName",
       populate: { path: "classLevel", select: "name gradeLevel group section" },
     })
-    .populate("feeHead", "name");
+    .populate("feeHead", "name")
+    .lean();
 
   const byClass = {};
   let grandOwed = 0;
@@ -271,7 +276,8 @@ exports.getInactiveStudentDuesData = async (query) => {
       populate: { path: "classLevel", select: "name gradeLevel group section" },
     })
     .populate("feeHead", "name")
-    .sort({ createdAt: -1 });
+    .sort({ createdAt: -1 })
+    .lean();
 
   const byClass = {};
   let grandOwed = 0;
