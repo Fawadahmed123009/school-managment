@@ -4,6 +4,7 @@ const Student = require("../../models/Students/students.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const mongoose = require("mongoose");
+const { dateKeyStage, localDateKey } = require("../../utils/localDateKey");
 
 // Bulk mark a whole class's attendance for one day in a single call
 exports.markClassAttendanceService = async (classLevel, date, records, teacherId, res) => {
@@ -110,7 +111,7 @@ exports.getDailyRollupService = async (startDate, endDate, classLevel, res) => {
     { $match: matchStage },
     {
       $group: {
-        _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+        _id: dateKeyStage(),
         present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
         absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
         late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
@@ -257,7 +258,7 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
         const counts = { present: 0, absent: 0, late: 0 };
         const history = records.map((r) => {
           counts[r.status]++;
-          return { date: r.date.toISOString().slice(0, 10), status: r.status };
+          return { date: localDateKey(r.date), status: r.status };
         });
 
         result.studentHistory = {
@@ -307,7 +308,7 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
         },
         {
           $group: {
-            _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+            _id: dateKeyStage(),
             present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
             absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
             late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
@@ -327,6 +328,195 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
   }
 
   return responseStatus(res, 200, "success", result);
+};
+
+// Attendance dashboard (admin/manager) — one call returns everything the
+// dashboard layout needs for a date range (+ optional class scope):
+//   • enrolled head-count (excludes status:"inactive" students — same
+//     convention as the fees module's outstanding calc)
+//   • range summary totals + rate  —  rate = (present + late) / totalMarked
+//   • day-by-day rollup (powers KPI row, weekly trend, overview donut)
+//   • class-wise breakdown with an `incomplete` flag per class
+// The per-class part is skipped when classLevel scope is set (nothing to
+// compare) or when breakdown=0 is passed (e.g. the monthly-report re-fetch),
+// so we never run aggregations the caller won't render.
+// `classLevels` (optional array) is the teacher-facing scope: when the caller
+// passes the teacher's assigned class ids every aggregation is restricted to
+// that set — enrolled counts, day totals, the class×day breakdown and the
+// class-wise rows all cover only those classes. An EMPTY array fails closed
+// (zeroed payload, no aggregates run). Undefined = unscoped (admin/manager).
+exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, includeClassBreakdown, res, classLevels = undefined) => {
+  if (!startDate || !endDate) {
+    return responseStatus(res, 400, "failed", "startDate and endDate are required");
+  }
+
+  const [sy, sm, sd] = String(startDate).split("-").map(Number);
+  const [ey, em, ed] = String(endDate).split("-").map(Number);
+  const start = new Date(sy, sm - 1, sd);
+  const end = new Date(ey, em - 1, ed);
+  end.setDate(end.getDate() + 1); // push past endDate so it's inclusive
+
+  const teacherScoped = Array.isArray(classLevels);
+  const scopeIds = teacherScoped
+    ? classLevels.map((id) => new mongoose.Types.ObjectId(id))
+    : [];
+
+  // Teacher with zero assignments → nothing to show. Never fall through to
+  // the unscoped pipeline, which would expose institute-wide data.
+  if (teacherScoped && scopeIds.length === 0) {
+    return responseStatus(res, 200, "success", {
+      range: { startDate, endDate, classLevel: null },
+      enrolled: 0,
+      enrolledTotal: 0,
+      summary: { present: 0, absent: 0, late: 0, marked: 0, rate: null },
+      days: [],
+      classes: [],
+    });
+  }
+
+  const scopedClass = classLevel && mongoose.Types.ObjectId.isValid(classLevel)
+    ? new mongoose.Types.ObjectId(classLevel)
+    : null;
+
+  const matchStage = { date: { $gte: start, $lt: end } };
+  if (scopedClass) matchStage.classLevel = scopedClass;
+  else if (teacherScoped) matchStage.classLevel = scopeIds.length === 1 ? scopeIds[0] : { $in: scopeIds };
+
+  const rateOf = (p, l, total) =>
+    total > 0 ? Math.round(((p + l) / total) * 10000) / 100 : null;
+
+  const [dayAgg, classDayAgg, enrolledByClassAgg, classDocs] = await Promise.all([
+    // Day-by-day totals for the range (served by the {date} / {classLevel,date} indexes)
+    Attendance.aggregate([
+      { $match: matchStage },
+      {
+        $group: {
+          _id: dateKeyStage(),
+          present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+          absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+          late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+          marked: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]),
+    // Class × day counts for the per-class table + incomplete flagging.
+    // Single grouping; reduced in Node — the row count stays small (classes × marked days).
+    includeClassBreakdown && !scopedClass
+      ? Attendance.aggregate([
+          { $match: { ...matchStage } },
+          {
+            $group: {
+              _id: { classLevel: "$classLevel", date: dateKeyStage() },
+              present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+              absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+              late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+              marked: { $sum: 1 },
+            },
+          },
+        ])
+      : Promise.resolve([]),
+    // Enrolled head-count per class (active students only) — teacher-scoped
+    // so the head-count and enrolledTotal reflect only the assigned classes.
+    Student.aggregate([
+      { $match: teacherScoped
+        ? { status: { $ne: "inactive" }, classLevel: { $in: scopeIds } }
+        : { status: { $ne: "inactive" } } },
+      { $group: { _id: "$classLevel", n: { $sum: 1 } } },
+    ]),
+    ClassLevel.find(teacherScoped ? { _id: { $in: scopeIds } } : {}, "_id name").sort("name").lean(),
+  ]);
+
+  const days = dayAgg.map((d) => ({
+    date: d._id,
+    present: d.present,
+    absent: d.absent,
+    late: d.late,
+    marked: d.marked,
+    rate: rateOf(d.present, d.late, d.marked),
+  }));
+
+  const summary = dayAgg.reduce(
+    (acc, d) => ({ present: acc.present + d.present, absent: acc.absent + d.absent, late: acc.late + d.late, marked: acc.marked + d.marked }),
+    { present: 0, absent: 0, late: 0, marked: 0 }
+  );
+  summary.rate = rateOf(summary.present, summary.late, summary.marked);
+
+  const enrolledByClass = {};
+  let enrolledTotal = 0;
+  for (const e of enrolledByClassAgg) {
+    if (!e._id) continue; // student without a class — can't be expected in any roster
+    enrolledByClass[e._id.toString()] = e.n;
+    enrolledTotal += e.n;
+  }
+
+  // Scope-aware "enrolled" for the banner: one class's head-count when filtered,
+  // whole institute otherwise.
+  const scopeEnrolled = scopedClass ? enrolledByClass[scopedClass.toString()] || 0 : enrolledTotal;
+
+  let classes = [];
+  if (includeClassBreakdown && !scopedClass) {
+    // Merge attendance per class + per-class covered-days from the classDayAgg
+    const byClass = {};
+    for (const r of classDayAgg) {
+      if (!r._id.classLevel) continue;
+      const key = r._id.classLevel.toString();
+      if (!byClass[key]) byClass[key] = { present: 0, absent: 0, late: 0, marked: 0, coveredDays: 0 };
+      byClass[key].present += r.present;
+      byClass[key].absent += r.absent;
+      byClass[key].late += r.late;
+      byClass[key].marked += r.marked;
+      byClass[key].coveredDays += 1;
+    }
+
+    // "Marked days" = days with any attendance institute-wide in this range.
+    // A class is flagged incomplete when its records fall short of
+    // enrolled × markedDays (i.e. someone, somewhere, is unmarked for a day
+    // the institute was marked at all — matches how the banner reads for a day).
+    const markedDays = days.length;
+    const seen = new Set();
+    classes = classDocs
+      .map((c) => {
+        const key = c._id.toString();
+        seen.add(key);
+        const a = byClass[key] || { present: 0, absent: 0, late: 0, marked: 0, coveredDays: 0 };
+        const enrolled = enrolledByClass[key] || 0;
+        const expected = enrolled * markedDays;
+        return {
+          classLevel: key,
+          name: c.name,
+          enrolled,
+          present: a.present,
+          absent: a.absent,
+          late: a.late,
+          marked: a.marked,
+          coveredDays: a.coveredDays,
+          rate: rateOf(a.present, a.late, a.marked),
+          incomplete: enrolled > 0 && a.marked < expected,
+        };
+      })
+      // include attendance-bearing classes whose id is no longer in ClassLevel
+      // (orphaned records — shouldn't happen, but never hide data)
+      .concat(
+        Object.keys(byClass)
+          .filter((k) => !seen.has(k))
+          .map((k) => ({
+            classLevel: k, name: "Unknown", enrolled: enrolledByClass[k] || 0,
+            ...byClass[k], rate: rateOf(byClass[k].present, byClass[k].late, byClass[k].marked),
+            incomplete: false,
+          }))
+      )
+      .filter((c) => c.enrolled > 0 || c.marked > 0);
+  }
+
+  return responseStatus(res, 200, "success", {
+    range: { startDate, endDate, classLevel: scopedClass ? scopedClass.toString() : null },
+    enrolled: scopeEnrolled,
+    enrolledTotal,
+    summary,
+    days,
+    classes,
+  });
 };
 
 // Search students for attendance history + optionally load one student's history
@@ -382,7 +572,7 @@ exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, 
     history = records.map((r) => {
       counts[r.status]++;
       return {
-        date: r.date.toISOString().slice(0, 10),
+        date: localDateKey(r.date),
         status: r.status,
       };
     });

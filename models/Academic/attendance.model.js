@@ -38,6 +38,11 @@ attendanceSchema.index({ student: 1, date: 1 }, { unique: true });
 // index above can't serve a bare date filter — student is its prefix).
 attendanceSchema.index({ date: 1 });
 
+// Attendance dashboard: class-scoped date-range aggregates (daily trend per
+// class, class-wise rate breakdown). Covering with `status` so the per-class
+// present/absent/late sums never need to fetch documents.
+attendanceSchema.index({ classLevel: 1, date: 1, status: 1 });
+
 // TTL index removed — attendance records are retained indefinitely
 
 const Attendance = mongoose.model("Attendance", attendanceSchema);

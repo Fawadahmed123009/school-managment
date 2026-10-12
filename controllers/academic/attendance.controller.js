@@ -1,4 +1,6 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
+const mongoose = require("mongoose");
+const Assignment = require("../../models/Academic/assignment.model");
 const {
   markClassAttendanceService,
   getClassRosterForDateService,
@@ -7,6 +9,7 @@ const {
   getDailyRollupService,
   getStudentAttendanceHistoryService,
   getTeacherAttendanceService,
+  getAttendanceDashboardService,
 } = require("../../services/academic/attendance.service");
 
 exports.markClassAttendanceController = async (req, res) => {
@@ -90,6 +93,66 @@ exports.getTeacherAttendanceController = async (req, res) => {
       studentId: req.query.studentId || "",
     };
     await getTeacherAttendanceService(req.userAuth.id, filters, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Attendance dashboard (admin/manager). startDate/endDate "YYYY-MM-DD", both
+// inclusive; optional classLevel scope. breakdown=0 skips the class-wise
+// aggregation (used by the monthly-report re-fetch on the rollup page).
+exports.getAttendanceDashboardController = async (req, res) => {
+  try {
+    const includeBreakdown = req.query.breakdown !== "0";
+    await getAttendanceDashboardService(
+      req.query.startDate,
+      req.query.endDate,
+      req.query.classLevel || "",
+      includeBreakdown,
+      res
+    );
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Teacher-scoped attendance dashboard — same aggregates as the admin/manager
+// endpoint, but always restricted to the classes the logged-in teacher is
+// assigned to (Assignment-derived, same pattern as getTeacherAttendanceService
+// and /pdf-reports/teacher-students; the isTeacher middleware has already
+// re-read the teacher from the DB, so req.userAuth.id is authoritative).
+// An explicit classLevel query param is validated against the assignment set
+// and rejected with 403 — scoping can never be widened from the client.
+exports.getTeacherAttendanceDashboardController = async (req, res) => {
+  try {
+    const assigned = await Assignment.distinct("classLevel", { teacher: req.userAuth.id });
+
+    const requestedClass = req.query.classLevel || "";
+    let classLevels = assigned;
+    let specificClass = false;
+    if (requestedClass) {
+      const isAssigned =
+        mongoose.Types.ObjectId.isValid(requestedClass) &&
+        assigned.some((id) => id.toString() === requestedClass);
+      if (!isAssigned) {
+        return responseStatus(res, 403, "failed", "You are not assigned to this class");
+      }
+      classLevels = [requestedClass];
+      specificClass = true;
+    }
+
+    // breakdown=0 honoured like the admin endpoint; a single-class scope has
+    // no comparison to show, so the class-wise aggregation is skipped.
+    const includeBreakdown = !specificClass && req.query.breakdown !== "0";
+
+    await getAttendanceDashboardService(
+      req.query.startDate,
+      req.query.endDate,
+      "",
+      includeBreakdown,
+      res,
+      classLevels
+    );
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

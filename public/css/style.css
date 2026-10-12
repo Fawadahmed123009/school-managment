@@ -633,6 +633,68 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .att-timeline-row .att-date { min-width: 110px; font-weight: 500; color: var(--ink); }
 .att-timeline-row .att-day { min-width: 50px; font-size: 11px; color: var(--ink-soft); text-transform: uppercase; }
 
+/* ── Attendance dashboard ────────────────── */
+/* Incomplete-marking banner (amber, dismissible per view) */
+.att-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: rgba(217,119,6,0.07);
+  border: 1px solid rgba(217,119,6,0.25);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  font-size: 13.5px;
+  color: var(--review);
+}
+.att-banner-icon { flex-shrink: 0; display: flex; padding-top: 1px; }
+.att-banner-icon svg { width: 18px; height: 18px; }
+.att-banner-text { flex: 1; color: var(--ink); line-height: 1.5; }
+.att-banner-text strong { color: var(--review); }
+.att-banner-close {
+  flex: none;
+  background: none;
+  border: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--review);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.att-banner-close:hover { color: var(--ink); }
+
+/* Weekly trend + overview donut side by side */
+.att-dash-grid {
+  display: grid;
+  grid-template-columns: 3fr 2fr;
+  gap: 20px;
+  align-items: stretch;
+}
+.att-dash-grid > .panel { margin-bottom: 0; }
+@media (max-width: 900px) {
+  .att-dash-grid { grid-template-columns: 1fr; }
+  .att-dash-grid > .panel { margin-bottom: 20px; }
+}
+
+/* Colour key under the weekly chart */
+.att-chart-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 24px 16px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.att-chart-legend .key { display: inline-flex; align-items: center; gap: 6px; }
+.att-chart-legend .key i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+/* Sortable class-wise table headings */
+.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.th-sort:hover { color: var(--accent); }
+.th-sort.sort-asc::after { content: ' ▲'; font-size: 9px; }
+.th-sort.sort-desc::after { content: ' ▼'; font-size: 9px; }
+#classWiseTable td .pill { margin-left: 8px; }
+
 /* ── Login ───────────────────────────────── */
 .login-wrap {
   min-height: 100vh;
@@ -1025,11 +1087,13 @@ table.ledger { width: 100%; border-collapse: collapse; }
   background: #fff;
   transition: all 0.15s ease;
 }
-a.page-link:hover {
+a.page-link:hover,
+button.page-link:hover {
   background: var(--paper);
   border-color: var(--accent);
   color: var(--ink);
 }
+button.page-link { cursor: pointer; }
 .page-link.active {
   background: var(--ink);
   color: #fff;
