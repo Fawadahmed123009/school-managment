@@ -184,9 +184,12 @@ exports.getTeacherAnalyticsController = async (req, res) => {
   try {
     const filters = {
       classLevel: req.query.classLevel || "",
+      grade: req.query.grade || "",
       subject: req.query.subject || "",
       testId: req.query.testId || "",
       sessionId: req.query.sessionId || "",
+      phase: req.query.phase || "",
+      week: req.query.week || "",
       fromDate: req.query.fromDate || "",
       toDate: req.query.toDate || "",
     };

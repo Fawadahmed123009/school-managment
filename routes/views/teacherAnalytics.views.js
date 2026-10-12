@@ -4,23 +4,17 @@ const { apiFetch } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 
 router.get("/teacher/analytics", requireRole("teacher"), async (req, res) => {
-  const { classLevel, subject, sessionId, fromDate, toDate } = req.query;
+  // Cascade filters: Session → Grade → Phase → Week → Subject → Test.
+  // Every field is optional ("All …" = empty value).
+  const { sessionId, grade, phase, week, subject, testId } = req.query;
 
-  // The Class filter is a checkbox group → an array of class/grade tokens.
-  // The API takes them as one comma-separated list.
-  const classTokens = Array.isArray(classLevel)
-    ? classLevel
-    : classLevel
-      ? String(classLevel).split(",")
-      : [];
-
-  // Build query params for the API call
   const params = new URLSearchParams();
-  if (classTokens.length) params.set("classLevel", classTokens.join(","));
-  if (subject) params.set("subject", subject);
   if (sessionId) params.set("sessionId", sessionId);
-  if (fromDate) params.set("fromDate", fromDate);
-  if (toDate) params.set("toDate", toDate);
+  if (grade) params.set("grade", grade);
+  if (phase) params.set("phase", phase);
+  if (week) params.set("week", week);
+  if (subject) params.set("subject", subject);
+  if (testId) params.set("testId", testId);
 
   const dataRes = await apiFetch(`/tests/teacher-analytics?${params.toString()}`, req.token);
   const data = dataRes.status === "success" ? dataRes.data : {};
@@ -31,17 +25,18 @@ router.get("/teacher/analytics", requireRole("teacher"), async (req, res) => {
     classes: data.classes || [],
     subjects: data.subjects || [],
     sessions: data.sessions || [],
+    testSnapshot: data.testSnapshot || [],
     perClass: data.perClass || [],
     perSession: data.perSession || [],
     overallStats: data.overallStats || null,
     loadError: dataRes.status === "success" ? null : dataRes.message,
     filters: {
-      classLevel: classLevel || "",
-      classTokens,
-      subject: subject || "",
       sessionId: sessionId || "",
-      fromDate: fromDate || "",
-      toDate: toDate || "",
+      grade: grade || "",
+      phase: phase || "",
+      week: week || "",
+      subject: subject || "",
+      testId: testId || "",
     },
     schoolName: res.locals.schoolName,
   });

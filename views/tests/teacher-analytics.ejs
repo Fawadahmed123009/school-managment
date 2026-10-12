@@ -18,67 +18,95 @@
   </div>
 <% } else { %>
 
-<!-- ── Filters ─────────────────────────────────────────────── -->
+<!-- ── Filters: Session → Grade → Phase → Week → Subject → Test ───────── -->
+<%
+  // Cascade option sets, all derived from the teacher-scoped test snapshot so
+  // every dropdown only ever offers options that contain one of the teacher's
+  // tests. public/js/teacher-analytics-cascade.js narrows these further as the
+  // upstream selections change (each option carries data-* scope keys).
+  var sessionNameById = {};
+  sessions.forEach(function (s) { sessionNameById[String(s._id)] = s.name; });
+  var phaseNameById = {};
+  sessions.forEach(function (s) {
+    (s.phases || []).forEach(function (p) { phaseNameById[String(p._id)] = p.name; });
+  });
+  var gradeRank = function (g) { return g === 'PG' ? -1 : (parseInt(g, 10) || 9999); };
+  var gradeSet = {}, gradesInScope = [];
+  var phaseSet = {}, phasesInScope = [];
+  var weekMap = {};
+  (testSnapshot || []).forEach(function (t) {
+    (t.grades || []).forEach(function (g) {
+      var key = String(g);
+      if (!gradeSet[key]) { gradeSet[key] = true; gradesInScope.push(key); }
+    });
+    if (t.phase && !phaseSet[t.phase]) { phaseSet[t.phase] = true; phasesInScope.push(t.phase); }
+    if (t.week && !weekMap[t.week]) weekMap[t.week] = { name: t.weekName || 'Week', session: t.session, phase: t.phase };
+  });
+  gradesInScope.sort(function (a, b) { return gradeRank(a) - gradeRank(b); });
+  var multiSession = Object.keys(sessionNameById).length > 1;
+%>
 <div class="panel">
   <div class="panel-body">
     <form method="GET" action="/teacher/analytics" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap;">
-      <div class="field" style="min-width:240px;flex:1 1 240px;">
-        <label>Class <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(tick one or more — leave empty for all)</span></label>
-        <div style="display:flex; gap:10px; margin-bottom:6px;">
-          <button type="button" id="ana-select-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Select all</button>
-          <button type="button" id="ana-clear-all" class="btn btn-ghost" style="padding:4px 12px; font-size:12px;">Clear</button>
-          <span id="ana-class-count" style="font-size:12px; color:var(--ink-soft); align-self:center;"></span>
-        </div>
-        <div id="ana-class-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:10px 14px;background:#fafbfd;">
-          <% var anaGradeGroups = {}; %>
-          <% classes.forEach(function(c) { var g = c.gradeLevel || '\u2014'; (anaGradeGroups[g] = anaGradeGroups[g] || []).push(c); }); %>
-          <% var anaTokens = (filters.classTokens || []).map(String); %>
-          <% var anaGradeSel = {}; anaTokens.forEach(function(t) { if (t.indexOf('grade:') === 0) anaGradeSel[t.slice(6)] = true; }); %>
-          <% Object.keys(anaGradeGroups).forEach(function(g) { var groupClasses = anaGradeGroups[g]; %>
-          <div class="grade-group" data-grade="<%= g %>" style="margin-bottom:8px;">
-            <% if (groupClasses.length > 1) { %>
-              <label style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--ink-soft);border-bottom:1px dashed var(--border);margin-bottom:4px;cursor:pointer;">
-                <input type="checkbox" class="grade-all-cb" />
-                All sections of grade <%= g %>
-              </label>
-            <% } else { %>
-              <div style="font-size:12px;font-weight:600;color:var(--ink-soft);padding:4px 0;border-bottom:1px dashed var(--border);margin-bottom:4px;">Grade <%= g %></div>
-            <% } %>
-            <% groupClasses.forEach(function(c) { var ck = anaTokens.indexOf(String(c._id)) !== -1 || anaGradeSel[g] === true; %>
-              <label style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 22px;cursor:pointer;font-size:13px;text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink);">
-                <input type="checkbox" name="classLevel" value="<%= c._id %>" class="class-cb" <%= ck ? 'checked' : '' %> />
-                <%= c.gradeLevel ? c.gradeLevel + ' \u2014 ' : '' %><%= c.name %><%= c.group ? ' (' + c.group + ')' : '' %>
-              </label>
-            <% }); %>
-          </div>
+      <div class="field" style="min-width:160px;flex:1 1 160px;">
+        <label for="ta-session">Session</label>
+        <select name="sessionId" id="ta-session">
+          <option value="">All sessions</option>
+          <% (testSnapshot || []).map(function (t) { return t.session; }).filter(Boolean).filter(function (id, i, arr) { return arr.indexOf(id) === i; }).forEach(function (sid) { %>
+            <option value="<%= sid %>" <%= filters.sessionId === sid ? 'selected' : '' %>><%= sessionNameById[sid] || 'Session' %></option>
           <% }); %>
-        </div>
+        </select>
       </div>
-      <div class="field" style="min-width:160px;">
-        <label for="subject">Subject</label>
-        <select name="subject" id="subject">
+      <div class="field" style="min-width:140px;flex:1 1 140px;">
+        <label for="ta-grade">Grade</label>
+        <select name="grade" id="ta-grade">
+          <option value="">All grades</option>
+          <% gradesInScope.forEach(function (g) { %>
+            <option value="<%= g %>" <%= filters.grade === g ? 'selected' : '' %>>Grade <%= g %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:160px;flex:1 1 160px;">
+        <label for="ta-phase">Phase</label>
+        <select name="phase" id="ta-phase">
+          <option value="">All phases</option>
+          <% phasesInScope.forEach(function (pid) { var owner = (testSnapshot || []).find(function (t) { return t.phase === pid; }) || {}; %>
+            <option value="<%= pid %>" data-session="<%= owner.session || '' %>" <%= filters.phase === pid ? 'selected' : '' %>><%= phaseNameById[pid] || 'Phase' %><%= multiSession && owner.session ? ' (' + (sessionNameById[owner.session] || 'session') + ')' : '' %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:160px;flex:1 1 160px;">
+        <label for="ta-week">Week</label>
+        <select name="week" id="ta-week">
+          <option value="">All weeks</option>
+          <% Object.keys(weekMap).forEach(function (wid) { var w = weekMap[wid]; %>
+            <option value="<%= wid %>" data-session="<%= w.session || '' %>" data-phase="<%= w.phase || '' %>" <%= filters.week === wid ? 'selected' : '' %>><%= w.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:160px;flex:1 1 160px;">
+        <label for="ta-subject">Subject</label>
+        <select name="subject" id="ta-subject">
           <option value="">All my subjects</option>
-          <% subjects.forEach(function(s) { %>
+          <% subjects.forEach(function (s) { %>
             <option value="<%= s._id %>" <%= filters.subject === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
           <% }); %>
         </select>
       </div>
-      <div class="field" style="min-width:160px;">
-        <label for="sessionId">Test session</label>
-        <select name="sessionId" id="sessionId">
-          <option value="">All sessions</option>
-          <% sessions.forEach(function(s) { %>
-            <option value="<%= s._id %>" <%= filters.sessionId === String(s._id) ? 'selected' : '' %>><%= s.name %></option>
+      <div class="field" style="min-width:200px;flex:1 1 200px;">
+        <label for="ta-test">Test</label>
+        <select name="testId" id="ta-test">
+          <option value="">All tests</option>
+          <% (testSnapshot || []).forEach(function (t) { %>
+            <option value="<%= t._id %>"
+              data-session="<%= t.session %>"
+              data-grade="<%= (t.grades || []).join(',') %>"
+              data-phase="<%= t.phase %>"
+              data-week="<%= t.week %>"
+              data-subject="<%= t.subjectId %>"
+              <%= filters.testId === t._id ? 'selected' : '' %>><%= t.name %><%= t.subjectName ? ' \u2014 ' + t.subjectName : '' %></option>
           <% }); %>
         </select>
-      </div>
-      <div class="field" style="min-width:140px;">
-        <label for="fromDate">From</label>
-        <input type="date" name="fromDate" id="fromDate" value="<%= filters.fromDate %>" />
-      </div>
-      <div class="field" style="min-width:140px;">
-        <label for="toDate">To</label>
-        <input type="date" name="toDate" id="toDate" value="<%= filters.toDate %>" />
       </div>
       <div class="field" style="flex:none;">
         <button type="submit" class="btn btn-primary">Apply</button>
@@ -180,6 +208,6 @@
 
 <% } %>
 
-<script src="/js/analytics-class-filter.js"></script>
+<script src="/js/teacher-analytics-cascade.js"></script>
 
 <%- include('../partials/foot') %>

@@ -142,6 +142,24 @@ function makeMockRes() {
   return res;
 }
 
+// validateSubjectClassScope now resolves classLevels with a single batched
+// find({ _id: { $in } }).lean().  Back it with the SAME source of truth these
+// describes already use for findById, returning a thenable-with-.lean() so it
+// satisfies both the scope check (`.lean()`) and any awaited-array caller.
+function findDelegatingToFindById(query) {
+  const ids = (query && query._id && query._id.$in) || [];
+  const promise = Promise.all(ids.map((id) => mockClassLevelFindById(id))).then((docs) =>
+    docs.filter(Boolean)
+  );
+  const q = {
+    select: () => q,
+    sort: () => q,
+    lean: () => promise,
+    then: (res, rej) => promise.then(res, rej),
+  };
+  return q;
+}
+
 function makeSubjectDoc(overrides = {}) {
   return {
     _id: SUBJECT_ID,
@@ -599,6 +617,7 @@ describe("Test 5b – wholeGrade Test creation matches any class in the grade", 
       };
       return classes[id] || null;
     });
+    mockClassLevelFind.mockImplementation(findDelegatingToFindById);
   });
 
   test("PASS: Test creation succeeds for 9th Biology Boys with wholeGrade Math", async () => {
@@ -850,6 +869,7 @@ describe("Test 7 – Test creation appliesTo validation (specific entries)", () 
       };
       return classes[id] || null;
     });
+    mockClassLevelFind.mockImplementation(findDelegatingToFindById);
   });
 
   test("PASS: Test creation succeeds for Class 11 Pre-Engineering", async () => {

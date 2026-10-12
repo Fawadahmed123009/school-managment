@@ -115,8 +115,20 @@ async function validateSubjectClassScope(subject, classLevels) {
   const subjectDoc = await Subject.findById(subject);
   if (!subjectDoc) return { code: 404, message: "Subject not found" };
 
-  for (const clId of classLevels) {
-    const classDoc = await ClassLevel.findById(clId);
+  // Resolve every classLevel in ONE query (natural _id index) instead of a
+  // findById per class.  We then walk the ORIGINAL classLevels order so the
+  // first offending class still drives the rejection, preserving the exact
+  // per-item behavior callers depend on:
+  //   • a class id that doesn't exist       → 404 "Class not found"
+  //   • a class the subject isn't taught in → 400 with that class's name/grade
+  const ids = (Array.isArray(classLevels) ? classLevels : [classLevels]).filter(Boolean);
+  const classDocs = ids.length
+    ? await ClassLevel.find({ _id: { $in: ids } }).lean()
+    : [];
+  const docById = new Map(classDocs.map((d) => [String(d._id), d]));
+
+  for (const clId of ids) {
+    const classDoc = docById.get(String(clId));
     if (!classDoc) return { code: 404, message: "Class not found" };
 
     const applies = subjectDoc.appliesTo.some((a) => {
@@ -360,7 +372,9 @@ exports.updateTestService = async (testId, data, res) => {
 exports.getAllTestsService = async (res) => {
   const tests = await Test.find({})
     .populate("subject", "name displayName")
-    .populate("classLevels", "name")
+    // gradeLevel too: the Manage-tests ledger cascade offers a Grade level,
+    // whose options are derived from the rendered rows.
+    .populate("classLevels", "name gradeLevel")
     .populate("session", "name")
     .populate("week", "name startDate endDate")
     .sort({ date: -1 });
@@ -1409,15 +1423,21 @@ async function resolveClassTokens(param) {
     .map((t) => t.trim())
     .filter(Boolean);
   const idSet = new Set();
+  const gradeSet = new Set();
+  // Token parsing does no DB work — grade tokens are batched into one query.
   for (const token of tokens) {
     if (token.startsWith("grade:")) {
-      const docs = await ClassLevel.find({ gradeLevel: token.slice("grade:".length) })
-        .select("_id")
-        .lean();
-      docs.forEach((d) => idSet.add(String(d._id)));
+      gradeSet.add(token.slice("grade:".length));
     } else if (mongoose.isValidObjectId(token)) {
       idSet.add(token);
     }
+  }
+  // One query resolves every "grade:<level>" token at once (was one per grade).
+  if (gradeSet.size > 0) {
+    const docs = await ClassLevel.find({ gradeLevel: { $in: [...gradeSet] } })
+      .select("_id")
+      .lean();
+    docs.forEach((d) => idSet.add(String(d._id)));
   }
   if (idSet.size === 0) return [];
   return ClassLevel.find({ _id: { $in: [...idSet] } })
@@ -1654,6 +1674,8 @@ function buildDistribution(scores, totalMarks) {
 // ── Exported for unit testing ────────────────────────────────────────────────
 exports.computeStats = computeStats;
 exports.buildDistribution = buildDistribution;
+exports.validateSubjectClassScope = validateSubjectClassScope;
+exports.resolveClassTokens = resolveClassTokens;
 
 // ── Trend analytics: per-student or per-class score trend across tests ──────
 // Mode A (student): one line per subject (or a single subject if filtered).
@@ -1877,7 +1899,9 @@ exports.getTestTrendService = async (filters, res) => {
 // pattern as getTeacherScopedTestsService). Reuses computeStats helper.
 exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
   const Assignment = require("../../models/Academic/assignment.model");
-  const { classLevel, subject, testId, sessionId, fromDate, toDate } = filters;
+  const {
+    classLevel, grade, subject, testId, sessionId, phase, week, fromDate, toDate,
+  } = filters;
 
   // 1. Load teacher's assignments
   const assignments = await Assignment.find({ teacher: teacherId })
@@ -1891,7 +1915,7 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
       TestSession.find().sort("name").lean(),
     ]);
     return responseStatus(res, 200, "success", {
-      classes, subjects, sessions,
+      classes, subjects, sessions, testSnapshot: [],
       perClass: [], perSession: [], overallStats: null,
     });
   }
@@ -1918,14 +1942,32 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
     : [];
   if (classTokens.length > 0) {
     const idSet = new Set();
+    // Batch-resolve every "grade:<level>" token in ONE query instead of a
+    // ClassLevel.find per grade token.  Results are grouped by grade so the
+    // original token order can still be walked below to reproduce the exact
+    // fail-fast, per-token rejection (which grade/class is named in the 403).
+    const gradeTokensInOrder = classTokens
+      .filter((t) => t.startsWith("grade:"))
+      .map((t) => t.slice("grade:".length));
+    const byGrade = {};
+    if (gradeTokensInOrder.length > 0) {
+      const gradeDocs = await ClassLevel.find({
+        _id: { $in: teacherClassLevelIds },
+        gradeLevel: { $in: [...new Set(gradeTokensInOrder)] },
+      })
+        .select("_id gradeLevel")
+        .lean();
+      gradeDocs.forEach((d) => {
+        const g = String(d.gradeLevel);
+        (byGrade[g] = byGrade[g] || []).push(d._id.toString());
+      });
+    }
+    // Walk the tokens in their ORIGINAL order so the first out-of-scope token
+    // decides the response, exactly as the previous per-token loop did.
     for (const token of classTokens) {
       if (token.startsWith("grade:")) {
         const gradeVal = token.slice("grade:".length);
-        const gradeDocs = await ClassLevel.find({
-          _id: { $in: teacherClassLevelIds },
-          gradeLevel: gradeVal,
-        }).select("_id").lean();
-        const gradeIds = gradeDocs.map((d) => d._id.toString());
+        const gradeIds = byGrade[gradeVal] || [];
         if (gradeIds.length === 0) {
           return responseStatus(res, 403, "failed", "You are not assigned to any class in grade " + gradeVal);
         }
@@ -1938,6 +1980,21 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
     }
     classFilterIds = [...idSet];
   }
+  // Grade dropdown (cascade filter): one grade level → every one of the
+  // teacher's sections in that grade. Combines with any classLevel tokens.
+  if (grade) {
+    const gradeDocs = await ClassLevel.find({
+      _id: { $in: teacherClassLevelIds },
+      gradeLevel: grade,
+    }).select("_id").lean();
+    const gradeIds = gradeDocs.map((d) => d._id.toString());
+    if (gradeIds.length === 0) {
+      return responseStatus(res, 403, "failed", "You are not assigned to any class in grade " + grade);
+    }
+    classFilterIds = classFilterIds
+      ? [...new Set([...classFilterIds, ...gradeIds])]
+      : gradeIds;
+  }
   if (subject && !teacherSubjectIds.includes(subject)) {
     return responseStatus(res, 403, "failed", "You are not assigned to this subject");
   }
@@ -1947,6 +2004,8 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
   if (classFilterIds) testQuery.classLevels = { $in: classFilterIds };
   if (subject) testQuery.subject = subject;
   if (sessionId) testQuery.session = sessionId;
+  if (phase) testQuery.phase = phase;
+  if (week) testQuery.week = week;
   if (testId) testQuery._id = testId;
   if (fromDate || toDate) {
     testQuery.date = {};
@@ -1966,11 +2025,12 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
     .populate("subject", "name displayName")
     .populate("classLevels", "name")
     .populate("session", "name")
+    .populate("week", "name")
     .sort({ date: -1 })
     .lean();
 
   // Keep only tests where the teacher covers at least one of the test's classes
-  const scopedTests = tests.filter((t) => {
+  const isTeacherScoped = (t) => {
     const subId = t.subject && t.subject._id ? t.subject._id.toString() : t.subject.toString();
     const classSet = subjectClassMap[subId];
     if (!classSet) return false;
@@ -1978,11 +2038,55 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
       const clId = cl._id ? cl._id.toString() : cl.toString();
       return classSet.has(clId);
     });
+  };
+  const scopedTests = tests.filter(isTeacherScoped);
+
+  // 5b. Cascade dropdown snapshot — EVERY test the teacher is scoped to, with
+  //     no UI filters applied. The view renders the six dropdowns from this,
+  //     so each level only ever offers options that actually contain one of
+  //     the teacher's tests. Only re-queried when a filter is active (the
+  //     `tests` result above is already narrowed in that case).
+  const hasUiFilters = !!(classLevel || grade || subject || sessionId || phase || week || testId || fromDate || toDate);
+  let snapshotTests = tests;
+  if (hasUiFilters) {
+    snapshotTests = await Test.find({ subject: { $in: teacherSubjectIds } })
+      .populate("subject", "name displayName")
+      .populate("classLevels", "name")
+      .populate("session", "name")
+      .populate("week", "name")
+      .sort({ date: -1 })
+      .lean();
+  }
+  const classIdToGrade = {};
+  classes.forEach((c) => {
+    if (c.gradeLevel != null) classIdToGrade[c._id.toString()] = String(c.gradeLevel);
+  });
+  const testSnapshot = snapshotTests.filter(isTeacherScoped).map((t) => {
+    const refId = (v) => (v ? (v._id ? v._id.toString() : v.toString()) : "");
+    return {
+      _id: t._id.toString(),
+      name: t.name,
+      subjectId: refId(t.subject),
+      subjectName: (t.subject && (t.subject.displayName || t.subject.name)) || "",
+      session: refId(t.session),
+      phase: refId(t.phase),
+      week: refId(t.week),
+      weekName: (t.week && t.week.name) || "",
+      // Grade levels behind the test's classes, limited to the teacher's own
+      // classes so the Grade dropdown never offers an out-of-scope level.
+      grades: [
+        ...new Set(
+          (t.classLevels || [])
+            .map((cl) => classIdToGrade[cl._id ? cl._id.toString() : cl.toString()])
+            .filter(Boolean),
+        ),
+      ],
+    };
   });
 
   if (scopedTests.length === 0) {
     return responseStatus(res, 200, "success", {
-      classes, subjects, sessions,
+      classes, subjects, sessions, testSnapshot,
       perClass: [], perSession: [], overallStats: null,
     });
   }
@@ -2081,7 +2185,7 @@ exports.getTeacherAnalyticsService = async (teacherId, filters, res) => {
   } : null;
 
   return responseStatus(res, 200, "success", {
-    classes, subjects, sessions,
+    classes, subjects, sessions, testSnapshot,
     perClass, perSession, overallStats,
   });
 };

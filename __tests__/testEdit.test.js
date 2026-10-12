@@ -21,6 +21,7 @@ const mockResultFind = jest.fn();
 const mockTestSessionFindById = jest.fn();
 const mockSubjectFindById = jest.fn();
 const mockClassLevelFindById = jest.fn();
+const mockClassLevelFind = jest.fn();
 const mockWeekFindById = jest.fn();
 const mockAdminFindById = jest.fn();
 const mockTeacherFindById = jest.fn();
@@ -52,6 +53,7 @@ jest.mock("../models/Academic/subject.model", () => ({
 }));
 jest.mock("../models/Academic/class.model", () => ({
   findById: (...a) => mockClassLevelFindById(...a),
+  find: (...a) => mockClassLevelFind(...a),
 }));
 jest.mock("../models/Academic/week.model", () => ({
   findById: (...a) => mockWeekFindById(...a),
@@ -154,6 +156,18 @@ beforeEach(() => {
     name: id === CLASS_ID ? "Grade 9 A" : "Grade 9 B",
     gradeLevel: "9",
   }));
+  // validateSubjectClassScope now resolves all classLevels in ONE batched
+  // find({ _id: { $in } }).lean(); back it with the same fixture findById used,
+  // so scope validation behaves identically to the old per-id path.
+  mockClassLevelFind.mockImplementation((query) => {
+    const ids = (query && query._id && query._id.$in) || [];
+    const docs = ids.map((id) => ({
+      _id: id,
+      name: id === CLASS_ID ? "Grade 9 A" : "Grade 9 B",
+      gradeLevel: "9",
+    }));
+    return { lean: async () => docs };
+  });
   mockWeekFindById.mockResolvedValue({ _id: WEEK_ID, session: SESSION_ID, phase: PHASE_ID });
   // Duplicate lookup default: no other test occupies the slot. Re-asserted every
   // test because clearAllMocks() does not drop mockReturnValue overrides.

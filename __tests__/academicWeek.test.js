@@ -31,6 +31,7 @@ const mockTestSessionFindById = jest.fn();
 
 const mockSubjectFindById = jest.fn();
 const mockClassLevelFindById = jest.fn();
+const mockClassLevelFind = jest.fn();
 
 const mockTestResultDeleteMany = jest.fn();
 const mockTestResultDistinct = jest.fn();
@@ -95,7 +96,7 @@ jest.mock("../models/Academic/subject.model", () => ({
 
 jest.mock("../models/Academic/class.model", () => ({
   findById: (...a) => mockClassLevelFindById(...a),
-  find: jest.fn().mockReturnValue(chainable([])),
+  find: (...a) => mockClassLevelFind(...a),
   aggregate: jest.fn().mockResolvedValue([]),
 }));
 
@@ -159,6 +160,14 @@ beforeEach(() => {
     _id: CLASS_ID,
     name: "Grade 9",
     gradeLevel: "9",
+  });
+  // validateSubjectClassScope now batches classLevels into one
+  // find({ _id: { $in } }).lean(); serve the fixture doc for any id in the $in,
+  // and keep the old empty result for non-$in lookups (e.g. list services).
+  mockClassLevelFind.mockImplementation((query) => {
+    const ids = query && query._id && query._id.$in ? query._id.$in.map(String) : [];
+    const docs = ids.map((id) => ({ _id: id, name: "Grade 9", gradeLevel: "9" }));
+    return chainable(docs);
   });
 });
 

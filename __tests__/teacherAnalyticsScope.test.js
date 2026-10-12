@@ -116,6 +116,18 @@ const CLASSES_G9 = [
   { _id: CLASS_G9B, name: "9-B", gradeLevel: "9", toString: () => CLASS_G9B },
 ];
 
+// Teacher whose sections span two grades — used to prove the multi-grade token
+// filter resolves in a SINGLE batched query instead of one per grade.
+const CLASS_G10A = "507f1f77bcf86cd799439077";
+const ASSIGNMENTS_GRADE_SPAN = [
+  { teacher: "teacher-span", subject: SUBJECT_MATH, classLevel: CLASS_G9A },
+  { teacher: "teacher-span", subject: SUBJECT_MATH, classLevel: CLASS_G10A },
+];
+const CLASSES_SPAN = [
+  { _id: CLASS_G9A, name: "9-A", gradeLevel: "9", toString: () => CLASS_G9A },
+  { _id: CLASS_G10A, name: "10-A", gradeLevel: "10", toString: () => CLASS_G10A },
+];
+
 const RESULTS_G9 = [
   { _id: "rg1", test: "test-g9", student: { _id: "s91", name: "A One", studentId: "STU-91", classLevel: makeClassLevel(CLASS_G9A, "9-A") }, score: 70 },
   { _id: "rg2", test: "test-g9", student: { _id: "s92", name: "B One", studentId: "STU-92", classLevel: makeClassLevel(CLASS_G9B, "9-B") }, score: 50 },
@@ -143,8 +155,10 @@ function setupAssignmentMock(teacherId, assignments) {
 }
 
 function setupClassLevelFind(classes) {
-  // Supports both query shapes used by the service:
-  //   { _id: { $in } } (dropdown load) and { _id: { $in }, gradeLevel } (grade expansion)
+  // Supports every query shape the service uses:
+  //   { _id: { $in } } (dropdown load)
+  //   { _id: { $in }, gradeLevel } (single grade — the `grade` dropdown param)
+  //   { _id: { $in }, gradeLevel: { $in } } (batched multi-grade token resolve)
   const makeChain = (query) => {
     let out = classes;
     if (query && query._id && query._id.$in) {
@@ -152,7 +166,13 @@ function setupClassLevelFind(classes) {
       out = out.filter((c) => ids.includes(String(c._id)));
     }
     if (query && query.gradeLevel) {
-      out = out.filter((c) => String(c.gradeLevel) === String(query.gradeLevel));
+      const gl = query.gradeLevel;
+      if (Array.isArray(gl.$in)) {
+        const grades = gl.$in.map(String);
+        out = out.filter((c) => grades.includes(String(c.gradeLevel)));
+      } else {
+        out = out.filter((c) => String(c.gradeLevel) === String(gl));
+      }
     }
     const chain = {
       select: jest.fn().mockImplementation(() => makeChain(query)),
@@ -318,6 +338,47 @@ describe("getTeacherAnalyticsService — assignment scoping", () => {
     const body = res.json.mock.calls[0][0];
     expect(body.status).toBe("failed");
     expect(body.message).toMatch(/grade 9/i);
+  });
+
+  test("N+1: multiple grade tokens resolve in ONE batched gradeLevel:$in query", async () => {
+    const res = mockRes();
+    setupAssignmentMock("teacher-span", ASSIGNMENTS_GRADE_SPAN);
+    setupClassLevelFind(CLASSES_SPAN);
+    setupSubjectFind([{ _id: SUBJECT_MATH, name: "Math" }]);
+    setupTestSessionFind([{ _id: "session-1", name: "Midterm" }]);
+    setupTestFind([]);
+    setupTestResultFind([]);
+
+    await getTeacherAnalyticsService("teacher-span", { classLevel: "grade:9,grade:10" }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    // Exactly one query touches gradeLevel, and it carries BOTH grades at once
+    // (was one ClassLevel.find per "grade:<level>" token).
+    const gradeQueries = mockClassLevelFind.mock.calls.filter(
+      (c) => c[0] && c[0].gradeLevel
+    );
+    expect(gradeQueries).toHaveLength(1);
+    expect(gradeQueries[0][0].gradeLevel).toEqual({ $in: ["9", "10"] });
+    // Bounded to the teacher's own classes via _id:$in.
+    expect(gradeQueries[0][0]._id).toEqual({
+      $in: expect.arrayContaining([CLASS_G9A, CLASS_G10A]),
+    });
+  });
+
+  test("N+1: first out-of-scope grade token still short-circuits with its message", async () => {
+    const res = mockRes();
+    setupAssignmentMock("teacher-span", ASSIGNMENTS_GRADE_SPAN);
+    setupClassLevelFind(CLASSES_SPAN); // no grade 11 classes
+
+    // grade:9 valid, grade:11 invalid → must 403 naming grade 11, in token order.
+    await getTeacherAnalyticsService("teacher-span", { classLevel: "grade:9,grade:11" }, res);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json.mock.calls[0][0].message).toMatch(/grade 11/i);
+    // One batched grade query even though it ultimately rejects.
+    const gradeQueries = mockClassLevelFind.mock.calls.filter((c) => c[0] && c[0].gradeLevel);
+    expect(gradeQueries).toHaveLength(1);
+    expect(gradeQueries[0][0].gradeLevel).toEqual({ $in: ["9", "11"] });
   });
 
   test("multi-select filter combines several sections via comma tokens", async () => {
