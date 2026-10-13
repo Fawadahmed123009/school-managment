@@ -12,8 +12,9 @@
  *   1. the test date has passed;
  *   2. the teacher is assigned that test's subject;
  *   3. the test covers at least one class the teacher is assigned to;
- *   4. fewer than the expected number of non-withdrawn students in those
- *      in-scope classes have a TestResult for the test.
+ *   4. fewer than the expected number of ENROLLED students (active, not
+ *      graduated, not withdrawn) in those in-scope classes have a TestResult
+ *      for the test.
  *
  * The scoping rules deliberately mirror the teacher's own dashboard
  * (routes/views/dashboard.views.js) and therefore the roster shown at
@@ -51,7 +52,11 @@ async function getPendingMarkingAllTeachers() {
   const [assignments, tests, students, results, teachers] = await Promise.all([
     Assignment.find().populate("subject", "name displayName").populate("classLevel", "name").lean(),
     loadPastDatedTests(),
-    Student.find({ isWithdrawn: { $ne: true } }).select("_id classLevel dateAdmitted").lean(),
+    Student.find({
+      status: { $ne: "inactive" },
+      isGraduated: { $ne: true },
+      isWithdrawn: { $ne: true },
+    }).select("_id classLevel dateAdmitted").lean(),
     TestResult.find().select("test student").lean(),
     Teacher.find().select("name").lean(),
   ]);
@@ -61,9 +66,10 @@ async function getPendingMarkingAllTeachers() {
     teacherNames[String(t._id)] = t.name;
   });
 
-  // class level → its non-withdrawn students, the pool each teacher is expected
-  // to have marked. Each entry keeps the pupil's admission date so the expected
-  // count per test can drop anyone admitted AFTER that test was held (they
+  // class level → its enrolled students (active / not graduated / not withdrawn),
+  // the pool each teacher is expected to have marked — the same active-student
+  // convention as the mark-entry roster and the marks audit. Each entry keeps the
+  // pupil's admission date so the expected count per test can drop anyone admitted AFTER that test was held (they
   // weren't in the class yet, so marking them is never outstanding).
   const studentsByClass = {};
   students.forEach((s) => {
@@ -154,7 +160,11 @@ async function getTeacherTestMarkingSummary() {
   const [assignments, tests, students, results, teachers] = await Promise.all([
     Assignment.find().populate("subject", "name displayName").populate("classLevel", "name").lean(),
     loadPastDatedTests(),
-    Student.find({ isWithdrawn: { $ne: true } }).select("_id classLevel dateAdmitted").lean(),
+    Student.find({
+      status: { $ne: "inactive" },
+      isGraduated: { $ne: true },
+      isWithdrawn: { $ne: true },
+    }).select("_id classLevel dateAdmitted").lean(),
     TestResult.find().select("test student").lean(),
     Teacher.find().select("name").lean(),
   ]);

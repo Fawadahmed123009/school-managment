@@ -15,19 +15,93 @@ const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const Parent = require("../../models/Parents/parents.model");
 const Student = require("../../models/Students/students.model");
 
+// Section display value for the Grade → Section → Class cascade: a class uses a
+// managed Section document (sectionRef) when present, else its legacy Boys/Girls
+// string. Same resolution the PDF report cascade uses, so the two never drift.
+const classSectionName = (c) => (c.sectionRef && c.sectionRef.name) || c.section || "";
+
+// PG first, then 1–12 numerically (gradeLevel is stored as a string) — matches
+// the marks-audit / report cascade grade ordering.
+const GRADE_ORDER = ["PG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const gradeRank = (g) => {
+  const i = GRADE_ORDER.indexOf(String(g));
+  return i === -1 ? GRADE_ORDER.length : i;
+};
+
+// Status filter → Mongo clause. Values mirror the pill rendered in each table
+// row (Inactive / Suspended / Withdrawn / Graduated / Active), with "enrolled"
+// as the project-wide active-student triple.
+const STATUS_CLAUSES = {
+  enrolled: { status: { $ne: "inactive" }, isGraduated: { $ne: true }, isWithdrawn: { $ne: true } },
+  inactive: { status: "inactive" },
+  graduated: { isGraduated: true },
+  withdrawn: { isWithdrawn: true },
+  suspended: { isSuspended: true },
+};
+const STATUS_OPTIONS = [
+  { value: "enrolled", label: "Enrolled (active)" },
+  { value: "inactive", label: "Inactive" },
+  { value: "graduated", label: "Graduated" },
+  { value: "withdrawn", label: "Withdrawn" },
+  { value: "suspended", label: "Suspended" },
+];
+
 router.get("/students", requireAdminOrManager(), async (req, res) => {
   try {
     const page = req.query.page || 1;
     const limit = req.query.limit || 20;
     const classFilter = req.query.class || "";
+    const gradeFilter = (req.query.grade || "").trim();
+    const sectionFilter = (req.query.section || "").trim();
+    const statusFilter = (req.query.status || "").trim();
     const nameSearch = (req.query.name || "").trim();
     const parentSearch = (req.query.parent || "").trim();
     const sortBy = req.query.sortBy || "";
 
-    // Build MongoDB query filter
+    // Classes are needed both to build the cascade option lists and to resolve a
+    // Grade/Section choice into the concrete ClassLevel ids to filter on.
+    const classes = (await getAllClassesService()) || [];
+
+    // Distinct grades and sections present in the real class data. Sections are
+    // scoped per-grade so the client cascade can narrow the Section picker.
+    const grades = [...new Set(classes.map((c) => c.gradeLevel).filter(Boolean))]
+      .sort(gradeRank);
+    const sectionsForGrade = (g) =>
+      [...new Set(
+        classes
+          .filter((c) => !g || c.gradeLevel === g)
+          .map(classSectionName)
+          .filter(Boolean)
+      )];
+    const sections = sectionsForGrade(gradeFilter);
+
+    // Build MongoDB query filter. Independent clauses (class scope, name, status,
+    // parent) are combined through $and so none silently overwrites another.
     const filter = {};
-    if (classFilter) filter.classLevel = classFilter;
+    const andClauses = [];
+
+    // Class scope: an explicit class wins; otherwise a Grade/Section pick resolves
+    // to every matching ClassLevel id. A Grade/Section pick with no matching class
+    // yields an empty result set rather than silently ignoring the filter.
+    if (classFilter) {
+      filter.classLevel = classFilter;
+    } else if (gradeFilter || sectionFilter) {
+      const scopedIds = classes
+        .filter(
+          (c) =>
+            (!gradeFilter || c.gradeLevel === gradeFilter) &&
+            (!sectionFilter || classSectionName(c) === sectionFilter)
+        )
+        .map((c) => c._id);
+      filter.classLevel = { $in: scopedIds };
+    }
+
     if (nameSearch) filter.name = { $regex: nameSearch, $options: "i" };
+
+    // Status filter (enrolled / inactive / graduated / withdrawn / suspended).
+    if (statusFilter && STATUS_CLAUSES[statusFilter]) {
+      andClauses.push(STATUS_CLAUSES[statusFilter]);
+    }
 
     // Parent-name search: $or across Student.fatherName and linked Parent.name
     // (identical logic to the /fees filter)
@@ -42,37 +116,36 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       if (matchingParents.length > 0) {
         parentClause.push({ parent: { $in: matchingParents.map((p) => p._id) } });
       }
-      const orClause = parentClause.length === 1 ? parentClause[0] : { $or: parentClause };
+      andClauses.push(parentClause.length === 1 ? parentClause[0] : { $or: parentClause });
+    }
 
-      // Combine with any existing filter via $and
+    // Fold the $or / status clauses into the base filter via $and.
+    if (andClauses.length > 0) {
       if (Object.keys(filter).length > 0) {
-        const combined = { $and: [filter, orClause] };
-        Object.assign(filter, combined);
+        Object.assign(filter, { $and: [filter, ...andClauses] });
       } else {
-        Object.assign(filter, orClause);
+        Object.assign(filter, andClauses.length === 1 ? andClauses[0] : { $and: andClauses });
       }
     }
 
-    const [studentsResult, classes] = await Promise.all([
-      (async () => {
-        const Student = require("../../models/Students/students.model");
-        const { paginate } = require("../../utils/paginate");
-        // Build sort and optional collation for numeric roll-number ordering
-        var sortOpt = "name";
-        var collationOpt = undefined;
-        if (sortBy === "rollAsc")  { sortOpt = { rollNumber: 1 };  collationOpt = { locale: "en", numericOrdering: true }; }
-        if (sortBy === "rollDesc") { sortOpt = { rollNumber: -1 }; collationOpt = { locale: "en", numericOrdering: true }; }
-        return paginate(Student, filter, {
-          page,
-          limit,
-          select: "-password",
-          sort: sortOpt,
-          collation: collationOpt,
-          populate: { path: "classLevel", select: "name gradeLevel group section" },
-        });
-      })(),
-      getAllClassesService(),
-    ]);
+    const studentsResult = await (async () => {
+      const { paginate } = require("../../utils/paginate");
+      // Build sort and optional collation for numeric roll-number ordering
+      var sortOpt = "name";
+      var collationOpt = undefined;
+      if (sortBy === "rollAsc")  { sortOpt = { rollNumber: 1 };  collationOpt = { locale: "en", numericOrdering: true }; }
+      if (sortBy === "rollDesc") { sortOpt = { rollNumber: -1 }; collationOpt = { locale: "en", numericOrdering: true }; }
+      if (sortBy === "admittedNewest") { sortOpt = { dateAdmitted: -1 }; }
+      if (sortBy === "admittedOldest")  { sortOpt = { dateAdmitted: 1 }; }
+      return paginate(Student, filter, {
+        page,
+        limit,
+        select: "-password",
+        sort: sortOpt,
+        collation: collationOpt,
+        populate: { path: "classLevel", select: "name gradeLevel group section sectionRef" },
+      });
+    })();
 
     const totalStudents = await require("../../models/Students/students.model").countDocuments();
 
@@ -84,7 +157,11 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       students: studentsResult.data || [],
       pagination: studentsResult.pagination || null,
       classes: classes || [],
-      filters: { class: classFilter, name: nameSearch, parent: parentSearch, sortBy: sortBy },
+      filters: {
+        class: classFilter, grade: gradeFilter, section: sectionFilter,
+        status: statusFilter, name: nameSearch, parent: parentSearch, sortBy: sortBy,
+      },
+      filterOptions: { grades, sections, statuses: STATUS_OPTIONS },
       totalStudents,
       loadError: null,
       schoolName: res.locals.schoolName,
@@ -97,7 +174,8 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       createError: null,
       students: [],
       classes: [],
-      filters: { class: "", name: "", parent: "", sortBy: "" },
+      filters: { class: "", grade: "", section: "", status: "", name: "", parent: "", sortBy: "" },
+      filterOptions: { grades: [], sections: [], statuses: STATUS_OPTIONS },
       totalStudents: 0,
       loadError: err.message,
       schoolName: res.locals.schoolName,

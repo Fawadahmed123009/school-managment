@@ -30,8 +30,12 @@ function mockModel(name) {
       seenQueries[name] = query;
       const rows = () => {
         let r = rowsByModel[name];
-        // Honour the two filters the service relies on in the DB query itself.
-        if (query && query.isWithdrawn) r = r.filter((x) => x.isWithdrawn !== true);
+        // Honour the enrolment filters the service applies in the DB query
+        // itself — the active-student triple (not inactive / not graduated / not
+        // withdrawn) plus the past-dated test filter.
+        if (query && query.status && query.status.$ne !== undefined) r = r.filter((x) => x.status !== query.status.$ne);
+        if (query && query.isGraduated && query.isGraduated.$ne !== undefined) r = r.filter((x) => x.isGraduated !== query.isGraduated.$ne);
+        if (query && query.isWithdrawn && query.isWithdrawn.$ne !== undefined) r = r.filter((x) => x.isWithdrawn !== query.isWithdrawn.$ne);
         if (query && query.date && query.date.$lt) r = r.filter((x) => x.date < query.date.$lt);
         return r;
       };
@@ -152,21 +156,28 @@ describe("getPendingMarkingAllTeachers", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("excludes withdrawn students from the expected pool", async () => {
+  it("excludes no-longer-enrolled pupils (withdrawn / inactive / graduated) from the expected pool", async () => {
     rowsByModel.Teacher = [teacher("t1", "Ali")];
     rowsByModel.Assignment = [assignment("t1", "math", "Math", "c1", "Class 1")];
     rowsByModel.Student = [
       student("s1", "c1"),
       Object.assign(student("s2", "c1"), { isWithdrawn: true }),
+      Object.assign(student("s3", "c1"), { status: "inactive" }),
+      Object.assign(student("s4", "c1"), { isGraduated: true }),
     ];
     rowsByModel.Test = [test("k1", "math", ["c1"], daysAgo(1))];
     rowsByModel.TestResult = [];
 
     const rows = await getPendingMarkingAllTeachers();
 
+    // Only the single active pupil counts as expected; the other three are out.
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ marked: 0, expected: 1 });
-    expect(seenQueries.Student).toEqual({ isWithdrawn: { $ne: true } });
+    expect(seenQueries.Student).toEqual({
+      status: { $ne: "inactive" },
+      isGraduated: { $ne: true },
+      isWithdrawn: { $ne: true },
+    });
   });
 
   it("ignores future-dated tests and subjects the teacher is not assigned", async () => {

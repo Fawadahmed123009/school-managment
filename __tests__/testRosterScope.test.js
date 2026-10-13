@@ -115,6 +115,14 @@ beforeEach(() => {
       const ids = q._id.$in.map(String);
       out = out.filter((s) => ids.includes(String(s._id)));
     }
+    // $or [...] — the write path's "no longer enrolled" probe. These fixtures
+    // carry no status / isGraduated / isWithdrawn flag, so nobody matches and
+    // in-scope submissions still save.
+    if (Array.isArray(q.$or)) {
+      out = out.filter((s) =>
+        q.$or.some((cond) => Object.keys(cond).every((k) => String(s[k]) === String(cond[k])))
+      );
+    }
     // Chainable + awaitable stub: supports both find().select() and
     // find().select().populate() chains, each resolving to the filtered docs.
     const chain = {

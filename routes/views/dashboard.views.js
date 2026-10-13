@@ -330,10 +330,15 @@ router.get("/dashboard", async (req, res) => {
 
       if (subjectIds.length > 0 && assignedClassIds.size > 0) {
         // Students in the teacher's classes, mapped to their class level.
+        // Only ENROLLED pupils count (active / not graduated / not withdrawn) —
+        // the same active-student convention as the mark-entry roster, so a
+        // child the school has let go never shows as outstanding marking.
         // `dateAdmitted` is fetched so a test's expected pool can drop pupils
         // who joined the class after it was held (see markStatus below).
         const teacherStudents = await Student.find({
           classLevel: { $in: [...assignedClassIds] },
+          status: { $ne: "inactive" },
+          isGraduated: { $ne: true },
           isWithdrawn: { $ne: true },
         }).select("_id classLevel dateAdmitted").lean();
         const teacherStudentIds = teacherStudents.map((s) => s._id);

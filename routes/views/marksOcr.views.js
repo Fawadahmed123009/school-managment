@@ -16,9 +16,19 @@ const upload = makeUpload("image");
 // Auth-gated viewer for archived marks-scan photos (R2 marks-scans/ prefix).
 registerOcrScanViewRouter(router, { pattern: "/marks/ocr/scan", role: "teacher" });
 
-/** Fetch every student (id + name + class + roll# + parent) for OCR dropdowns / fuzzy matching. */
+/**
+ * Fetch every ENROLLED student (id + name + class + roll# + parent) for the OCR
+ * page's initial candidate pool / fuzzy matching. After a test is picked the pool
+ * is replaced by that test's (already active-scoped) roster; this pre-test blob is
+ * only a fallback, but it stays scoped to active pupils so a no-longer-enrolled
+ * child is never offered for marking here either.
+ */
 const fetchAllStudents = () =>
-  Student.find({}).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
+  Student.find({
+    status: { $ne: "inactive" },
+    isGraduated: { $ne: true },
+    isWithdrawn: { $ne: true },
+  }).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
 
 /** Candidate pool scoped to an explicit set of student ids (a test's roster). */
 const fetchStudentsByIds = (ids) =>

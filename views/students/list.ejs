@@ -121,12 +121,42 @@
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
     <form method="GET" action="/students" class="filter-bar">
+      <div style="min-width:150px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Grade</label>
+        <select name="grade" id="st-filter-grade">
+          <option value="">All grades</option>
+          <% filterOptions.grades.forEach(function(g) { %>
+            <option value="<%= g %>" <%= filters.grade == g ? 'selected' : '' %>>Grade <%= g %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="min-width:150px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Section</label>
+        <select name="section" id="st-filter-section">
+          <option value="">All sections</option>
+          <% filterOptions.sections.forEach(function(s) { %>
+            <option value="<%= s %>" <%= filters.section == s ? 'selected' : '' %>><%= s %></option>
+          <% }); %>
+        </select>
+      </div>
       <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Class</label>
-        <select name="class">
+        <select name="class" id="st-filter-class">
           <option value="">All classes</option>
           <% classes.forEach(function(c) { %>
-            <option value="<%= c._id %>" <%= filters.class == c._id ? 'selected' : '' %>><%= c.name %></option>
+            <option value="<%= c._id %>"
+              data-grade="<%= c.gradeLevel || '' %>"
+              data-section="<%= (c.sectionRef && c.sectionRef.name) || c.section || '' %>"
+              <%= filters.class == c._id ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div style="min-width:160px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Status</label>
+        <select name="status">
+          <option value="">All statuses</option>
+          <% filterOptions.statuses.forEach(function(st) { %>
+            <option value="<%= st.value %>" <%= filters.status === st.value ? 'selected' : '' %>><%= st.label %></option>
           <% }); %>
         </select>
       </div>
@@ -144,11 +174,13 @@
           <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Name (A–Z)</option>
           <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
           <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+          <option value="admittedNewest" <%= filters.sortBy === 'admittedNewest' ? 'selected' : '' %>>Admitted (newest)</option>
+          <option value="admittedOldest" <%= filters.sortBy === 'admittedOldest' ? 'selected' : '' %>>Admitted (oldest)</option>
         </select>
       </div>
       <div class="filter-actions" style="display:flex; gap:6px; align-items:flex-end;">
         <button type="submit" class="btn btn-primary" style="padding:8px 16px;">Filter</button>
-        <% if (filters.class || filters.name || filters.parent || filters.sortBy) { %>
+        <% if (filters.class || filters.grade || filters.section || filters.status || filters.name || filters.parent || filters.sortBy) { %>
           <a href="/students" class="btn btn-ghost" style="padding:8px 12px;">Clear</a>
         <% } %>
       </div>
@@ -157,7 +189,7 @@
 
   <% if (students.length === 0) { %>
     <div class="empty">
-      <div class="display"><%= (filters.class || filters.name || filters.parent) ? 'No students match your filters' : 'No students yet' %></div>
+      <div class="display"><%= (filters.class || filters.grade || filters.section || filters.status || filters.name || filters.parent) ? 'No students match your filters' : 'No students yet' %></div>
     </div>
   <% } else { %>
     <div class="table-wrap">
@@ -209,6 +241,9 @@
         /* Build base query string preserving current filters */
         var qs = '';
         if (filters.class) qs += '&class=' + encodeURIComponent(filters.class);
+        if (filters.grade) qs += '&grade=' + encodeURIComponent(filters.grade);
+        if (filters.section) qs += '&section=' + encodeURIComponent(filters.section);
+        if (filters.status) qs += '&status=' + encodeURIComponent(filters.status);
         if (filters.name)  qs += '&name='  + encodeURIComponent(filters.name);
         if (filters.parent) qs += '&parent=' + encodeURIComponent(filters.parent);
         if (filters.sortBy) qs += '&sortBy=' + encodeURIComponent(filters.sortBy);
@@ -263,5 +298,7 @@
     <% } %>
   <% } %>
 </div>
+
+<script src="/js/students-filter-cascade.js"></script>
 
 <%- include('../partials/foot') %>

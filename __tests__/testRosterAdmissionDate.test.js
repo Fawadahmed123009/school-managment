@@ -104,6 +104,14 @@ function filterStudents(q) {
     const cutoff = new Date(q.dateAdmitted.$gt);
     out = out.filter((s) => s.dateAdmitted && new Date(s.dateAdmitted) > cutoff);
   }
+  // $or [...]  →  keep only rows matching at least one equality clause (the
+  // write path's "no longer enrolled" probe). None of these fixtures carry a
+  // status / isGraduated / isWithdrawn flag, so the probe matches nobody.
+  if (Array.isArray(q.$or)) {
+    out = out.filter((s) =>
+      q.$or.some((cond) => Object.keys(cond).every((k) => String(s[k]) === String(cond[k])))
+    );
+  }
   return out;
 }
 

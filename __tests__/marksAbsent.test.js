@@ -73,6 +73,13 @@ beforeEach(() => {
       const ids = q._id.$in.map(String);
       out = out.filter((s) => ids.includes(String(s._id)));
     }
+    // $or [...] — the write path's "no longer enrolled" probe. These fixtures
+    // carry no status / isGraduated / isWithdrawn flag, so nobody matches.
+    if (Array.isArray(q.$or)) {
+      out = out.filter((s) =>
+        q.$or.some((cond) => Object.keys(cond).every((k) => String(s[k]) === String(cond[k])))
+      );
+    }
     const chain = {
       select: () => chain,
       populate: () => chain,

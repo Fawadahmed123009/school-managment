@@ -776,11 +776,23 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
     return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any class in this test");
   }
 
-  // Build the roster query. A pupil admitted AFTER the test was held was not in
-  // the class yet and must not appear on its mark-entry roster. `$not $gt` keeps
-  // students with no recorded admission date visible (mirrors the day-granular
-  // cutoff used by the write path, the marks audit and marking follow-up).
-  const rosterQuery = { classLevel: { $in: assignedClassLevels } };
+  // Build the roster query. Two independent exclusions apply:
+  //   • A pupil admitted AFTER the test was held was not in the class yet and
+  //     must not appear on its mark-entry roster. `$not $gt` keeps students with
+  //     no recorded admission date visible (mirrors the day-granular cutoff used
+  //     by the write path, the marks audit and marking follow-up).
+  //   • A pupil who is no longer enrolled (status inactive / graduated /
+  //     withdrawn) must never be offered for marking. Same active-student
+  //     convention as the marks-audit expected roster, fees and attendance, so a
+  //     test is never shown as needing marks for a child the school has let go.
+  //     Historical TestResult rows already recorded for such a pupil stay visible
+  //     in every report — this only removes them from the mark-ENTRY picker.
+  const rosterQuery = {
+    classLevel: { $in: assignedClassLevels },
+    status: { $ne: "inactive" },
+    isGraduated: { $ne: true },
+    isWithdrawn: { $ne: true },
+  };
   const admissionCutoff = admissionCutoffForTest(test.date);
   if (admissionCutoff) rosterQuery.dateAdmitted = { $not: { $gt: admissionCutoff } };
 
@@ -905,6 +917,30 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
           .join(", ")}`
       );
     }
+  }
+
+  // Same rule as the roster, enforced on the write path: a pupil who is no
+  // longer enrolled (inactive / graduated / withdrawn) is not on any mark-entry
+  // roster, so their score cannot be recorded either — via the UI or a direct
+  // API call. Hiding the row in the roster isn't enough on its own. Rejected as
+  // a fail-closed batch so nothing is written when any submitted pupil is out.
+  const notEnrolled = await Student.find({
+    _id: { $in: submittedIds },
+    $or: [
+      { status: "inactive" },
+      { isGraduated: true },
+      { isWithdrawn: true },
+    ],
+  }).select("_id name");
+  if (notEnrolled.length > 0) {
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      `Cannot record scores for students who are no longer enrolled: ${notEnrolled
+        .map((s) => s.name)
+        .join(", ")}`
+    );
   }
 
   const results = [];
