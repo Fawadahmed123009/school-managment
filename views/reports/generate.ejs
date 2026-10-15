@@ -241,6 +241,9 @@
 <script type="application/json" id="sr-weeks"><%- JSON.stringify(weeks).replace(/</g, '\\u003c') %></script>
 <script type="application/json" id="report-class-scope"><%- JSON.stringify(classScope || {}).replace(/</g, '\\u003c') %></script>
 <script src="/js/report-generate.js"></script>
+<!-- Shared searchable-picker component (Student level of every panel's cascade;
+     the same file powers the Fee add-record search) — must load first. -->
+<script src="/js/student-typeahead.js"></script>
 <script src="/js/report-filter-cascade.js"></script>
 <script src="/js/report-analytics-period.js"></script>
 <script src="/js/report-session-bulk.js"></script>

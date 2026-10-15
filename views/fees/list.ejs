@@ -46,12 +46,12 @@
         </div>
       </div>
       <div class="field-row">
-        <div class="field" style="position:relative;">
+        <div class="field student-picker">
           <label for="student-search">Student</label>
-          <input type="text" id="student-search" autocomplete="off"
+          <input type="text" id="student-search" class="student-typeahead-input" autocomplete="off"
                  placeholder="Search by name or roll number..." />
           <input type="hidden" name="student" id="student" required />
-          <div id="student-results" class="student-search-results" style="display:none;"></div>
+          <div id="student-results" class="student-typeahead-results" style="display:none;"></div>
         </div>
         <div class="field">
           <label for="feeHead">Fee head</label>
@@ -251,19 +251,10 @@
     classId: s.classLevel ? s.classLevel._id : '',
   };
 })).replace(/</g, '\\u003c') %></script>
+<!-- Shared searchable-picker component (also used by the PDF-report filter
+     cascade) + this page's class/roll filters on top of it. Row styling lives
+     in /css/style.css under .student-typeahead-*, shared by both pages. -->
+<script src="/js/student-typeahead.js"></script>
 <script src="/js/fees-list.js"></script>
-
-<style>
-.student-search-results {
-  position:absolute; top:100%; left:0; right:0; z-index:20;
-  background:var(--panel-bg, #fff); border:1px solid var(--border, #ddd);
-  border-radius:6px; max-height:260px; overflow-y:auto;
-  box-shadow:0 4px 12px rgba(0,0,0,0.08); margin-top:4px;
-}
-.student-search-item { padding:8px 12px; cursor:pointer; display:flex; flex-direction:column; gap:2px; }
-.student-search-item:hover { background:var(--hover-bg, #f5f5f5); }
-.student-search-item span { font-size:0.78rem; color:var(--muted, #888); }
-.student-search-empty { padding:10px 12px; color:var(--muted, #888); font-size:0.85rem; }
-</style>
 
 <%- include('../partials/foot') %>

@@ -21,8 +21,10 @@
 //   namep   — submit-name prefix ('resultSheet' | 'sessionReport' | 'analytics');
 //             unique per panel because all three share ONE <form> and a hidden
 //             input still submits — a shared name would double-post.
-//   sessions, subjects, tests, students — server-rendered option lists,
-//             already role-scoped by the view route.
+//   students, subjects, tests, sessions — server-rendered option lists,
+//             already role-scoped by the view route (GET /pdf-reports/teacher-
+//             students for pupils), so a plain teacher's Student search can
+//             only ever match their own assigned class.
 // Only the fields each generator actually consumes need to exist server-side;
 // the names are uniform here so every panel posts the same shape.
 const NONE_KEY = 'none';
@@ -52,14 +54,26 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
       <option value="">All sections</option>
     </select>
   </div>
-  <div class="field">
-    <label for="<%= idp %>-student">Student</label>
-    <select name="<%= namep %>StudentId" id="<%= idp %>-student">
+  <div class="field student-picker">
+    <label for="<%= idp %>-student-search">Student</label>
+    <!-- Searchable pupil picker. The <select> below stays the ONE source of
+         truth: it still carries `name` (so the panel submits the pupil id) and
+         every option's data-grade / data-section / data-class (so the cascade
+         can narrow it) — the search box only replaces how it is *chosen*. The
+         typeahead searches exactly that select's current option pool, so it can
+         never offer a pupil outside the chosen Grade/Section scope or beyond
+         the server-side role scoping of this panel. Shared component:
+         public/js/student-typeahead.js (same one the Fee search uses). -->
+    <input type="text" id="<%= idp %>-student-search" class="student-typeahead-input" autocomplete="off"
+           placeholder="Search by name or roll number..." />
+    <select name="<%= namep %>StudentId" id="<%= idp %>-student" class="student-typeahead-select" style="display:none">
       <option value="">All students</option>
       <% students.forEach(function (s) { %>
-        <option value="<%= s._id %>" data-grade="<%= s.grade || 'none' %>" data-section="<%= s.section || 'none' %>" data-class="<%= s.classLevelId || '' %>"><%= s.name %> (<%= s.rollNumber %>)</option>
+        <option value="<%= s._id %>" data-grade="<%= s.grade || 'none' %>" data-section="<%= s.section || 'none' %>" data-class="<%= s.classLevelId || '' %>" data-name="<%= s.name %>" data-roll="<%= s.rollNumber %>"><%= s.name %> (<%= s.rollNumber %>)</option>
       <% }); %>
     </select>
+    <div id="<%= idp %>-student-results" class="student-typeahead-results" style="display:none"></div>
+    <p class="hint" id="<%= idp %>-student-hint"></p>
   </div>
 </div>
 <div class="field-row">

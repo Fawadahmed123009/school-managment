@@ -31,6 +31,15 @@
 // <form> and a hidden (display:none) control still submits, so per-panel prefixes
 // keep the values from colliding. Every field is optional: the "All …" option
 // (value "") means no narrowing.
+//
+// The Student level is a SEARCHABLE picker (public/js/student-typeahead.js — the
+// same component the Fee add-record selector uses). It deliberately adds no new
+// data path: it searches the live option pool of the hidden `<idp>-student`
+// select, i.e. exactly the pupils `studentPool()` currently allows — so typing a
+// name narrows within the chosen Session/Grade/Section scope and can never reach
+// a pupil the server did not hand this caller (a plain teacher only ever searches
+// their assigned classes). Committing a row writes `studentSelect.value`, which
+// is what the panel submits, so nothing downstream changes.
 (function () {
   // classLevelId → { grade, section }, embedded by the view. Missing entry
   // (class deleted between render and click) degrades to 'none', never throws.
@@ -103,12 +112,18 @@
       .call(selectEl.querySelectorAll('option'))
       .filter(function (o) { return o.value !== ''; })
       .map(function (o) {
+        var label = o.textContent.trim();
         return {
           value: o.value,
-          label: o.textContent.trim(),
+          label: label,
           grade: o.getAttribute('data-grade') || GRADE_NONE,
           section: o.getAttribute('data-section') || SECTION_NONE,
           cls: o.getAttribute('data-class') || '',
+          // Search fields for the typeahead picker. The template renders both
+          // on every option; the label fallback keeps an older cached option
+          // list searchable ("Name (Roll)") rather than silently dead.
+          name: o.getAttribute('data-name') || label.replace(/\s*\([^)]*\)\s*$/, ''),
+          roll: o.getAttribute('data-roll') || '',
         };
       });
   }
@@ -252,6 +267,59 @@
 
     function rebuildStudents() {
       refillWithOptions(studentSelect, studentPlaceholder, studentPool());
+      // The pool this panel searches just changed — realign the search box with
+      // whatever the select still holds (a pupil who survived the narrowing keeps
+      // their label, one who dropped out leaves an empty "All students" box).
+      if (studentPicker) studentPicker.sync();
+    }
+
+    // ── searchable pupil picker (shared typeahead component) ─────────────────
+    // Sits on top of the (visually hidden) submit select and searches ONLY the
+    // live pool the cascade just built, so it inherits Session → Grade → Section
+    // narrowing and the server-side role scoping for free.
+    var studentPicker = null;
+    var studentSearch = document.getElementById(idp + '-student-search');
+    var studentResults = document.getElementById(idp + '-student-results');
+    var studentHint = document.getElementById(idp + '-student-hint');
+
+    function studentSubtitle(s) {
+      var g = s.grade && s.grade !== GRADE_NONE ? 'Grade ' + s.grade : 'No grade';
+      var sec = s.section && s.section !== SECTION_NONE ? ' \u00b7 ' + s.section : '';
+      return 'Roll ' + (s.roll || '\u2014') + ' \u00b7 ' + g + sec;
+    }
+
+    function searchableStudents() {
+      return studentPool().map(function (s) {
+        return {
+          id: s.value,
+          title: s.name,
+          label: s.label,                                  // "Name (Roll)" → the box
+          subtitle: studentSubtitle(s),
+          keywords: (s.name + ' ' + s.roll).toLowerCase(),  // name OR roll number
+        };
+      });
+    }
+
+    function writeStudentHint() {
+      if (!studentHint) return;
+      var picked = searchableStudents().filter(function (it) { return it.id === studentSelect.value; })[0];
+      studentHint.textContent = picked
+        ? 'Student: ' + picked.label + '.'
+        : 'Student: all pupils in the current scope.';
+    }
+
+    if (studentSearch && studentResults && typeof window.initStudentTypeahead === 'function') {
+      studentPicker = window.initStudentTypeahead({
+        input: studentSearch,
+        results: studentResults,
+        items: searchableStudents,
+        getSelected: function () {
+          var hit = searchableStudents().filter(function (it) { return it.id === studentSelect.value; })[0];
+          return hit ? { id: hit.id, label: hit.label } : null;
+        },
+        onSelect: function (item) { studentSelect.value = item.id; writeStudentHint(); },
+        onInvalidate: function () { studentSelect.value = ''; writeStudentHint(); },
+      });
     }
 
     // ── test funnel: Session + Grade + Section → Subject → Test ───────────────
@@ -296,6 +364,7 @@
 
     // ── init ──────────────────────────────────────────────────────────────────
     rebuildFromSession();
+    writeStudentHint();
     return testSelect;
   }
 
