@@ -83,6 +83,14 @@
         </div>
       </div>
 
+      <div class="field-row">
+        <div class="field">
+          <label for="dateAdmitted">Admission date</label>
+          <input type="date" name="dateAdmitted" id="dateAdmitted" value="<%= typeof admissionValue !== 'undefined' ? admissionValue : '' %>" />
+          <p class="hint">The day the pupil joined this school. Leave blank to keep the recorded date. Setting it later than a test's date drops the pupil from that test's marking roster.</p>
+        </div>
+      </div>
+
       <div class="field">
         <label for="password">New password <span style="color:var(--ink-soft); font-size:12px;">(leave blank to keep current)</span></label>
         <input type="text" name="password" id="password" placeholder="Enter new password or leave blank" />

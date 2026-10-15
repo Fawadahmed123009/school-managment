@@ -58,6 +58,13 @@
       </div>
       <div class="field-row">
         <div class="field">
+          <label for="dateAdmitted">Admission date</label>
+          <input type="date" name="dateAdmitted" id="dateAdmitted" value="<%= typeof admissionDefault !== 'undefined' ? admissionDefault : '' %>" required />
+          <p class="hint">Defaults to today &mdash; change it for a pupil who joined earlier or is joining later. A pupil admitted after a test's date is not counted in that test's marking roster.</p>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
           <label for="feeAgreed">Fee agreed (Rs)</label>
           <input type="number" name="feeAgreed" id="feeAgreed" min="0" />
           <p class="hint">Optional. Leave blank to use the fee head's default. Enter 0 for scholarship students.</p>

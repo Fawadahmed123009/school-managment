@@ -12,6 +12,7 @@ const TestResult = require("../../models/Academic/testResult.model");
 const Fees = require("../../models/Fees/fees.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const { normalizeAdmissionDate } = require("../../utils/admissionDate");
 const crypto = require("crypto");
 const { paginate } = require("../../utils/paginate");
 
@@ -94,7 +95,7 @@ const runFamilyMatch = async ({ parentName, parentPhone, parentEmail, whatsappNu
 };
 
 exports.adminRegisterStudentService = async (data, adminId, res) => {
-  const { name, email, password, classLevel, rollNumber, fatherName, address, whatsappNumber, feeAgreed, gender, parentName, parentEmail, parentPhone, relationship, familyAction } = data;
+  const { name, email, password, classLevel, rollNumber, fatherName, address, whatsappNumber, feeAgreed, gender, parentName, parentEmail, parentPhone, relationship, familyAction, dateAdmitted } = data;
 
   // Accept both admins and managers (teachers with isAttendanceManager).
   const [admin, teacher] = await Promise.all([
@@ -129,6 +130,14 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
   if (!address) return responseStatus(res, 400, "failed", "Address is required");
   if (!whatsappNumber) return responseStatus(res, 400, "failed", "WhatsApp contact number is required");
   if (!gender) return responseStatus(res, 400, "failed", "Gender is required");
+
+  // Admission date: validated before the family match, which can create a
+  // Parent document as a side effect. Blank falls through to the model default
+  // (today), so a registration is always admitted on a real date.
+  const admission = normalizeAdmissionDate(dateAdmitted);
+  if (!admission.ok) {
+    return responseStatus(res, 400, "failed", admission.message);
+  }
 
   // ---- Family system: match or create parent ----
   let familyNumber = null;
@@ -171,6 +180,7 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     gender,
     familyNumber,
     parent: parentId,
+    dateAdmitted: admission.date,
   });
 
   // Link student to parent's children array
@@ -263,6 +273,16 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
     return responseStatus(res, 404, "failed", "Student not found");
   }
 
+  // dateAdmitted is handled outside `allowedFields` on purpose: a raw form
+  // string ("13/05/2026", "2026-02-30") must never reach the Date column, and a
+  // BLANK field means "leave the recorded date as it is" — the admission date is
+  // what the test-roster cutoff compares against, so silently clearing it would
+  // change which tests this pupil is expected to have marks for.
+  const admission = normalizeAdmissionDate(data.dateAdmitted);
+  if (!admission.ok) {
+    return responseStatus(res, 400, "failed", admission.message);
+  }
+
   // Build $set from whichever fields the caller provides
   const allowedFields = [
     "name", "email", "fatherName", "address", "whatsappNumber",
@@ -297,6 +317,8 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
       }
     }
   }
+
+  if (admission.date) $set.dateAdmitted = admission.date;
 
   // If password provided, hash it and add to update
   if (data.password) {

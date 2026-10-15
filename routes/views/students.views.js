@@ -12,6 +12,7 @@ const {
 const { getAllClassesService } = require("../../services/academic/class.service");
 const { adminResetParentPasswordService } = require("../../services/parents/parents.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
+const { admissionDateInputValue, todayAdmissionDate } = require("../../utils/admissionDate");
 const Parent = require("../../models/Parents/parents.model");
 const Student = require("../../models/Students/students.model");
 
@@ -163,6 +164,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       },
       filterOptions: { grades, sections, statuses: STATUS_OPTIONS },
       totalStudents,
+      admissionDefault: todayAdmissionDate(),
       loadError: null,
       schoolName: res.locals.schoolName,
     });
@@ -177,6 +179,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       filters: { class: "", grade: "", section: "", status: "", name: "", parent: "", sortBy: "" },
       filterOptions: { grades: [], sections: [], statuses: STATUS_OPTIONS },
       totalStudents: 0,
+      admissionDefault: todayAdmissionDate(),
       loadError: err.message,
       schoolName: res.locals.schoolName,
     });
@@ -188,6 +191,7 @@ router.post("/students/create", requireAdminOrManager(), async (req, res) => {
     "name", "email", "password", "classLevel", "rollNumber", "fatherName",
     "address", "whatsappNumber", "feeAgreed", "gender", "parentName",
     "parentEmail", "parentPhone", "relationship", "familyAction",
+    "dateAdmitted",
   ];
   const data = {};
   fields.forEach((f) => { if (req.body[f] !== undefined) data[f] = req.body[f]; });
@@ -245,6 +249,7 @@ router.get("/students/:studentId/edit", requireAdminOrManager(), async (req, res
       user: req.user,
       student,
       classes: classes || [],
+      admissionValue: admissionDateInputValue(student.dateAdmitted),
       editError: req.query.error || null,
       successMsg: req.query.parentUpdated === "1" ? "Parent details updated successfully." : req.query.parentAdded === "1" ? "Parent details added and linked successfully." : null,
       schoolName: res.locals.schoolName,
