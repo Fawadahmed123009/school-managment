@@ -15,6 +15,66 @@ const PDF_DIR = path.join(__dirname, "../../tmp/pdfs");
 // Ensure PDF output directory exists
 if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
 
+// ─── Download filename (Content-Disposition) ─────────────────────────────────
+// The PDF is INTENTIONALLY served at an unguessable UUID URL (/reports/pdf/:uuid)
+// for security — it is shared over WhatsApp with no login, so the URL itself must
+// stay opaque. This block does NOT touch the URL; it only decides the human-
+// readable FILENAME the browser saves the download as. We can't put the name in
+// the URL (that would leak the student identity into a shared link path and break
+// the UUID-as-secret guarantee), so each generated PDF drops a `{uuid}.json`
+// sidecar next to the file recording the desired download name; the serve routes
+// read it and set it on the Content-Disposition header. The existing hourly
+// cleanup sweeps every file in PDF_DIR, so sidecars are removed alongside the PDF.
+
+// Turn arbitrary text (a pupil name, subject, test name) into a safe filename
+// segment: strip characters illegal in filenames across Windows/macOS/Linux,
+// collapse whitespace to single underscores, and cap the length so a very long
+// name can't blow past filesystem path limits.
+const sanitizeFilenamePart = (value) =>
+  String(value || "")
+    .replace(/[^\w\s-]/g, "") // drop everything but letters, digits, underscore, hyphen
+    .replace(/\s+/g, "_") // spaces (and runs of them) → single underscore
+    .replace(/_+/g, "_") // collapse any repeated underscores
+    .replace(/^_|_$/g, "") // trim leading/trailing underscores
+    .slice(0, 80); // keep the full composed name well under PATH_MAX
+
+// Format a class grade for a filename segment: "9" → "Grade9", "PG" → "GradePG".
+// Empty/unknown grade yields null so callers can skip it gracefully.
+const gradeLabelForFilename = (gradeLevel) => {
+  const g = String(gradeLevel || "").trim();
+  return g ? `Grade${sanitizeFilenamePart(g)}` : null;
+};
+
+// Build a clean, extension-suffixed download filename from ordered name parts.
+// Filters out empty segments, joins with underscores, guarantees a `.pdf` suffix.
+const buildDownloadFilename = (parts) => {
+  const clean = parts.filter(Boolean).map((p) => sanitizeFilenamePart(p)).filter(Boolean);
+  const base = (clean.join("_") || "report").replace(/\.pdf$/i, "");
+  return `${base}.pdf`;
+};
+
+// Persist the chosen download name for a generated PDF (sidecar JSON keyed by
+// uuid). Best-effort: a sidecar write failure must never break report
+// generation — the serve route simply falls back to the generic uuid filename.
+const writePdfMeta = (uuid, downloadName) => {
+  try {
+    fs.writeFileSync(path.join(PDF_DIR, `${uuid}.json`), JSON.stringify({ downloadName }));
+  } catch {
+    // ignore — a missing sidecar is handled at serve time
+  }
+};
+
+// Read back the stored download name for a uuid, or null when no sidecar exists.
+exports.getPdfDownloadName = (uuid) => {
+  try {
+    const raw = fs.readFileSync(path.join(PDF_DIR, `${uuid}.json`), "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.downloadName ? parsed.downloadName : null;
+  } catch {
+    return null;
+  }
+};
+
 // ─── Photo helpers ─────────────────────────────────────────────────────────────
 // Shared resolver (handles remote URLs AND local /uploads paths) lives in
 // utils/studentPhoto.js so exports and reports behave identically on
@@ -196,10 +256,18 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
   let studentName = null;
   let whatsappNumber = null;
   let studentPhotoUrl = null;
+  let studentGradeLevel = null;
   if (uniqueStudents.length === 1) {
     studentName = rows[0].studentName;
     whatsappNumber = rows[0].whatsappNumber;
     studentPhotoUrl = results[0].student.photoUrl || null;
+    // Resolve the pupil's grade for the download filename. classLevel is stored
+    // as a reference only here (not deep-populated), so look up its gradeLevel.
+    const clsId = results[0].student.classLevel;
+    if (clsId) {
+      const cls = await ClassLevel.findById(clsId).select("gradeLevel").lean();
+      studentGradeLevel = cls ? cls.gradeLevel : null;
+    }
   }
 
   // Period label under the header: session name plus phase/week narrowing,
@@ -212,7 +280,7 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
 
   const mode = detectAnalyticsMode(rows, period);
 
-  return { rows, studentName, whatsappNumber, studentPhotoUrl, periodLabel, mode };
+  return { rows, studentName, whatsappNumber, studentPhotoUrl, studentGradeLevel, periodLabel, mode };
 }
 
 // ─── Session-report period filtering helpers ───────────────────────────────
@@ -518,7 +586,7 @@ async function gatherSessionReport(sessionId, studentId, period = {}) {
 
   // Populate class level name
   const classLevelPop = student.classLevel
-    ? await require("../../models/Academic/class.model").findById(student.classLevel).select("name")
+    ? await require("../../models/Academic/class.model").findById(student.classLevel).select("name gradeLevel")
     : null;
 
   const periodLabel = await resolvePeriodLabel(session, period);
@@ -532,6 +600,7 @@ async function gatherSessionReport(sessionId, studentId, period = {}) {
       whatsappNumber: student.whatsappNumber,
       fatherName: student.fatherName,
       className: classLevelPop ? classLevelPop.name : "—",
+      gradeLevel: classLevelPop ? classLevelPop.gradeLevel : null,
       photoUrl: student.photoUrl,
     },
     phases: phaseBlocks,
@@ -555,10 +624,12 @@ async function gatherSessionReportsBulk({ sessionId, studentIds, period = {} }) 
     .lean();
 
   const classIds = [...new Set(students.map((s) => s.classLevel).filter(Boolean))];
-  const classDocs = await ClassLevel.find({ _id: { $in: classIds } }).select("name").lean();
+  const classDocs = await ClassLevel.find({ _id: { $in: classIds } }).select("name gradeLevel").lean();
   const classNameById = {};
+  const gradeById = {};
   classDocs.forEach((c) => {
     classNameById[String(c._id)] = c.name;
+    gradeById[String(c._id)] = c.gradeLevel || null;
   });
 
   const allTests = await Test.find({ session: sessionId }).populate("subject", "name displayName").populate("week", "name startDate").lean();
@@ -595,6 +666,7 @@ async function gatherSessionReportsBulk({ sessionId, studentIds, period = {} }) 
         whatsappNumber: student.whatsappNumber,
         fatherName: student.fatherName,
         className: classNameById[String(student.classLevel)] || "—",
+        gradeLevel: gradeById[String(student.classLevel)] || null,
         photoUrl: student.photoUrl,
       },
       phases: phaseBlocks,
@@ -1279,6 +1351,22 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
+// Resolve a class level id (a plain ObjectId or a populated { _id } doc) to its
+// grade label for a filename (e.g. "Grade9"), or null when unresolvable.
+async function gradeLabelFromClassLevel(ref) {
+  const id = ref && ref._id ? ref._id : ref;
+  if (!id) return null;
+  const cls = await ClassLevel.findById(id).select("gradeLevel").lean();
+  return cls ? gradeLabelForFilename(cls.gradeLevel) : null;
+}
+
+// Short ISO date (YYYY-MM-DD) for a generic multi-student filename.
+const isoDate = (d) => {
+  const date = d ? new Date(d) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+};
+
 exports.generateResultSheetPDF = async (testId, schoolName, filters) => {
   const data = await gatherResultSheet(testId);
   if (!data) throw new Error("Test not found");
@@ -1293,20 +1381,55 @@ exports.generateResultSheetPDF = async (testId, schoolName, filters) => {
       rollKey(a).localeCompare(rollKey(b), undefined, { numeric: true, sensitivity: "base" }) ||
       nameKey(a).localeCompare(nameKey(b), undefined, { numeric: true, sensitivity: "base" })
   );
-  return generateResultSheetPDF(data, schoolName);
+  const result = await generateResultSheetPDF(data, schoolName);
+
+  // Download filename: a sheet narrowed to exactly one pupil is named after
+  // them (name + grade); any wider sheet gets a class/subject/date name since
+  // there is no single student to name it after. The subject/test meta is
+  // always present from gatherResultSheet.
+  const subjectLabel = data.test.subject ? data.test.subject.displayName || data.test.subject.name : null;
+  let downloadName;
+  if (data.results.length === 1 && data.results[0].student) {
+    const stu = data.results[0].student;
+    const grade = await gradeLabelFromClassLevel(stu.classLevel);
+    downloadName = buildDownloadFilename([stu.name, grade, "ResultSheet"]);
+  } else {
+    downloadName = buildDownloadFilename([subjectLabel, data.test.name, isoDate(data.test.date), "ResultSheet"]);
+  }
+  writePdfMeta(result.uuid, downloadName);
+  return result;
 };
 
 exports.generateAnalyticsPDF = async (filters, schoolName, scope) => {
   const data = await gatherAnalytics(filters, scope);
   const photoResult = data.studentPhotoUrl ? await resolveStudentPhoto(data.studentPhotoUrl) : null;
-  return generateAnalyticsPDF(data, schoolName, filters, photoResult);
+  const result = await generateAnalyticsPDF(data, schoolName, filters, photoResult);
+
+  // A report narrowed to exactly one pupil (gatherAnalytics sets studentName)
+  // is named after them with their grade; the multi-pupil roll-up gets a
+  // period-labelled generic name (there is no single student to name it after).
+  let downloadName;
+  if (data.studentName) {
+    downloadName = buildDownloadFilename([data.studentName, gradeLabelForFilename(data.studentGradeLevel), "Analytics"]);
+  } else {
+    downloadName = buildDownloadFilename(["Analytics", data.periodLabel || "All-Results", isoDate(), "Report"]);
+  }
+  writePdfMeta(result.uuid, downloadName);
+  return result;
 };
 
 exports.generateSessionReportPDF = async (sessionId, studentId, schoolName, period = {}) => {
   const data = await gatherSessionReport(sessionId, studentId, period);
   if (!data) throw new Error("Session or student not found");
   const photoResult = await resolveStudentPhoto(data.student.photoUrl);
-  return renderSessionReportPdf(data, schoolName, photoResult);
+  const result = await renderSessionReportPdf(data, schoolName, photoResult);
+
+  // A session report card is always exactly one pupil → name + grade.
+  writePdfMeta(
+    result.uuid,
+    buildDownloadFilename([data.student.name, gradeLabelForFilename(data.student.gradeLevel), "ReportCard"])
+  );
+  return result;
 };
 
 // Bulk: one PDF per student for a class / set of sections, optionally narrowed
@@ -1341,6 +1464,11 @@ exports.generateSessionReportBulkPDFs = async ({ sessionId, studentIds, phaseId,
     }
 
     const rendered = await renderSessionReportPdf(item.data, schoolName, photoResult);
+    // Each bulk card is one pupil → name + grade, same as the single-student card.
+    writePdfMeta(
+      rendered.uuid,
+      buildDownloadFilename([stu.name, gradeLabelForFilename(stu.gradeLevel), "ReportCard"])
+    );
     reports.push({
       ...base,
       status: "generated",

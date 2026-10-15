@@ -435,8 +435,11 @@ exports.servePdf = async (req, res) => {
   const filePath = pdfReportService.getPdfPath(req.params.uuid);
   if (!filePath) return res.status(404).send("PDF not found or expired");
 
+  // Opaque UUID URL is unchanged; only the saved filename is personalised,
+  // with a generic fallback when no sidecar is present.
+  const downloadName = pdfReportService.getPdfDownloadName(req.params.uuid) || `report-${req.params.uuid.slice(0, 8)}.pdf`;
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="report-${req.params.uuid.slice(0, 8)}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="${downloadName}"`);
   const stream = fs.createReadStream(filePath);
   stream.pipe(res);
   stream.on("error", () => res.status(500).send("Error reading PDF"));

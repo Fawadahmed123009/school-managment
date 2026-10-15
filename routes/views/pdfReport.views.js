@@ -14,8 +14,12 @@ publicRouter.get("/reports/pdf/:uuid", (req, res) => {
   const filePath = pdfReportService.getPdfPath(req.params.uuid);
   if (!filePath) return res.status(404).send("PDF not found or expired");
 
+  // The serving URL stays the opaque UUID (the security guarantee for WhatsApp
+  // sharing) — only the saved FILENAME is personalised. Fall back to the generic
+  // uuid name when no sidecar exists (e.g. a PDF generated before this feature).
+  const downloadName = pdfReportService.getPdfDownloadName(req.params.uuid) || `report-${req.params.uuid.slice(0, 8)}.pdf`;
   res.setHeader("Content-Type", "application/pdf");
-  res.setHeader("Content-Disposition", `inline; filename="report-${req.params.uuid.slice(0, 8)}.pdf"`);
+  res.setHeader("Content-Disposition", `inline; filename="${downloadName}"`);
   const stream = fs.createReadStream(filePath);
   stream.pipe(res);
   stream.on("error", () => res.status(500).send("Error reading PDF"));
