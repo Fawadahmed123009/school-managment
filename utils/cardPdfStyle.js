@@ -14,7 +14,8 @@ const path = require("path");
  *   • A thin outer frame inset 24pt from the page edges, repeated on every page.
  *   • Centered logo + school name + report title + optional subtitle, with a
  *     short horizontal rule beneath.
- *   • A small centered footer above the bottom frame edge.
+ *   • A small centered footer above the bottom frame edge: company branding
+ *     ("Skoo AI · 0337-6795000") with the generation timestamp beneath it.
  *   • Label/value info cells and bordered data tables using the same 0.5–0.75pt
  *     black rule weight; no fills, no colored headers or rows.
  */
@@ -64,7 +65,18 @@ function createCardChrome(doc, { schoolName, title, subtitle }) {
     doc.moveTo(70, yy).lineTo(pw - 70, yy).lineWidth(0.75).strokeColor(CARD_BLACK).stroke();
 
     // Footer must stay above doc.page.maxY() — text drawn past the bottom
-    // margin makes pdfkit silently open a new page and shift the whole body.
+    // margin makes pdfkit silently open a new page and shift the whole body
+    // (and, inside this pageAdded paint hook, recurse until the stack
+    // overflows). Two compact in-frame lines: company branding on top, the
+    // generation timestamp below. The LOWER line sits at ph-62 — the largest
+    // y still safely inside maxY (A4 height 792, bottom margin 50) — with the
+    // branding line stacked above it at ph-72.
+    doc.font("Helvetica-Bold").fontSize(7).fillColor(CARD_BLACK).text(
+      "SkooTech  \u00B7  0337-6795000",
+      40,
+      ph - 72,
+      { width: pw - 80, align: "center", lineBreak: false }
+    );
     doc.font("Helvetica").fontSize(7).fillColor(CARD_BLACK).text(
       `Generated ${new Date().toLocaleString()} \u2014 School Management System`,
       40,
