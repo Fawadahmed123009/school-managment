@@ -15,7 +15,7 @@ const path = require("path");
  *   • Centered logo + school name + report title + optional subtitle, with a
  *     short horizontal rule beneath.
  *   • A small centered footer above the bottom frame edge: company branding
- *     ("Skoo AI · 0337-6795000") with the generation timestamp beneath it.
+ *     ("SkooTech · 0337-6795000") with the generation timestamp beneath it.
  *   • Label/value info cells and bordered data tables using the same 0.5–0.75pt
  *     black rule weight; no fills, no colored headers or rows.
  */
