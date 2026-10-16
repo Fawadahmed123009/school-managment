@@ -58,7 +58,7 @@ document.addEventListener('DOMContentLoaded', function () {
               maintainAspectRatio: false,
               scales: {
                 y: { beginAtZero: true, max: 100, ticks: { callback: function (v) { return v + '%'; } } },
-                x: { grid: { display: false } }
+                x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } }
               },
               plugins: {
                 legend: { display: false },
@@ -76,6 +76,50 @@ document.addEventListener('DOMContentLoaded', function () {
         } else {
           attCanvas.style.display = 'none';
           if (attEmpty) attEmpty.style.display = 'flex';
+        }
+      }
+
+      // ── Attendance present/absent/late donut (admin/manager) ──
+      // Reuses the same 30-day attendance aggregation the trend line above is
+      // drawn from (charts.attendanceBreakdown = { present, absent, late }) —
+      // no second query. Guarded on its own canvas, so the parent portal (which
+      // has neither #dashboard-data nor this canvas) is unaffected.
+      var donutCanvas = document.getElementById('attendanceBreakdownChart');
+      var donutEmpty = document.getElementById('attendanceBreakdownEmpty');
+      if (donutCanvas) {
+        var bd = charts.attendanceBreakdown || { present: 0, absent: 0, late: 0 };
+        var bdTotal = (bd.present || 0) + (bd.absent || 0) + (bd.late || 0);
+        if (bdTotal > 0) {
+          new Chart(donutCanvas, {
+            type: 'doughnut',
+            data: {
+              labels: ['Present', 'Absent', 'Late'],
+              datasets: [{
+                data: [bd.present, bd.absent, bd.late],
+                backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+                borderWidth: 0,
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              cutout: '62%',
+              plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                  callbacks: {
+                    label: function (ctx) {
+                      var pct = Math.round((ctx.parsed / bdTotal) * 1000) / 10;
+                      return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%)';
+                    }
+                  }
+                }
+              }
+            }
+          });
+        } else {
+          donutCanvas.style.display = 'none';
+          if (donutEmpty) donutEmpty.style.display = 'flex';
         }
       }
 
@@ -179,41 +223,32 @@ document.addEventListener('DOMContentLoaded', function () {
       }
 
       // ── Fee collection: admin only (#feeCollectionChart) ──
-      // Data shape: [{ month, collected, outstanding }]
+      // Pie of collected Rs per month (was a grouped bar). Each slice is one
+      // month's collected total; empty-state shows when nothing has landed yet.
       var feeCanvas = document.getElementById('feeCollectionChart');
       var feeEmpty = document.getElementById('feeEmpty');
       if (feeCanvas) {
-        var feeCollection = charts.feeCollection || [];
+        var feeCollection = (charts.feeCollection || []).filter(function (d) { return (d.collected || 0) > 0; });
         if (feeCollection.length > 0) {
+          var feePalette = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#ef4444'];
           new Chart(feeCanvas, {
-            type: 'bar',
+            type: 'pie',
             data: {
               labels: feeCollection.map(function (d) { return d.month; }),
-              datasets: [
-                {
-                  label: 'Collected',
-                  data: feeCollection.map(function (d) { return d.collected; }),
-                  backgroundColor: '#10b981',
-                },
-                {
-                  label: 'Outstanding',
-                  data: feeCollection.map(function (d) { return d.outstanding; }),
-                  backgroundColor: '#ef4444',
-                }
-              ]
+              datasets: [{
+                data: feeCollection.map(function (d) { return d.collected; }),
+                backgroundColor: feeCollection.map(function (d, i) { return feePalette[i % feePalette.length]; }),
+                borderWidth: 0,
+              }]
             },
             options: {
               responsive: true,
               maintainAspectRatio: false,
-              scales: {
-                y: { beginAtZero: true, ticks: { callback: function (v) { return 'Rs ' + v.toLocaleString(); } } },
-                x: { grid: { display: false } }
-              },
               plugins: {
-                legend: { display: true },
+                legend: { position: 'bottom' },
                 tooltip: {
                   callbacks: {
-                    label: function (ctx) { return ctx.dataset.label + ': Rs ' + ctx.parsed.y.toLocaleString(); }
+                    label: function (ctx) { return ctx.label + ': Rs ' + ctx.parsed.toLocaleString(); }
                   }
                 }
               }
@@ -277,61 +312,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
       }
 
-      // ── Teacher test records: total tests vs marked (admin/manager) ──
-      // Data shape: charts.teacherTests = [{ teacher, total, marked }]
-      // Stacked so each bar's full length is the teacher's total held tests,
-      // split into the part already fully marked and the part still awaiting it.
-      var ttCanvas = document.getElementById('teacherTestsChart');
-      var ttEmpty = document.getElementById('teacherTestsEmpty');
-      if (ttCanvas) {
-        var teacherTests = charts.teacherTests || [];
-        if (teacherTests.length > 0) {
-          new Chart(ttCanvas, {
-            type: 'bar',
-            data: {
-              labels: teacherTests.map(function (d) { return d.teacher; }),
-              datasets: [
-                {
-                  label: 'Marked',
-                  data: teacherTests.map(function (d) { return d.marked; }),
-                  backgroundColor: '#10b981',
-                  stack: 's',
-                },
-                {
-                  label: 'Awaiting marking',
-                  data: teacherTests.map(function (d) { return d.total - d.marked; }),
-                  backgroundColor: '#f59e0b',
-                  stack: 's',
-                }
-              ]
-            },
-            options: {
-              indexAxis: 'y',
-              responsive: true,
-              maintainAspectRatio: false,
-              scales: {
-                x: { stacked: true, beginAtZero: true, ticks: { stepSize: 1, precision: 0 } },
-                y: { stacked: true, grid: { display: false } }
-              },
-              plugins: {
-                legend: { display: true },
-                tooltip: {
-                  callbacks: {
-                    label: function (ctx) { return ctx.dataset.label + ': ' + ctx.parsed.x + ' test' + (ctx.parsed.x === 1 ? '' : 's'); },
-                    footer: function (items) {
-                      var d = teacherTests[items[0].dataIndex];
-                      return d ? 'Total: ' + d.total + ' · marked ' + d.marked : '';
-                    }
-                  }
-                }
-              }
-            }
-          });
-        } else {
-          ttCanvas.style.display = 'none';
-          if (ttEmpty) ttEmpty.style.display = 'flex';
-        }
-      }
+      // ── Teacher test records are now rendered server-side as a table
+      // (views/partials/dashboard-teacher-tests.ejs), so there is no canvas for
+      // this on the dashboard any more. Nothing to draw here.
     }
   }
 
@@ -436,5 +419,35 @@ document.addEventListener('DOMContentLoaded', function () {
         if (subjEmpty) subjEmpty.style.display = 'flex';
       }
     }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
+// 3. TOP PERFORMERS — per-grade tab switcher
+// ══════════════════════════════════════════════════════════════
+// Runs independently of Chart.js so the grade tabs still work even if the
+// chart CDN fails. Each list is fully server-rendered; switching a tab only
+// toggles which .tp-list is visible — no refetch, no re-templating, no nav.
+// Scoped to the tab's own .panel: Top Performers and At-Risk each carry a
+// full set of pre-rendered .tp-list grades, and the two groups must toggle
+// independently.
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.panel').forEach(function (panel) {
+    var tabs = panel.querySelectorAll('button.tp-tab');
+    var lists = panel.querySelectorAll('.tp-list');
+    if (!tabs.length || !lists.length) return;
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        var grade = tab.getAttribute('data-grade');
+        tabs.forEach(function (t) {
+          var on = t === tab;
+          t.classList.toggle('active', on);
+          t.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        lists.forEach(function (list) {
+          list.style.display = list.getAttribute('data-grade') === grade ? '' : 'none';
+        });
+      });
+    });
   });
 });

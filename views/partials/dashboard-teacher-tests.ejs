@@ -1,0 +1,53 @@
+<%
+  // Teacher test records — rendered as a compact TABLE (not a chart).
+  // Why a table over a bar chart here:
+  //   • Teacher names are long free-text labels that truncate badly against a
+  //     chart axis, and this panel now shares a half-width grid column with the
+  //     fee chart, leaving even less room for axis labels.
+  //   • The payload is low-cardinality integer counts (held / marked / awaiting)
+  //     that read faster as aligned numbers than as stacked bars.
+  //   • It scales to a long staff list with a scroll instead of collapsing bars.
+  // Data: charts.teacherTests = [{ teacher, total, marked }] (from the marking
+  // follow-up summary, already sorted by workload).
+  var ttr = (typeof charts !== 'undefined' && charts.teacherTests) ? charts.teacherTests : [];
+%>
+<div class="panel">
+  <div class="panel-head">
+    <h2>Teacher test records <span class="chart-subtitle">Tests held vs marked · all teachers</span></h2>
+  </div>
+  <% if (ttr.length > 0) { %>
+  <div class="panel-body" style="padding:0;max-height:300px;overflow-y:auto;">
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Teacher</th><th class="num">Held</th><th class="num">Marked</th><th class="num">Awaiting</th></tr>
+        </thead>
+        <tbody>
+          <% ttr.forEach(function(d) { %>
+          <% var awaiting = Math.max(0, (d.total || 0) - (d.marked || 0)); %>
+          <tr>
+            <td><strong><%= d.teacher %></strong></td>
+            <td class="num mono"><%= d.total %></td>
+            <td class="num"><span class="pill" style="font-size:11px;background:rgba(5,150,105,0.1);color:var(--paid);"><%= d.marked %></span></td>
+            <td class="num">
+              <% if (awaiting > 0) { %>
+                <span class="pill" style="font-size:11px;background:rgba(245,158,11,0.1);color:var(--review);"><%= awaiting %></span>
+              <% } else { %>
+                <span style="font-size:12px;color:var(--ink-soft);">—</span>
+              <% } %>
+            </td>
+          </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <% } else { %>
+  <div class="panel-body">
+    <div class="empty" style="padding:24px;">
+      <div class="display">No test records yet</div>
+      <p>No past-dated tests have been assigned to teachers.</p>
+    </div>
+  </div>
+  <% } %>
+</div>
