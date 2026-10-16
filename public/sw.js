@@ -13,7 +13,11 @@
 //
 // Bump CACHE_VERSION when static assets change in a way that must invalidate.
 // v2: regenerated /images/icons/* (padded) — drop the stale edge-to-edge copies.
-const CACHE_VERSION = "v2";
+// v3: redesigned test cascade (shared test-cascade-filters.js) — the old
+//     cache-first copy never fetched /cascade/sessions on load, leaving the
+//     Session dropdown stuck on "Loading sessions..." for real teachers.
+// v4: "All sections" option added to the test cascade.
+const CACHE_VERSION = "v4";
 const STATIC_CACHE = `avenir-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 

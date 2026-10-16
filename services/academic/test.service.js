@@ -422,16 +422,27 @@ exports.getTeacherScopedTestsService = async (teacherId, res) => {
 };
 
 // ── Cascade API services ─────────────────────────────────────────────────────
-// These support the three-level Class → Subject → Test dropdown cascade
-// for teacher test-marking views.
+// Seven-level step-down cascade for the teacher marking pages (manual
+// mark-entry and OCR):
+//   Session → Grade → Section → Phase → Week → Subject → Test
+// Every level is server-derived from the teacher's own Assignment records: a
+// level only ever offers values that at least one (subject, classLevel)
+// assignment pair of THIS teacher actually has a test for. Client-supplied ids
+// are never trusted — they only ever narrow the pair-scoped query, so a
+// foreign id can at most produce an empty list or a 403, never foreign data.
+//
+// Performance: the data is tiny (<300 documents), the felt cost is the number
+// of SERIALIZED Atlas round-trips. Each level therefore resolves its
+// independent reads (assignment pairs, distinct ids, "unassigned" counts,
+// session doc) in as few Promise.all batches as the dependencies allow, and
+// every read is .lean().
 
 /**
- * Level 1: Get distinct classes the teacher is assigned to.
+ * Legacy level kept for the mark-entry pages' server-rendered "No classes
+ * assigned" empty state: distinct classes the teacher is assigned to.
  * Returns classLevel documents with _id and name.
  */
 exports.getTeacherAssignedClassesService = async (teacherId, res) => {
-  const Assignment = require("../../models/Academic/assignment.model");
-
   const assignments = await Assignment.find({ teacher: teacherId })
     .distinct("classLevel");
 
@@ -446,85 +457,293 @@ exports.getTeacherAssignedClassesService = async (teacherId, res) => {
   return responseStatus(res, 200, "success", classes);
 };
 
-/**
- * Level 2: Get distinct subjects the teacher is assigned to teach
- * across one or more classes (union). Accepts a comma-separated string
- * of classLevel IDs or a single ID. Returns each subject annotated with
- * the class IDs it applies to.
- *
- * Security: validates that the teacher is actually assigned to EVERY
- * requested classLevel before returning results.
- */
-exports.getTeacherAssignedSubjectsService = async (teacherId, classLevelParam, res) => {
-  const Assignment = require("../../models/Academic/assignment.model");
-
-  if (!classLevelParam) {
-    return responseStatus(res, 400, "failed", "classLevel is required");
-  }
-
-  // Normalise to array of trimmed, non-empty IDs
-  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-
-  if (classLevelIds.length === 0) {
-    return responseStatus(res, 400, "failed", "classLevel is required");
-  }
-
-  // Security: verify teacher is actually assigned to ALL requested classLevels
-  // Use distinct() to count unique classes, not assignment documents.
-  // countDocuments would be wrong: a teacher with 2 subjects for 4 classes
-  // yields 8 docs but only covers 4 classes — must reject, not pass.
-  const assignedClassLevels = await Assignment.distinct("classLevel", {
-    teacher: teacherId,
-    classLevel: { $in: classLevelIds },
-  });
-
-  if (assignedClassLevels.length < classLevelIds.length) {
-    return responseStatus(res, 403, "failed", "You are not assigned to one or more of the selected classes");
-  }
-
-  // Get all assignments across the selected classes
-  const assignments = await Assignment.find({
-    teacher: teacherId,
-    classLevel: { $in: classLevelIds },
-  }).select("subject classLevel").lean();
-
-  if (assignments.length === 0) {
-    return responseStatus(res, 200, "success", []);
-  }
-
-  // Group subject → set of classLevel IDs
-  const subjectClassMap = {};
-  assignments.forEach((a) => {
-    const subId = a.subject.toString();
-    if (!subjectClassMap[subId]) subjectClassMap[subId] = new Set();
-    subjectClassMap[subId].add(a.classLevel.toString());
-  });
-
-  const subjectIds = Object.keys(subjectClassMap);
-  const subjects = await Subject.find({ _id: { $in: subjectIds } })
-    .select("_id name displayName")
-    .sort("name");
-
-  // Build response with class-level annotations
-  const result = subjects.map((s) => ({
-    _id: s._id,
-    name: s.name,
-    displayName: s.displayName,
-    classLevels: Array.from(subjectClassMap[s._id.toString()]),
-  }));
-
-  return responseStatus(res, 200, "success", result);
+// PG first, then 1–12 numerically (gradeLevel is stored as a string) — the
+// same ordering the marks-audit and PDF-report cascades use, so pages agree.
+const GRADE_ORDER = ["PG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+const gradeRank = (g) => {
+  const i = GRADE_ORDER.indexOf(String(g));
+  return i === -1 ? GRADE_ORDER.length : i;
 };
 
 /**
- * Level 3: Get tests matching the selected subject AND covering at least
- * one of the selected classes. Accepts a comma-separated string of
- * classLevel IDs or a single ID.
+ * The ONE scoping source for every cascade level: the teacher's own
+ * (subject, classLevel) assignment pairs, lean, fetched once per request.
+ */
+async function getTeacherAssignmentPairs(teacherId) {
+  return Assignment.find({ teacher: teacherId }).select("subject classLevel").lean();
+}
+
+/**
+ * A Test query matching a set of assignment pairs: each clause pins ONE
+ * subject together with ONE classLevel the teacher is actually assigned to
+ * teach it in. Pair-wise on purpose — two separate $ins would over-match
+ * (a test for a subject the teacher holds only in a DIFFERENT section of the
+ * same grade would slip through), which is exactly the section leak this
+ * cascade must never have.
+ */
+function pairMatch(pairs) {
+  return { $or: pairs.map((p) => ({ subject: p.subject, classLevels: p.classLevel })) };
+}
+
+/** Session filter from the client: "none" = the bucket of tests without a session. */
+function sessionMatch(sessionParam) {
+  return sessionParam === "none" ? { session: null } : { session: sessionParam };
+}
+
+/**
+ * Guard shared by every level below Grade: the teacher must hold at least one
+ * assignment for every selected classLevel (section). Accepts a single section
+ * id OR a comma-separated list — the "All sections" cascade option sends every
+ * section of the chosen grade, and the guard admits only the union of pairs
+ * behind those ids. Returns the matching pairs, or null after writing a 403 —
+ * a crafted id (or one smuggled into a list) can never read past this point.
+ * The comparison is against DB-sourced pair ids, so any malformed or foreign
+ * string simply fails to match (fail closed).
+ */
+function sectionPairsOrForbidden(pairs, sectionParam, res) {
+  const forbidden = () => {
+    responseStatus(res, 403, "failed", "You are not assigned to this class");
+    return null;
+  };
+  const wanted = String(sectionParam)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (wanted.length === 0) return forbidden();
+
+  const assigned = new Set(pairs.map((p) => String(p.classLevel)));
+  // EVERY requested id must be assigned — a list mixing one valid section with
+  // a foreign id is rejected outright, never silently narrowed.
+  if (wanted.some((id) => !assigned.has(id))) return forbidden();
+
+  const wantedSet = new Set(wanted);
+  const sectionPairs = pairs.filter((p) => wantedSet.has(String(p.classLevel)));
+  if (sectionPairs.length === 0) return forbidden();
+  return sectionPairs;
+}
+
+/**
+ * Level 1 — Session: distinct sessions across ALL of the teacher's assigned
+ * tests. Deliberately takes no client filters: the teacher's placements are
+ * always placement-consistent (validateTestPlacement), so any assigned test
+ * that has a session makes that session legitimately selectable at level 1.
+ * hasUnassigned surfaces the "tests with no session" bucket.
+ */
+exports.getTeacherCascadeSessionsService = async (teacherId, res) => {
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  if (pairs.length === 0) {
+    return responseStatus(res, 200, "success", { sessions: [], hasUnassigned: false });
+  }
+
+  const base = pairMatch(pairs);
+  // Independent reads → one parallel batch (was 2 serialized round-trips).
+  const [sessionIds, unassignedCount] = await Promise.all([
+    Test.distinct("session", { ...base, session: { $ne: null } }),
+    Test.countDocuments({ ...base, session: null }),
+  ]);
+
+  const sessions = sessionIds.length > 0
+    ? await TestSession.find({ _id: { $in: sessionIds } }).select("name").sort("name").lean()
+    : [];
+
+  return responseStatus(res, 200, "success", { sessions, hasUnassigned: unassignedCount > 0 });
+};
+
+/**
+ * Level 2 — Grade: distinct grade levels among the teacher's ASSIGNED classes
+ * that actually have a test in the selected session. Grade is derived only
+ * from the teacher's own ClassLevels — school-wide grades never appear.
+ * sessionParam is required (an id, or "none" for tests without a session).
+ */
+exports.getTeacherCascadeGradesService = async (teacherId, sessionParam, res) => {
+  if (!sessionParam) {
+    return responseStatus(res, 400, "failed", "session is required");
+  }
+
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  if (pairs.length === 0) {
+    return responseStatus(res, 200, "success", { grades: [] });
+  }
+
+  const pairClassIds = [...new Set(pairs.map((p) => p.classLevel))];
+  // Both reads depend only on teacherId/session → ONE parallel batch.
+  const [testClassIds, classDocs] = await Promise.all([
+    Test.distinct("classLevels", { ...pairMatch(pairs), ...sessionMatch(sessionParam) }),
+    ClassLevel.find({ _id: { $in: pairClassIds } }).select("gradeLevel").lean(),
+  ]);
+
+  const onTest = new Set(testClassIds.map(String));
+  const grades = [
+    ...new Set(
+      classDocs
+        .filter((d) => d.gradeLevel && onTest.has(String(d._id)))
+        .map((d) => String(d.gradeLevel))
+    ),
+  ].sort((a, b) => gradeRank(a) - gradeRank(b));
+
+  return responseStatus(res, 200, "success", { grades });
+};
+
+/**
+ * Level 3 — Section: the teacher's assigned classes within one grade that
+ * have a test in the selected session. The grade is validated against the
+ * teacher's own classes (a crafted grade yields 403, never another
+ * teacher's sections), and the section list is intersected with the
+ * assignment pairs — never with school-wide classes.
+ */
+exports.getTeacherCascadeSectionsService = async (teacherId, sessionParam, gradeParam, res) => {
+  if (!sessionParam || !gradeParam) {
+    return responseStatus(res, 400, "failed", "session and grade are required");
+  }
+
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  if (pairs.length === 0) {
+    return responseStatus(res, 200, "success", { sections: [] });
+  }
+
+  const pairClassIds = [...new Set(pairs.map((p) => p.classLevel))];
+  const [testClassIds, classDocs] = await Promise.all([
+    Test.distinct("classLevels", { ...pairMatch(pairs), ...sessionMatch(sessionParam) }),
+    ClassLevel.find({ _id: { $in: pairClassIds } }).select("name gradeLevel group section").lean(),
+  ]);
+
+  // Security: the requested grade must be one the teacher is assigned in.
+  const assignedGrades = new Set(classDocs.map((d) => String(d.gradeLevel)));
+  if (!assignedGrades.has(String(gradeParam))) {
+    return responseStatus(res, 403, "failed", "You are not assigned to any class in this grade");
+  }
+
+  const onTest = new Set(testClassIds.map(String));
+  const sections = classDocs
+    .filter((d) => String(d.gradeLevel) === String(gradeParam) && onTest.has(String(d._id)))
+    .map((d) => ({ _id: d._id, name: d.name, gradeLevel: d.gradeLevel, group: d.group, section: d.section }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  return responseStatus(res, 200, "success", { sections });
+};
+
+/**
+ * Level 4 — Phase: distinct phases among tests for the selected
+ * session + the teacher's assigned subjects in the selected section. The
+ * section id is re-verified against the assignment pairs before any Test
+ * read; the three remaining independent reads run in ONE parallel batch.
+ */
+exports.getTeacherCascadePhasesService = async (teacherId, sessionParam, sectionParam, res) => {
+  if (!sessionParam || !sectionParam) {
+    return responseStatus(res, 400, "failed", "session and section are required");
+  }
+  if (sessionParam === "none") {
+    return responseStatus(res, 400, "failed", "A real session is required to list phases");
+  }
+
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  const sectionPairs = sectionPairsOrForbidden(pairs, sectionParam, res);
+  if (!sectionPairs) return undefined;
+
+  const base = { ...pairMatch(sectionPairs), session: sessionParam };
+  const [phaseIds, unassignedCount, sessionDoc] = await Promise.all([
+    Test.distinct("phase", { ...base, phase: { $ne: null } }),
+    Test.countDocuments({ ...base, phase: null }),
+    TestSession.findById(sessionParam).select("phases").lean(),
+  ]);
+
+  // Phase subdocs come from the session document, in their defined order.
+  let phases = [];
+  if (sessionDoc) {
+    const idSet = new Set(phaseIds.map(String));
+    phases = (sessionDoc.phases || [])
+      .filter((p) => idSet.has(String(p._id)))
+      .sort((a, b) => a.order - b.order);
+  }
+
+  return responseStatus(res, 200, "success", { phases, hasUnassigned: unassignedCount > 0 });
+};
+
+/**
+ * Level 5 — Week: weeks of the selected session+phase that actually have a
+ * test for this teacher in the selected section. Same section guard and
+ * pair-scoped match as phases; the two Test reads run in parallel before the
+ * dependent Week lookup.
+ */
+exports.getTeacherCascadeWeeksService = async (teacherId, sessionParam, sectionParam, phaseParam, res) => {
+  const Week = require("../../models/Academic/week.model");
+
+  if (!sessionParam || !sectionParam || !phaseParam) {
+    return responseStatus(res, 400, "failed", "session, section, and phase are required");
+  }
+  if (sessionParam === "none" || phaseParam === "none") {
+    return responseStatus(res, 400, "failed", "A real session and phase are required to list weeks");
+  }
+
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  const sectionPairs = sectionPairsOrForbidden(pairs, sectionParam, res);
+  if (!sectionPairs) return undefined;
+
+  const base = { ...pairMatch(sectionPairs), session: sessionParam, phase: phaseParam };
+  const [weekIds, unassignedCount] = await Promise.all([
+    Test.distinct("week", { ...base, week: { $ne: null } }),
+    Test.countDocuments({ ...base, week: null }),
+  ]);
+
+  const weeks = weekIds.length > 0
+    ? await Week.find({ _id: { $in: weekIds } }).select("name startDate endDate").sort("startDate").lean()
+    : [];
+
+  return responseStatus(res, 200, "success", { weeks, hasUnassigned: unassignedCount > 0 });
+};
+
+/**
+ * Level 6 — Subject: subjects that have a test in the selected
+ * session [+ phase/week when chosen] for the selected section, intersected
+ * with the subjects THIS teacher is assigned to in that section. Because
+ * every upstream filter is part of the Test query, a subject only ever
+ * appears when a markable test actually exists behind it — no dead ends.
+ */
+exports.getTeacherCascadeSubjectsService = async (teacherId, sessionParam, sectionParam, phaseParam, weekParam, res) => {
+  if (!sessionParam || !sectionParam) {
+    return responseStatus(res, 400, "failed", "session and section are required");
+  }
+
+  const pairs = await getTeacherAssignmentPairs(teacherId);
+  const sectionPairs = sectionPairsOrForbidden(pairs, sectionParam, res);
+  if (!sectionPairs) return undefined;
+
+  const match = { ...pairMatch(sectionPairs), ...sessionMatch(sessionParam) };
+  if (phaseParam) {
+    match.phase = phaseParam === "none" ? null : phaseParam;
+  }
+  if (weekParam) {
+    match.week = weekParam === "none" ? null : weekParam;
+  }
+
+  const testSubjectIds = await Test.distinct("subject", match);
+
+  // The pair guard above already restricts to assigned (subject, section)
+  // combinations; intersect once more in memory so a subject can only be
+  // offered when the teacher holds it for this exact section.
+  const assignedSubjects = new Set(sectionPairs.map((p) => String(p.subject)));
+  const scopedIds = testSubjectIds.filter((id) => assignedSubjects.has(String(id)));
+
+  const subjects = scopedIds.length > 0
+    ? await Subject.find({ _id: { $in: scopedIds } }).select("name displayName").sort("name").lean()
+    : [];
+
+  return responseStatus(res, 200, "success", subjects);
+};
+
+/**
+ * Level 7 — Test: tests matching the full upstream chain (section + subject
+ * + optional session/phase/week). classLevel accepts a comma-separated string
+ * of class ids or a single id; "none" resolves session/phase/week to the
+ * no-category bucket.
  *
  * Security: validates that the teacher is actually assigned to this
  * subject for at least one of the selected classes.
+ *
+ * Performance: lean + projection — the dropdown only renders _id/name/date,
+ * and the four populates used to cost four extra serialized Atlas round-trips
+ * per click. Traced every consumer: only public/js/test-cascade-filters.js
+ * reads the payload (label text + id, no document methods).
  */
 exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLevelParam, subjectId, sessionParam, phaseParam, weekParam, res) => {
   const Assignment = require("../../models/Academic/assignment.model");
@@ -582,186 +801,11 @@ exports.getTeacherScopedTestsByClassSubjectService = async (teacherId, classLeve
   }
 
   const tests = await Test.find(query)
-    .populate("subject", "name displayName")
-    .populate("classLevels", "name")
-    .populate("session", "name")
-    .populate("week", "name startDate endDate")
-    .sort({ date: -1 });
+    .select("_id name date")
+    .sort({ date: -1 })
+    .lean();
 
   return responseStatus(res, 200, "success", tests);
-};
-
-// ── Cascade session/phase/week services ───────────────────────────────────────
-// These support the step-down filters (Session → Phase → Week) between the
-// Subject dropdown and the Test dropdown on both the teacher mark-entry and
-// OCR marks-entry pages.
-
-/**
- * Cascade Level 3: Get distinct sessions that have tests for the selected
- * class+subject. Returns session docs annotated with their phases.
- */
-exports.getTeacherCascadeSessionsService = async (teacherId, classLevelParam, subjectId, res) => {
-  const Assignment = require("../../models/Academic/assignment.model");
-
-  if (!classLevelParam || !subjectId) {
-    return responseStatus(res, 400, "failed", "Both classLevel and subject are required");
-  }
-
-  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-
-  // Security: verify teacher is assigned to this subject for at least one selected class
-  const teacherAssigned = await Assignment.findOne({
-    teacher: teacherId,
-    classLevel: { $in: classLevelIds },
-    subject: subjectId,
-  });
-
-  if (!teacherAssigned) {
-    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
-  }
-
-  // Find distinct session IDs from tests matching class+subject
-  const sessionIds = await Test.distinct("session", {
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: { $ne: null },
-  });
-
-  // Check if there are tests without a session
-  const unassignedCount = await Test.countDocuments({
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: null,
-  });
-
-  let sessions = [];
-  if (sessionIds.length > 0) {
-    sessions = await TestSession.find({ _id: { $in: sessionIds } })
-      .select("name phases")
-      .sort("name");
-  }
-
-  return responseStatus(res, 200, "success", {
-    sessions,
-    hasUnassigned: unassignedCount > 0,
-  });
-};
-
-/**
- * Cascade Level 4: Get distinct phases from a session that have tests for
- * the selected class+subject. Phases are subdocuments of TestSession.
- */
-exports.getTeacherCascadePhasesService = async (teacherId, classLevelParam, subjectId, sessionId, res) => {
-  const Assignment = require("../../models/Academic/assignment.model");
-
-  if (!classLevelParam || !subjectId || !sessionId) {
-    return responseStatus(res, 400, "failed", "classLevel, subject, and session are required");
-  }
-
-  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-
-  // Security check
-  const teacherAssigned = await Assignment.findOne({
-    teacher: teacherId,
-    classLevel: { $in: classLevelIds },
-    subject: subjectId,
-  });
-
-  if (!teacherAssigned) {
-    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
-  }
-
-  // Find distinct phase IDs from tests matching class+subject+session
-  const phaseIds = await Test.distinct("phase", {
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: sessionId,
-    phase: { $ne: null },
-  });
-
-  // Check if there are tests without a phase in this session
-  const unassignedCount = await Test.countDocuments({
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: sessionId,
-    phase: null,
-  });
-
-  // Get phase details from the session document
-  const session = await TestSession.findById(sessionId);
-  let phases = [];
-  if (session && phaseIds.length > 0) {
-    phases = session.phases
-      .filter((p) => phaseIds.some((id) => id.toString() === p._id.toString()))
-      .sort((a, b) => a.order - b.order);
-  }
-
-  return responseStatus(res, 200, "success", {
-    phases,
-    hasUnassigned: unassignedCount > 0,
-  });
-};
-
-/**
- * Cascade Level 5: Get weeks for a session+phase that have tests for the
- * selected class+subject.
- */
-exports.getTeacherCascadeWeeksService = async (teacherId, classLevelParam, subjectId, sessionId, phaseId, res) => {
-  const Assignment = require("../../models/Academic/assignment.model");
-  const Week = require("../../models/Academic/week.model");
-
-  if (!classLevelParam || !subjectId || !sessionId || !phaseId) {
-    return responseStatus(res, 400, "failed", "classLevel, subject, session, and phase are required");
-  }
-
-  const classLevelIds = (typeof classLevelParam === "string" ? classLevelParam.split(",") : [classLevelParam])
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-
-  // Security check
-  const teacherAssigned = await Assignment.findOne({
-    teacher: teacherId,
-    classLevel: { $in: classLevelIds },
-    subject: subjectId,
-  });
-
-  if (!teacherAssigned) {
-    return responseStatus(res, 403, "failed", "You are not assigned to teach this subject for any of the selected classes");
-  }
-
-  // Find distinct week IDs from tests matching class+subject+session+phase
-  const weekIds = await Test.distinct("week", {
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: sessionId,
-    phase: phaseId,
-    week: { $ne: null },
-  });
-
-  // Check if there are tests without a week
-  const unassignedCount = await Test.countDocuments({
-    subject: subjectId,
-    classLevels: { $in: classLevelIds },
-    session: sessionId,
-    phase: phaseId,
-    week: null,
-  });
-
-  let weeks = [];
-  if (weekIds.length > 0) {
-    weeks = await Week.find({ _id: { $in: weekIds } })
-      .select("name startDate endDate")
-      .sort("startDate");
-  }
-
-  return responseStatus(res, 200, "success", {
-    weeks,
-    hasUnassigned: unassignedCount > 0,
-  });
 };
 
 // Roster is scoped to only the sections this teacher is assigned to teach for

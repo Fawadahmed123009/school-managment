@@ -1,45 +1,44 @@
 /**
- * Shared step-down cascade filter logic for Session → Phase → Week → Test.
- * Used by both test-cascade-pick.js (teacher mark-entry) and
- * test-cascade-ocr.js (OCR marks entry) to keep filtering consistent.
+ * Shared seven-level step-down cascade filter for marking tests:
+ *   Session → Grade → Section → Phase → Week → Subject → Test
+ * Used by both test-cascade-pick.js (manual mark-entry) and
+ * test-cascade-ocr.js (OCR mark-entry) so the two pages never drift.
  *
- * Expects these DOM elements to exist:
- *   .class-cb              – class checkboxes (managed by the page script)
- *   #subject-select         – subject dropdown (managed by the page script)
- *   #session-field          – wrapper for session dropdown (shown/hidden here)
- *   #session-select         – session dropdown
- *   #phase-field            – wrapper for phase dropdown (shown/hidden here)
- *   #phase-select           – phase dropdown
- *   #week-field             – wrapper for week dropdown (shown/hidden here)
- *   #week-select            – week dropdown
- *   #test-field             – wrapper for test dropdown (shown/hidden here)
- *   #test-select            – test dropdown
+ * Every dropdown is populated ONLY from the server, which derives each level
+ * from the teacher's own Assignment records — the client never needs to know
+ * its classes or subjects up front.
  *
- * The page-specific script must call window.__cascadeFilters.getSelectedTestId()
- * to retrieve the currently selected test ID.
+ * Expects these DOM elements to exist (see views/partials/mark-test-cascade.ejs):
+ *   #session-field  #session-select
+ *   #grade-field    #grade-select
+ *   #section-field  #section-select
+ *   #phase-field    #phase-select
+ *   #week-field     #week-select
+ *   #subject-field  #subject-select
+ *   #test-field     #test-select
+ *
+ * The page-specific script reacts to the 'cascade:test-changed' event
+ * (detail.testId) and can call window.__cascadeFilters.getSelectedTestId().
  */
 (function() {
-  var subjectSelect  = document.getElementById('subject-select');
   var sessionField   = document.getElementById('session-field');
   var sessionSelect  = document.getElementById('session-select');
+  var gradeField     = document.getElementById('grade-field');
+  var gradeSelect    = document.getElementById('grade-select');
+  var sectionField   = document.getElementById('section-field');
+  var sectionSelect  = document.getElementById('section-select');
   var phaseField     = document.getElementById('phase-field');
   var phaseSelect    = document.getElementById('phase-select');
   var weekField      = document.getElementById('week-field');
   var weekSelect     = document.getElementById('week-select');
+  var subjectField   = document.getElementById('subject-field');
+  var subjectSelect  = document.getElementById('subject-select');
   var testField      = document.getElementById('test-field');
   var testSelect     = document.getElementById('test-select');
 
-  if (!subjectSelect || !sessionSelect) return; // not on a cascade page
+  if (!sessionSelect || !gradeSelect || !sectionSelect) return; // not on a cascade page
 
   // ── Helpers ──────────────────────────────────────────────────────────────
-  function getSelectedClassIds() {
-    var ids = [];
-    document.querySelectorAll('.class-cb').forEach(function(cb) {
-      if (cb.checked) ids.push(cb.value);
-    });
-    return ids;
-  }
-
   function getHeaders() {
     var headers = { 'Content-Type': 'application/json' };
     var meta = document.querySelector('meta[name="auth-token"]');
@@ -58,37 +57,30 @@
     });
   }
 
-  function hideField(fieldEl, selectEl, placeholder) {
-    if (fieldEl) fieldEl.style.display = 'none';
-    if (selectEl) {
-      setOptions(selectEl, [{ value: '', label: placeholder }]);
-      selectEl.disabled = true;
-    }
-  }
-
-  function showField(fieldEl, selectEl) {
+  function fillField(fieldEl, selectEl, items, placeholder) {
+    var opts = [{ value: '', label: placeholder }].concat(items);
+    setOptions(selectEl, opts);
     if (fieldEl) fieldEl.style.display = '';
-    if (selectEl) selectEl.disabled = false;
+    // Lockable only when there is nothing to choose (placeholder alone).
+    selectEl.disabled = opts.length === 1;
   }
 
-  /** Reset everything downstream of subject (session, phase, week, test). */
-  function resetFromSession() {
-    hideField(sessionField, sessionSelect, 'Select a subject first...');
-    hideField(phaseField, phaseSelect, 'Select a session first...');
-    hideField(weekField, weekSelect, 'Select a phase first...');
-    hideField(testField, testSelect, 'Select filters first...');
-    notifyTestChanged(null);
+  /** Park a level on a fixed placeholder: hidden downstream reset state. */
+  function resetField(fieldEl, selectEl, placeholder) {
+    if (fieldEl) fieldEl.style.display = '';
+    setOptions(selectEl, [{ value: '', label: placeholder }]);
+    selectEl.disabled = true;
   }
 
-  function resetFromPhase() {
-    hideField(weekField, weekSelect, 'Select a phase first...');
-    hideField(testField, testSelect, 'Select filters first...');
-    notifyTestChanged(null);
-  }
-
-  function resetFromWeek() {
-    hideField(testField, testSelect, 'Select filters first...');
-    notifyTestChanged(null);
+  /**
+   * Not-yet-applicable level (e.g. Phase/Week when the session is "none").
+   * Shown but visibly disabled with a message, so the row never disappears
+   * mid-cascade and the numbering stays stable.
+   */
+  function skipField(fieldEl, selectEl, message) {
+    if (fieldEl) fieldEl.style.display = '';
+    setOptions(selectEl, [{ value: '', label: message }]);
+    selectEl.disabled = true;
   }
 
   /** Dispatch a custom event so page-specific scripts can react. */
@@ -96,209 +88,277 @@
     document.dispatchEvent(new CustomEvent('cascade:test-changed', { detail: { testId: testId } }));
   }
 
-  // ── Subject changed → load sessions ──────────────────────────────────────
-  subjectSelect.addEventListener('change', async function() {
-    var subjectId = this.value;
-    var classIds = getSelectedClassIds();
+  // Reset chains — each level clears everything below it.
+  function resetFromGrade()    { resetField(gradeField, gradeSelect, 'Select a session first...'); resetFromSection(); }
+  function resetFromSection()  { allSectionIds = []; resetField(sectionField, sectionSelect, 'Select a grade first...'); resetFromPhase(); }
+  function resetFromPhase()    { resetField(phaseField, phaseSelect, 'Select a section first...'); resetFromWeek(); }
+  function resetFromWeek()     { resetField(weekField, weekSelect, 'Select a phase first...'); resetFromSubject(); }
+  function resetFromSubject()  { resetField(subjectField, subjectSelect, 'Select a week first...'); resetFromTest(); }
+  function resetFromTest()     { resetField(testField, testSelect, 'Select filters first...'); notifyTestChanged(null); }
 
-    resetFromSession();
-
-    if (!subjectId || classIds.length === 0) return;
-
-    setOptions(sessionSelect, [{ value: '', label: 'Loading...' }]);
-    sessionSelect.disabled = true;
-    sessionField.style.display = '';
-
+  /** GET a cascade endpoint, returning parsed JSON or null on any failure. */
+  async function getCascade(url) {
     try {
-      var res = await fetch(
-        '/api/v1/tests/cascade/sessions?classLevel=' + classIds.join(',') + '&subject=' + subjectId,
-        { headers: getHeaders() }
-      );
-      var data = await res.json();
-
-      if (data.status === 'success') {
-        var opts = [{ value: '', label: 'Choose a session...' }];
-        var sess = data.data.sessions || [];
-        sess.forEach(function(s) {
-          opts.push({ value: s._id, label: s.name });
-        });
-        if (data.data.hasUnassigned) {
-          opts.push({ value: 'none', label: 'No session' });
-        }
-        setOptions(sessionSelect, opts);
-        if (sess.length > 0 || data.data.hasUnassigned) {
-          showField(sessionField, sessionSelect);
-        } else {
-          hideField(sessionField, sessionSelect, 'No sessions available');
-          loadTests();
-        }
-      } else {
-        hideField(sessionField, sessionSelect, 'Error loading sessions');
-        console.error('Failed to load sessions:', data.message);
-      }
+      var res = await fetch(url, { headers: getHeaders() });
+      return await res.json();
     } catch (err) {
-      hideField(sessionField, sessionSelect, 'Error loading sessions');
-      console.error('Failed to load sessions:', err);
+      console.error('Cascade request failed:', url, err);
+      return null;
     }
-  });
+  }
 
-  // ── Session changed → load phases ────────────────────────────────────────
+  // ── Level 1: Session — no upstream selection needed ──────────────────────
+  function selectedSession() { return sessionSelect.value; }
+  // "All sections" is a client-side alias for the full list of section ids the
+  // server just offered — downstream endpoints receive the comma-separated ids
+  // and scope every read to the union of the teacher's own pairs behind them.
+  var allSectionIds = [];
+  function selectedSection() {
+    return sectionSelect.value === 'all' ? allSectionIds.join(',') : sectionSelect.value;
+  }
+
+  async function loadSessions() {
+    fillField(sessionField, sessionSelect, [], 'Loading…');
+    var data = await getCascade('/api/v1/tests/cascade/sessions');
+    if (!data || data.status !== 'success') {
+      resetField(sessionField, sessionSelect, 'Error loading sessions');
+      return;
+    }
+    var items = (data.data.sessions || []).map(function(s) { return { value: s._id, label: s.name }; });
+    if (data.data.hasUnassigned) items.push({ value: 'none', label: 'No session' });
+    if (items.length === 0) {
+      resetField(sessionField, sessionSelect, 'No tests are assigned to you yet');
+      return;
+    }
+    fillField(sessionField, sessionSelect, items, 'Choose a session...');
+  }
+
+  // ── Level 2: Grade — narrowed by the chosen session ──────────────────────
   sessionSelect.addEventListener('change', async function() {
-    var sessionId = this.value;
-    var subjectId = subjectSelect.value;
-    var classIds = getSelectedClassIds();
+    resetFromGrade();
+    var sessionId = selectedSession();
+    if (!sessionId) return;
 
+    fillField(gradeField, gradeSelect, [], 'Loading…');
+    var data = await getCascade('/api/v1/tests/cascade/grades?session=' + encodeURIComponent(sessionId));
+    if (!data || data.status !== 'success') {
+      resetField(gradeField, gradeSelect, 'Error loading grades');
+      return;
+    }
+    var items = (data.data.grades || []).map(function(g) {
+      return { value: g, label: g === 'PG' ? 'PG (Preparatory)' : 'Grade ' + g };
+    });
+    if (items.length === 0) {
+      resetField(gradeField, gradeSelect, 'No grades match this session');
+      return;
+    }
+    fillField(gradeField, gradeSelect, items, 'Choose a grade...');
+    // A single grade saves a click — drive the change handler directly.
+    if (items.length === 1) {
+      gradeSelect.value = items[0].value;
+      gradeSelect.dispatchEvent(new Event('change'));
+    }
+  });
+
+  // ── Level 3: Section — assigned sections of the chosen grade ─────────────
+  gradeSelect.addEventListener('change', async function() {
+    resetFromSection();
+    var sessionId = selectedSession();
+    var grade = gradeSelect.value;
+    if (!sessionId || !grade) return;
+
+    fillField(sectionField, sectionSelect, [], 'Loading…');
+    var data = await getCascade(
+      '/api/v1/tests/cascade/sections?session=' + encodeURIComponent(sessionId) +
+      '&grade=' + encodeURIComponent(grade)
+    );
+    if (!data || data.status !== 'success') {
+      resetField(sectionField, sectionSelect, 'Error loading sections');
+      return;
+    }
+    var items = (data.data.sections || []).map(function(s) {
+      var label = (s.gradeLevel ? s.gradeLevel + ' — ' : '') + s.name + (s.group ? ' (' + s.group + ')' : '');
+      return { value: s._id, label: label };
+    });
+    if (items.length === 0) {
+      resetField(sectionField, sectionSelect, 'No sections match — you may not be assigned here');
+      return;
+    }
+    // More than one section in this grade → offer an "All sections" shortcut.
+    if (items.length > 1) {
+      allSectionIds = items.map(function(i) { return i.value; });
+      items.unshift({ value: 'all', label: 'All sections (' + items.length + ')' });
+    }
+    fillField(sectionField, sectionSelect, items, 'Choose a section...');
+    // One section in this grade → auto-select, saving a click. Dispatching the
+    // real change event keeps every downstream side-effect on one code path.
+    if (items.length === 1) {
+      sectionSelect.value = items[0].value;
+      sectionSelect.dispatchEvent(new Event('change'));
+    }
+  });
+
+  // ── Level 4/5: Phase → Week — skipped when the session bucket is "none" ──
+  sectionSelect.addEventListener('change', function() {
     resetFromPhase();
+    var sessionId = selectedSession();
+    var sectionId = selectedSection();
+    if (!sessionId || !sectionId) return;
 
-    if (!sessionId || !subjectId) return;
-
-    // "No session" selected — load tests with session=null directly
+    // Tests without a session have no phases/weeks — jump to Subject.
     if (sessionId === 'none') {
-      loadTests();
+      skipField(phaseField, phaseSelect, 'Not applicable (no session)');
+      skipField(weekField, weekSelect, 'Not applicable (no session)');
+      loadSubjects();
       return;
     }
 
-    setOptions(phaseSelect, [{ value: '', label: 'Loading...' }]);
-    phaseSelect.disabled = true;
-    phaseField.style.display = '';
-
-    try {
-      var res = await fetch(
-        '/api/v1/tests/cascade/phases?classLevel=' + classIds.join(',') +
-        '&subject=' + subjectId + '&session=' + sessionId,
-        { headers: getHeaders() }
-      );
-      var data = await res.json();
-
-      if (data.status === 'success') {
-        var opts = [{ value: '', label: 'Choose a phase...' }];
-        var phases = data.data.phases || [];
-        phases.forEach(function(p) {
-          opts.push({ value: p._id, label: p.name });
-        });
-        if (data.data.hasUnassigned) {
-          opts.push({ value: 'none', label: 'No phase' });
-        }
-        setOptions(phaseSelect, opts);
-        if (phases.length > 0 || data.data.hasUnassigned) {
-          showField(phaseField, phaseSelect);
-        } else {
-          hideField(phaseField, phaseSelect, 'No phases available');
-          loadTests();
-        }
-      } else {
-        hideField(phaseField, phaseSelect, 'Error loading phases');
-        console.error('Failed to load phases:', data.message);
-      }
-    } catch (err) {
-      hideField(phaseField, phaseSelect, 'Error loading phases');
-      console.error('Failed to load phases:', err);
-    }
+    loadPhases();
   });
 
-  // ── Phase changed → load weeks ───────────────────────────────────────────
-  phaseSelect.addEventListener('change', async function() {
-    var phaseId = this.value;
-    var sessionId = sessionSelect.value;
-    var subjectId = subjectSelect.value;
-    var classIds = getSelectedClassIds();
+  async function loadPhases() {
+    fillField(phaseField, phaseSelect, [], 'Loading…');
+    var data = await getCascade(
+      '/api/v1/tests/cascade/phases?session=' + encodeURIComponent(selectedSession()) +
+      '&section=' + encodeURIComponent(selectedSection())
+    );
+    if (!data || data.status !== 'success') {
+      resetField(phaseField, phaseSelect, 'Error loading phases');
+      return;
+    }
+    var items = (data.data.phases || []).map(function(p) { return { value: p._id, label: p.name }; });
+    if (data.data.hasUnassigned) items.push({ value: 'none', label: 'No phase' });
+    if (items.length === 0) {
+      // Defensive: every test sits in a phase bucket, so this only happens on
+      // odd data — skip the levels and let Subject narrow further.
+      skipField(phaseField, phaseSelect, 'No phases available');
+      skipField(weekField, weekSelect, 'No phases available');
+      loadSubjects();
+      return;
+    }
+    fillField(phaseField, phaseSelect, items, 'Choose a phase...');
+  }
 
+  phaseSelect.addEventListener('change', function() {
     resetFromWeek();
+    var phaseId = phaseSelect.value;
+    if (!phaseId) return;
 
-    if (!phaseId || !sessionId) return;
-
-    // "No phase" selected — load tests with phase=null directly
+    // "No phase" bucket has no weeks — jump to Subject with phase=none.
     if (phaseId === 'none') {
-      loadTests();
+      skipField(weekField, weekSelect, 'Not applicable (no phase)');
+      loadSubjects();
       return;
     }
 
-    setOptions(weekSelect, [{ value: '', label: 'Loading...' }]);
-    weekSelect.disabled = true;
-    weekField.style.display = '';
-
-    try {
-      var res = await fetch(
-        '/api/v1/tests/cascade/weeks?classLevel=' + classIds.join(',') +
-        '&subject=' + subjectId + '&session=' + sessionId + '&phase=' + phaseId,
-        { headers: getHeaders() }
-      );
-      var data = await res.json();
-
-      if (data.status === 'success') {
-        var opts = [{ value: '', label: 'Choose a week...' }];
-        var weeks = data.data.weeks || [];
-        weeks.forEach(function(w) {
-          var start = new Date(w.startDate).toLocaleDateString();
-          var end = new Date(w.endDate).toLocaleDateString();
-          opts.push({ value: w._id, label: w.name + ' (' + start + ' \u2013 ' + end + ')' });
-        });
-        if (data.data.hasUnassigned) {
-          opts.push({ value: 'none', label: 'No week' });
-        }
-        setOptions(weekSelect, opts);
-        if (weeks.length > 0 || data.data.hasUnassigned) {
-          showField(weekField, weekSelect);
-        } else {
-          hideField(weekField, weekSelect, 'No weeks available');
-          loadTests();
-        }
-      } else {
-        hideField(weekField, weekSelect, 'Error loading weeks');
-        console.error('Failed to load weeks:', data.message);
-      }
-    } catch (err) {
-      hideField(weekField, weekSelect, 'Error loading weeks');
-      console.error('Failed to load weeks:', err);
-    }
+    loadWeeks();
   });
 
-  // ── Week changed → load tests ────────────────────────────────────────────
+  async function loadWeeks() {
+    fillField(weekField, weekSelect, [], 'Loading…');
+    var data = await getCascade(
+      '/api/v1/tests/cascade/weeks?session=' + encodeURIComponent(selectedSession()) +
+      '&section=' + encodeURIComponent(selectedSection()) +
+      '&phase=' + encodeURIComponent(phaseSelect.value)
+    );
+    if (!data || data.status !== 'success') {
+      resetField(weekField, weekSelect, 'Error loading weeks');
+      return;
+    }
+    var items = (data.data.weeks || []).map(function(w) {
+      var start = new Date(w.startDate).toLocaleDateString();
+      var end = new Date(w.endDate).toLocaleDateString();
+      return { value: w._id, label: w.name + ' (' + start + ' \u2013 ' + end + ')' };
+    });
+    if (data.data.hasUnassigned) items.push({ value: 'none', label: 'No week' });
+    if (items.length === 0) {
+      resetField(weekField, weekSelect, 'No weeks available');
+      return;
+    }
+    fillField(weekField, weekSelect, items, 'Choose a week...');
+  }
+
+  // ── Level 6: Subject — narrowed by the WHOLE upstream chain ──────────────
+  // Because phase/week are part of the query, a subject only appears when a
+  // markable test actually exists behind the full selection — no dead ends.
   weekSelect.addEventListener('change', function() {
+    resetFromSubject();
+    if (!weekSelect.value) return;
+    loadSubjects();
+  });
+
+  function upstreamParams() {
+    var url = 'session=' + encodeURIComponent(selectedSession()) +
+              '&section=' + encodeURIComponent(selectedSection());
+    var phaseId = phaseSelect.value;
+    var weekId = weekSelect.value;
+    if (phaseId) url += '&phase=' + encodeURIComponent(phaseId);
+    if (weekId) url += '&week=' + encodeURIComponent(weekId);
+    return url;
+  }
+
+  async function loadSubjects() {
+    var sessionId = selectedSession();
+    var sectionId = selectedSection();
+    if (!sessionId || !sectionId) return;
+
+    fillField(subjectField, subjectSelect, [], 'Loading…');
+    var data = await getCascade('/api/v1/tests/cascade/subjects?' + upstreamParams());
+    if (!data || data.status !== 'success') {
+      resetField(subjectField, subjectSelect, 'Error loading subjects');
+      return;
+    }
+    var items = (data.data || []).map(function(s) {
+      return { value: s._id, label: s.displayName || s.name };
+    });
+    if (items.length === 0) {
+      resetField(subjectField, subjectSelect, 'No subjects match these filters');
+      return;
+    }
+    fillField(subjectField, subjectSelect, items, 'Choose a subject...');
+    // Single subject (e.g. one teacher of one section) → jump straight to tests.
+    if (items.length === 1) {
+      subjectSelect.value = items[0].value;
+      subjectSelect.dispatchEvent(new Event('change'));
+    }
+  }
+
+  // ── Level 7: Test ─────────────────────────────────────────────────────────
+  subjectSelect.addEventListener('change', function() {
+    resetFromTest();
+    if (!subjectSelect.value) return;
     loadTests();
   });
 
-  // ── Load tests with current filter state ─────────────────────────────────
   async function loadTests() {
     var subjectId = subjectSelect.value;
-    var classIds = getSelectedClassIds();
-    if (!subjectId || classIds.length === 0) return;
+    var sectionId = selectedSection();
+    if (!subjectId || !sectionId) return;
 
-    var sessionId = sessionSelect.value || '';
-    var phaseId = phaseSelect.value || '';
-    var weekId = weekSelect.value || '';
+    fillField(testField, testSelect, [], 'Loading…');
+    // The tests endpoint keeps its historical classLevel param name.
+    var url = '/api/v1/tests/cascade/tests?classLevel=' + encodeURIComponent(sectionId) +
+              '&subject=' + encodeURIComponent(subjectId);
+    var sessionId = selectedSession();
+    var phaseId = phaseSelect.value;
+    var weekId = weekSelect.value;
+    if (sessionId) url += '&session=' + encodeURIComponent(sessionId);
+    if (phaseId) url += '&phase=' + encodeURIComponent(phaseId);
+    if (weekId) url += '&week=' + encodeURIComponent(weekId);
 
-    setOptions(testSelect, [{ value: '', label: 'Loading...' }]);
-    testSelect.disabled = true;
-    testField.style.display = '';
-
-    var url = '/api/v1/tests/cascade/tests?classLevel=' + classIds.join(',') + '&subject=' + subjectId;
-    if (sessionId) url += '&session=' + sessionId;
-    if (phaseId) url += '&phase=' + phaseId;
-    if (weekId) url += '&week=' + weekId;
-
-    try {
-      var res = await fetch(url, { headers: getHeaders() });
-      var data = await res.json();
-
-      if (data.status === 'success' && data.data.length > 0) {
-        var opts = [{ value: '', label: 'Choose a test...' }];
-        data.data.forEach(function(t) {
-          var date = new Date(t.date).toLocaleDateString();
-          // Test name and date only — session/class annotations clutter the list.
-          opts.push({ value: t._id, label: t.name + ' (' + date + ')' });
-        });
-        setOptions(testSelect, opts);
-        testSelect.disabled = false;
-      } else if (data.status === 'success') {
-        setOptions(testSelect, [{ value: '', label: 'No tests match these filters' }]);
-      } else {
-        setOptions(testSelect, [{ value: '', label: 'Error loading tests' }]);
-        console.error('Failed to load tests:', data.message);
-      }
-    } catch (err) {
-      setOptions(testSelect, [{ value: '', label: 'Error loading tests' }]);
-      console.error('Failed to load tests:', err);
+    var data = await getCascade(url);
+    if (data && data.status === 'success' && data.data.length > 0) {
+      var items = data.data.map(function(t) {
+        var date = new Date(t.date).toLocaleDateString();
+        // Test name and date only — session/class annotations clutter the list.
+        return { value: t._id, label: t.name + ' (' + date + ')' };
+      });
+      fillField(testField, testSelect, items, 'Choose a test...');
+    } else if (data && data.status === 'success') {
+      resetField(testField, testSelect, 'No tests match these filters');
+    } else {
+      resetField(testField, testSelect, 'Error loading tests');
+      console.error('Failed to load tests:', data && data.message);
     }
   }
 
@@ -312,7 +372,10 @@
     getSelectedTestId: function() {
       return testSelect.value || null;
     },
-    /** Called by the page script when class checkboxes change to reset everything. */
-    resetAll: resetFromSession,
+    /** Full reset back to level 1 (keeps the session list, clears the rest). */
+    resetAll: resetFromGrade,
   };
+
+  // ── Kick off: sessions are teacher-derived and need no upstream choice ───
+  loadSessions();
 })();

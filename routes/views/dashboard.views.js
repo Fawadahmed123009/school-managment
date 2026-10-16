@@ -413,16 +413,42 @@ router.get("/dashboard", async (req, res) => {
     } else if (req.user.role === "teacher") {
       const teacherId = req.user._id;
 
-      // ── Fetch teacher's class assignments ──
+      // ── The ONE scoping source: the teacher's own assignments. Every widget
+      // below (KPIs, charts, top performers, at-risk, marking backlog) is
+      // derived from these class + subject ids, so no school-wide data can
+      // leak in — the same assignment-based scoping used across the project.
       const assignments = await Assignment.find({ teacher: teacherId })
         .populate("subject", "name")
         .populate("classLevel", "name gradeLevel group section");
 
-      const classLevelIds = assignments.map((a) => a.classLevel && a.classLevel._id).filter(Boolean);
+      // Distinct classes the teacher owns (a class taught for two subjects is
+      // ONE class), and the distinct subjects they actually teach.
+      const classLevelsById = new Map();
+      assignments.forEach((a) => {
+        if (a.classLevel && a.classLevel._id) classLevelsById.set(String(a.classLevel._id), a.classLevel);
+      });
+      const classLevelIds = [...classLevelsById.keys()];
+      const subjectIds = [...new Set(
+        assignments.map((a) => a.subject && a.subject._id).filter(Boolean).map((id) => String(id))
+      )];
 
-      // ── Count students enrolled in the teacher's assigned classes ──
+      // Aggregation $match does NOT coerce hex strings to ObjectId the way
+      // Model.find/countDocuments does, so the teacher-scoped aggregates below
+      // must be fed the REAL ObjectId values. Kept separate from the string
+      // lists above (used for countDocuments + JS bucket/tab keys, which cast).
+      const classLevelObjIds = [...classLevelsById.values()].map((c) => c._id);
+      const subjectObjIdMap = new Map();
+      assignments.forEach((a) => {
+        if (a.subject && a.subject._id) subjectObjIdMap.set(String(a.subject._id), a.subject._id);
+      });
+      const subjectObjIds = [...subjectObjIdMap.values()];
+
+      // Active-enrolled triple (project-wide convention) scoped to the teacher's classes.
+      const ACTIVE_STUDENTS = { status: { $ne: "inactive" }, isGraduated: { $ne: true }, isWithdrawn: { $ne: true } };
+
+      // "Enrolled students" counts only active-enrolled pupils in the teacher's classes.
       const enrolledStudents = classLevelIds.length > 0
-        ? await Student.countDocuments({ classLevel: { $in: classLevelIds }, isWithdrawn: { $ne: true } })
+        ? await Student.countDocuments({ ...ACTIVE_STUDENTS, classLevel: { $in: classLevelIds } })
         : 0;
 
       stats.teacher = {
@@ -433,46 +459,203 @@ router.get("/dashboard", async (req, res) => {
           group: a.classLevel ? a.classLevel.group : null,
           section: a.classLevel ? a.classLevel.section : null,
         })),
-        totalClasses: assignments.length,
+        totalClasses: classLevelIds.length,
         enrolledStudents,
+        testAverage: null,
+        attendanceRate: null,
       };
 
-      // ── Chart data: Attendance trend for teacher's classes (last 30 days) ──
-      if (classLevelIds.length > 0) {
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        thirtyDaysAgo.setHours(0, 0, 0, 0);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
 
-        const attAgg = await Attendance.aggregate([
-          {
-            $match: {
-              classLevel: { $in: classLevelIds },
-              date: { $gte: thirtyDaysAgo },
-            },
-          },
-          {
-            $group: {
-              _id: dateKeyStage(),
-              present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
-              absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
-              late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
-            },
-          },
-          { $sort: { _id: 1 } },
-        ]);
+      // Three independent, teacher-scoped fetches run concurrently:
+      //   • attAgg       — last-30-day per-day present/absent/late, reused for
+      //                    the trend line, the mix donut AND the attendance-rate
+      //                    KPI (ONE query — the mix was previously discarded).
+      //   • topRows      — per-student average across the teacher's SUBJECTS only,
+      //                    restricted to the teacher's CLASSES (Top Performers).
+      //   • attLifetime  — lifetime attendance % per student (the Att % column).
+      const [attAgg, topRows, attLifetimeAgg] = await Promise.all([
+        classLevelIds.length > 0
+          ? Attendance.aggregate([
+              { $match: { classLevel: { $in: classLevelObjIds }, date: { $gte: thirtyDaysAgo } } },
+              {
+                $group: {
+                  _id: dateKeyStage(),
+                  present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+                  absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+                  late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+                },
+              },
+              { $sort: { _id: 1 } },
+            ])
+          : Promise.resolve([]),
+        classLevelIds.length > 0 && subjectIds.length > 0
+          ? TestResult.aggregate([
+              { $match: { absent: { $ne: true }, score: { $gt: 0 } } },
+              { $lookup: { from: "tests", localField: "test", foreignField: "_id", as: "_test" } },
+              {
+                $addFields: {
+                  _totalMarks: { $arrayElemAt: ["$_test.totalMarks", 0] },
+                  // A TestResult carries no subject of its own — the subject
+                  // lives on the linked Test, so scope by the joined test here.
+                  _testSubject: { $arrayElemAt: ["$_test.subject", 0] },
+                },
+              },
+              { $match: { _totalMarks: { $gt: 0 }, _testSubject: { $in: subjectObjIds } } },
+              { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
+              {
+                $addFields: {
+                  _stuStatus: { $arrayElemAt: ["$_stu.status", 0] },
+                  _stuGrad: { $arrayElemAt: ["$_stu.isGraduated", 0] },
+                  _stuWith: { $arrayElemAt: ["$_stu.isWithdrawn", 0] },
+                  _stuClass: { $arrayElemAt: ["$_stu.classLevel", 0] },
+                  _stuName: { $arrayElemAt: ["$_stu.name", 0] },
+                  _roll: { $arrayElemAt: ["$_stu.rollNumber", 0] },
+                  _parentRef: { $arrayElemAt: ["$_stu.parent", 0] },
+                  _fatherName: { $arrayElemAt: ["$_stu.fatherName", 0] },
+                  _pct: { $multiply: [{ $divide: ["$score", "$_totalMarks"] }, 100] },
+                },
+              },
+              {
+                $match: {
+                  _stuStatus: { $ne: "inactive" },
+                  _stuGrad: { $ne: true },
+                  _stuWith: { $ne: true },
+                  _stuClass: { $in: classLevelObjIds },
+                },
+              },
+              { $lookup: { from: "parents", localField: "_parentRef", foreignField: "_id", as: "_par" } },
+              {
+                $addFields: {
+                  _parentName: {
+                    $cond: [{ $gt: [{ $size: "$_par" }, 0] }, { $arrayElemAt: ["$_par.name", 0] }, "$_fatherName"],
+                  },
+                },
+              },
+              {
+                $group: {
+                  _id: "$student",
+                  name: { $first: "$_stuName" },
+                  rollNumber: { $first: "$_roll" },
+                  classLevel: { $first: "$_stuClass" },
+                  parentName: { $first: "$_parentName" },
+                  tests: { $sum: 1 },
+                  avg: { $avg: "$_pct" },
+                },
+              },
+              { $sort: { avg: -1, name: 1 } },
+            ])
+          : Promise.resolve([]),
+        classLevelIds.length > 0
+          ? Attendance.aggregate([
+              { $match: { classLevel: { $in: classLevelObjIds } } },
+              {
+                $group: {
+                  _id: "$student",
+                  present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+                  absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+                  late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+                },
+              },
+            ])
+          : Promise.resolve([]),
+      ]);
 
-        charts.attendanceTrend = attAgg.map((d) => ({
-          date: d._id,
-          rate:
-            d.present + d.absent + d.late > 0
-              ? Math.round(((d.present + d.late) / (d.present + d.absent + d.late)) * 100)
-              : 0,
-          total: d.present + d.absent + d.late,
-        }));
-      }
+      // Attendance trend + mix + rate KPI all come from the ONE 30-day aggregation.
+      charts.attendanceTrend = (attAgg || []).map((d) => ({
+        date: d._id,
+        rate:
+          d.present + d.absent + d.late > 0
+            ? Math.round(((d.present + d.late) / (d.present + d.absent + d.late)) * 100)
+            : 0,
+        total: d.present + d.absent + d.late,
+      }));
+      charts.attendanceBreakdown = (attAgg || []).reduce(
+        (t, d) => ({ present: t.present + d.present, absent: t.absent + d.absent, late: t.late + d.late }),
+        { present: 0, absent: 0, late: 0 }
+      );
+      const attWindow = charts.attendanceBreakdown;
+      const attWindowTotal = attWindow.present + attWindow.absent + attWindow.late;
+      stats.teacher.attendanceRate =
+        attWindowTotal > 0 ? Math.round(((attWindow.present + attWindow.late) / attWindowTotal) * 1000) / 10 : null;
 
-      // ── At-Risk Students panel (teacher-scoped) ──
-      atRisk = await getAtRiskStudentsTeacher(teacherId);
+      // Attendance % per student for the Att % column (lifetime, teacher's classes).
+      const attPctById = {};
+      (attLifetimeAgg || []).forEach((a) => {
+        const total = a.present + a.absent + a.late;
+        if (total > 0) attPctById[String(a._id)] = Math.round(((a.present + a.late) / total) * 10000) / 100;
+      });
+
+      // Grade tabs — the DISTINCT grade levels this teacher actually teaches,
+      // taken from their assigned class levels and ordered PG→12. This replaces
+      // the old per-class tabs, so the combined panel toggles by GRADE exactly
+      // like the admin panels.
+      const GRADE_ORDER = ["PG", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+      const gradeSet = new Set();
+      classLevelsById.forEach((c) => {
+        if (c.gradeLevel) gradeSet.add(String(c.gradeLevel));
+      });
+      const gradeTabs = [...gradeSet].sort(
+        (a, b) => GRADE_ORDER.indexOf(a) - GRADE_ORDER.indexOf(b)
+      );
+
+      // Top Performers + At-Risk, BOTH bucketed per grade ("" = All my grades),
+      // so the two lists merge into ONE grade-tabbed panel keyed identically.
+      const tpByGrade = { "": [] };
+      const arByGrade = { "": [] };
+      gradeTabs.forEach((g) => { tpByGrade[g] = []; arByGrade[g] = []; });
+      const gradeOfClassLevelId = (id) =>
+        String((classLevelsById.get(String(id)) || {}).gradeLevel || "");
+
+      let tpPctSum = 0;
+      let tpPctCount = 0;
+      (topRows || []).forEach((r) => {
+        tpPctSum += (r.avg || 0) * (r.tests || 0);
+        tpPctCount += r.tests || 0;
+        const grade = gradeOfClassLevelId(r.classLevel);
+        const row = {
+          _id: r._id,
+          name: r.name,
+          rollNumber: r.rollNumber,
+          className: (classLevelsById.get(String(r.classLevel)) || {}).name || "",
+          gradeLevel: grade,
+          parentName: r.parentName || "",
+          tests: r.tests,
+          average: Math.round(r.avg * 100) / 100,
+          attendancePercent: attPctById[String(r._id)] !== undefined ? attPctById[String(r._id)] : null,
+        };
+        if (tpByGrade[""].length < 10) tpByGrade[""].push(row);
+        const bucket = tpByGrade[grade];
+        if (bucket && bucket.length < 10) bucket.push(row);
+      });
+      stats.teacher.testAverage = tpPctCount > 0 ? Math.round((tpPctSum / tpPctCount) * 10) / 10 : null;
+
+      // At-Risk (teacher-scoped), bucketed per grade via each row's gradeLevel.
+      const atRiskFull =
+        classLevelIds.length > 0
+          ? await getAtRiskStudentsTeacher(teacherId, { maxList: null })
+          : { students: [], total: 0 };
+      ((atRiskFull && atRiskFull.students) || []).forEach((r) => {
+        const grade = r.student && r.student.gradeLevel ? String(r.student.gradeLevel) : "";
+        if (arByGrade[""].length < 10) arByGrade[""].push(r);
+        const bucket = arByGrade[grade];
+        if (bucket && bucket.length < 10) bucket.push(r);
+      });
+
+      // ONE combined structure the merged teacher panel renders from.
+      stats.teacher.performance = {
+        gradeTabs,
+        topPerformers: tpByGrade,
+        atRisk: arByGrade,
+        atRiskTotal: (atRiskFull && atRiskFull.total) || 0,
+      };
+      atRisk = {
+        lists: arByGrade,
+        gradeTabs,
+        total: (atRiskFull && atRiskFull.total) || 0,
+      };
 
       // ── Marking follow-up: overdue unmarked tests + this-week subject chart ──
       // Build a subject → assigned-class-levels map from the teacher's roster.
@@ -487,11 +670,11 @@ router.get("/dashboard", async (req, res) => {
         }
         subjectAssignments[key].classLevelIds.add(cid.toString());
       });
-      const subjectIds = Object.keys(subjectAssignments);
+      const subjKeys = Object.keys(subjectAssignments);
       const assignedClassIds = new Set();
       Object.values(subjectAssignments).forEach((s) => s.classLevelIds.forEach((c) => assignedClassIds.add(c)));
 
-      if (subjectIds.length > 0 && assignedClassIds.size > 0) {
+      if (subjKeys.length > 0 && assignedClassIds.size > 0) {
         // Students in the teacher's classes, mapped to their class level.
         // Only ENROLLED pupils count (active / not graduated / not withdrawn) —
         // the same active-student convention as the mark-entry roster, so a
@@ -511,13 +694,13 @@ router.get("/dashboard", async (req, res) => {
 
         // Selected subject (validated against the teacher's own subjects).
         let selectedSubjectId = req.query.subject;
-        if (!subjectAssignments[selectedSubjectId]) selectedSubjectId = subjectIds[0];
+        if (!subjectAssignments[selectedSubjectId]) selectedSubjectId = subjKeys[0];
 
         // Tests already past their date (candidate overdue) + this week's tests
         // for the selected subject, both scoped to the teacher's classes.
         const [overdueTests, weekTests] = await Promise.all([
           Test.find({
-            subject: { $in: subjectIds },
+            subject: { $in: subjKeys },
             classLevels: { $in: [...assignedClassIds] },
             date: { $lt: now },
           }).populate("subject", "name").populate("classLevels", "name").sort({ date: 1 }).lean(),
@@ -563,11 +746,14 @@ router.get("/dashboard", async (req, res) => {
           return { expected: expectedIds.length, marked };
         };
 
-        // ── Overdue, not-fully-marked tests ──
+        // ── Overdue, not-fully-marked tests — SAME 3-day grace window as the
+        // admin panel: only tests held MORE than 3 days ago surface as overdue,
+        // so a freshly-held test never shows as a backlog the teacher is still
+        // within their marking window for. ──
         const overdueUnmarked = [];
         overdueTests.forEach((t) => {
           const { expected, marked } = markStatus(t);
-          if (expected > 0 && marked < expected) {
+          if (expected > 0 && marked < expected && isBeyondMarkingGrace(t.date)) {
             overdueUnmarked.push({
               _id: t._id,
               name: t.name,
@@ -605,7 +791,7 @@ router.get("/dashboard", async (req, res) => {
         });
 
         stats.teacher.overdueUnmarked = overdueUnmarked;
-        stats.teacher.subjects = subjectIds.map((k) => ({ id: subjectAssignments[k].id.toString(), name: subjectAssignments[k].name }));
+        stats.teacher.subjects = subjKeys.map((k) => ({ id: subjectAssignments[k].id.toString(), name: subjectAssignments[k].name }));
         stats.teacher.selectedSubject = selectedSubjectId;
         charts.weekTests = {
           subjectName: subjectAssignments[selectedSubjectId].name,

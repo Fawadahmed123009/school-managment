@@ -119,8 +119,19 @@
         <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="nav-section-body">
-        <a href="/attendance" class="<%= page === 'attendance' ? 'active' : '' %>" data-page="attendance">Mark attendance</a>
         <a href="/attendance/my-classes" class="<%= page === 'attendance-view' ? 'active' : '' %>" data-page="attendance-view">View attendance</a>
+      </div>
+    </div>
+
+    <!-- My Classes -->
+    <div class="nav-section" data-section="my-classes">
+      <button class="nav-section-header" type="button" aria-expanded="false">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        <span>My Classes</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-section-body">
+        <a href="/teacher/my-classes" class="<%= page === 'teacher-my-classes' ? 'active' : '' %>" data-page="teacher-my-classes">My classes</a>
       </div>
     </div>
 

@@ -6,6 +6,7 @@ const { requireRole } = require("../../middlewares/authView");
 const { verifyCsrf } = require("../../middlewares/csrf");
 const { matchStudent } = require("../../utils/fuzzyMatch");
 const Student = require("../../models/Students/students.model");
+const Assignment = require("../../models/Academic/assignment.model");
 const { archiveOcrScan } = require("../../services/fees/ocrScanArchive.service");
 const registerOcrScanViewRouter = require("./ocrScanRoute");
 const fs = require("fs");
@@ -17,27 +18,39 @@ const upload = makeUpload("image");
 registerOcrScanViewRouter(router, { pattern: "/marks/ocr/scan", role: "teacher" });
 
 /**
- * Fetch every ENROLLED student (id + name + class + roll# + parent) for the OCR
- * page's initial candidate pool / fuzzy matching. After a test is picked the pool
- * is replaced by that test's (already active-scoped) roster; this pre-test blob is
- * only a fallback, but it stays scoped to active pupils so a no-longer-enrolled
- * child is never offered for marking here either.
+ * Fetch the ENROLLED students of ONE TEACHER'S assigned classes (id + name +
+ * class + roll# + parent) for the OCR page's initial candidate pool / fuzzy
+ * matching. After a test is picked the pool is replaced by that test's
+ * (already roster-scoped) students, and every write path re-checks the same
+ * assignment scope — so the pre-test blob only ever seeds the UI pickers.
+ * It used to ship every active pupil school-wide (the largest payload on the
+ * page, ~300 students) for no reason a teacher could act on; scoping it to
+ * the teacher's own classes matches the mark-entry roster rule exactly.
+ * The teacher id is the DB-verified one from authView, never a client value.
  */
-const fetchAllStudents = () =>
-  Student.find({
-    status: { $ne: "inactive" },
-    isGraduated: { $ne: true },
-    isWithdrawn: { $ne: true },
-  }).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
+const fetchStudentsForTeacher = (teacherId) =>
+  (async () => {
+    const assignments = await Assignment.find({ teacher: teacherId }).select("classLevel").lean();
+    const classIds = [...new Set(assignments.map((a) => a.classLevel).filter(Boolean))];
+    if (classIds.length === 0) return [];
+    return Student.find({
+      classLevel: { $in: classIds },
+      status: { $ne: "inactive" },
+      isGraduated: { $ne: true },
+      isWithdrawn: { $ne: true },
+    }).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
+  })();
 
 /** Candidate pool scoped to an explicit set of student ids (a test's roster). */
 const fetchStudentsByIds = (ids) =>
   Student.find({ _id: { $in: ids } }).select("_id name rollNumber fatherName parent").populate("classLevel", "name").populate("parent", "name").sort("name").lean();
 
 router.get("/marks/ocr", requireRole("teacher"), async (req, res) => {
-  // Fetch only the classes this teacher is assigned to (cascade level 1)
+  // Class list (empty-state check) and the teacher-scoped candidate pool are
+  // independent reads — ONE parallel round-trip batch (Atlas latency, not
+  // query cost, is what the teacher feels here).
   const [students, classesRes] = await Promise.all([
-    fetchAllStudents(),
+    fetchStudentsForTeacher(req.user._id),
     apiFetch("/tests/cascade/classes", req.token),
   ]);
   const classes = classesRes.status === "success" ? classesRes.data : [];

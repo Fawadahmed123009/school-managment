@@ -1,0 +1,46 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Teaching</p>
+    <h1>My Classes</h1>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <h2>My Classes <span class="chart-subtitle"><%= totalClasses %> class<%= totalClasses === 1 ? '' : 'es' %> · grouped by subject</span></h2>
+  </div>
+  <div class="panel-body" style="padding:0;">
+    <% if (groups.length > 0) { %>
+      <% groups.forEach(function(g) { %>
+        <div style="padding:14px 20px 10px;border-bottom:1px solid var(--border);">
+          <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:var(--ink);"><%= g.subject %></div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <% g.classes.forEach(function(c) { %>
+              <%
+                var parts = [];
+                if (c.gradeLevel) parts.push('Grade ' + c.gradeLevel);
+                if (c.group) parts.push(c.group);
+                if (c.section) parts.push(c.section);
+              %>
+              <span class="pill" style="background:rgba(37,99,235,0.08);color:var(--partial);font-size:12px;display:inline-flex;flex-direction:column;gap:2px;padding:6px 10px;align-items:flex-start;">
+                <strong style="font-weight:600;"><%= c.name %></strong>
+                <span style="font-size:11px;color:var(--ink-soft);"><%= parts.join(' · ') %><%= c.students ? ' · ' + c.students + ' students' : '' %></span>
+              </span>
+            <% }); %>
+          </div>
+        </div>
+      <% }); %>
+    <% } else { %>
+      <div class="empty" style="padding:24px;">
+        <div class="display">No classes assigned</div>
+        <p>You have no class assignments yet. Ask an admin to assign you to a subject and class.</p>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

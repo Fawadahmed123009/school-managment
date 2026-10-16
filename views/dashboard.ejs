@@ -66,39 +66,54 @@
     <% } %>
   </div>
 <% } else { %>
+  <% /* Plain teacher: the greeting header is removed. Students keep it. */ %>
+  <% if (user.role !== 'teacher') { %>
   <div class="page-head">
     <div>
       <p class="eyebrow">Overview</p>
       <h1><%= greeting %>, <%= user.name.split(' ')[0] %></h1>
     </div>
   </div>
+  <% } %>
 
-  <!-- Quick Links bar — sits above stats cards -->
-  <div class="quick-links-bar">
-    <% if (user.role === 'student') { %>
+  <% if (user.role === 'student') { %>
+    <!-- Quick Links bar — sits above stats cards -->
+    <div class="quick-links-bar">
       <a href="/my/analysis" class="ql-chip">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
         My progress
       </a>
-    <% } else { /* plain teacher */ %>
-      <a href="/attendance" class="ql-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
-        Mark attendance
+    </div>
+  <% } else { /* plain teacher — icon-forward quick-launch (matches admin's tile row),
+         but the personal greeting is kept above it, unlike admin */ %>
+    <div class="quick-launch">
+      <a href="/tests/mark" class="ql-tile">
+        <span class="ql-tile-icon i-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+        <span class="ql-tile-label">Mark a test</span>
+        <span class="ql-tile-desc">Grade your test papers</span>
       </a>
-      <a href="/marks/ocr" class="ql-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        Enter marks
+      <a href="/teacher/analytics" class="ql-tile">
+        <span class="ql-tile-icon i-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+        <span class="ql-tile-label">Analytics</span>
+        <span class="ql-tile-desc">My class performance</span>
       </a>
-      <a href="/tests/mark" class="ql-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-        Manage tests
+      <a href="/marks/ocr" class="ql-tile">
+        <span class="ql-tile-icon i-purple"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg></span>
+        <span class="ql-tile-label">Scan &amp; enter marks</span>
+        <span class="ql-tile-desc">OCR-powered entry</span>
       </a>
-      <a href="/reports/generate" class="ql-chip">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        PDF reports
+      <a href="/reports/generate" class="ql-tile">
+        <span class="ql-tile-icon i-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
+        <span class="ql-tile-label">PDF reports</span>
+        <span class="ql-tile-desc">Generate result sheets</span>
       </a>
-    <% } %>
-  </div>
+      <a href="/attendance/my-classes" class="ql-tile">
+        <span class="ql-tile-icon i-gold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg></span>
+        <span class="ql-tile-label">My classes</span>
+        <span class="ql-tile-desc">Attendance for my classes</span>
+      </a>
+    </div>
+  <% } %>
 <% } %>
 
 <% if (user.role === 'student') { %>
@@ -205,6 +220,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:text-bottom;margin-right:6px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
           <% } %>
           Tests awaiting marking
+          <span class="chart-subtitle">My tests · 3+ days overdue</span>
           <% if (overdue.length > 0) { %>
             <span class="pill" style="background:rgba(245,158,11,0.12);color:var(--review);font-size:12px;"><%= overdue.length %> overdue</span>
           <% } %>
@@ -212,7 +228,7 @@
       </div>
       <% if (overdue.length > 0) { %>
       <div class="panel-body" style="padding:0;">
-        <div class="table-wrap">
+        <div class="table-wrap capped-scroll capped-scroll--300">
           <table class="ledger">
             <thead>
               <tr><th>Test</th><th>Subject</th><th>Class</th><th>Date</th><th>Marked</th><th></th></tr>
@@ -261,46 +277,44 @@
         <div class="stat-value" data-count="<%= stats.teacher.enrolledStudents %>"><%= stats.teacher.enrolledStudents %></div>
         <div class="stat-label">Enrolled students</div>
       </div>
-    </div>
-
-    <!-- My Classes list (grouped by subject) -->
-    <div class="panel">
-      <div class="panel-head"><h2>My Classes</h2></div>
-      <div class="panel-body" style="padding:0;">
-        <%
-          // Group assignments by subject
-          var subjGroups = {};
-          stats.teacher.assignments.forEach(function(a) {
-            var key = a.subject || 'Unknown';
-            if (!subjGroups[key]) subjGroups[key] = [];
-            subjGroups[key].push(a);
-          });
-        %>
-        <% Object.keys(subjGroups).forEach(function(subjName) { %>
-          <div style="padding:14px 20px 10px;border-bottom:1px solid var(--border);">
-            <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:var(--ink);"><%= subjName %></div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">
-              <% subjGroups[subjName].forEach(function(a) { %>
-                <%
-                  var parts = [a.classLevel];
-                  if (a.group) parts.push(a.group);
-                  if (a.section) parts.push(a.section);
-                %>
-                <span class="pill" style="background:rgba(37,99,235,0.08);color:var(--partial);font-size:12px;"><%= parts.join(' · ') %></span>
-              <% }); %>
-            </div>
-          </div>
-        <% }); %>
+      <% /* Test average across the teacher's OWN subjects only (no fee data at
+             teacher scope, so this replaces admin's fee KPIs). */ %>
+      <div class="stat-card accent-purple">
+        <div class="stat-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+        </div>
+        <div class="stat-value" data-count="<%= stats.teacher.testAverage != null ? stats.teacher.testAverage : 0 %>"><%= stats.teacher.testAverage != null ? stats.teacher.testAverage + '%' : '—' %></div>
+        <div class="stat-label">Test average</div>
+      </div>
+      <% /* Attendance rate: (present + late) / marked over the teacher's classes,
+             last 30 days — the same convention as the trend line and mix donut. */ %>
+      <div class="stat-card accent-gold">
+        <div class="stat-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+        </div>
+        <div class="stat-value" data-count="<%= stats.teacher.attendanceRate != null ? stats.teacher.attendanceRate : 0 %>"><%= stats.teacher.attendanceRate != null ? stats.teacher.attendanceRate + '%' : '—' %></div>
+        <div class="stat-label">Attendance rate</div>
       </div>
     </div>
 
-    <!-- Attendance trend chart (scoped to teacher's classes) -->
-    <div class="charts-row">
-      <div class="panel chart-panel chart-panel--wide">
+    <!-- My Classes moved to its own page (/teacher/my-classes) linked from the sidebar. -->
+
+    <!-- Attendance trend + mix (both scoped to the teacher's own classes) —
+         reuses the manager's att-dash-grid two-up layout from the admin redesign.
+         The mix donut is drawn from the SAME 30-day aggregation as the trend. -->
+    <div class="att-dash-grid">
+      <div class="panel chart-panel">
         <div class="panel-head"><h2>Attendance trend <span class="chart-subtitle">My classes · Last 30 days</span></h2></div>
         <div class="panel-body chart-body">
           <canvas id="attendanceChart"></canvas>
           <div class="chart-empty" id="attendanceEmpty" style="display:none;">No attendance data yet</div>
+        </div>
+      </div>
+      <div class="panel chart-panel">
+        <div class="panel-head"><h2>Attendance mix <span class="chart-subtitle">Present · Absent · Late</span></h2></div>
+        <div class="panel-body chart-body">
+          <canvas id="attendanceBreakdownChart"></canvas>
+          <div class="chart-empty" id="attendanceBreakdownEmpty" style="display:none;">No data yet</div>
         </div>
       </div>
     </div>
@@ -329,42 +343,101 @@
     </div>
     <% } %>
 
-    <% /* ── Teacher: At-Risk Students panel ── */ %>
-    <% if (atRisk && atRisk.students && atRisk.students.length > 0) { %>
-    <div class="panel" style="margin-bottom:20px;">
-      <div class="panel-head">
-        <h2>At-Risk Students
-          <span class="chart-subtitle"><%= atRisk.total %> flagged in your classes</span>
-        </h2>
-      </div>
-      <div class="panel-body" style="padding:0;">
-        <div class="table-wrap">
-          <table class="ledger">
-            <thead>
-              <tr><th>Student</th><th>Class</th><th>Reason</th><th></th></tr>
-            </thead>
-            <tbody>
-              <% atRisk.students.forEach(function(r) { %>
-              <tr>
-                <td>
-                  <strong><%= r.student.name %></strong>
-                  <div style="font-size:11px;color:var(--ink-soft);">Roll #<%= r.student.rollNumber %></div>
-                </td>
-                <td><span class="pill" style="font-size:11px;"><%= r.student.className %></span></td>
-                <td>
-                  <% r.reasons.forEach(function(reason, idx) { %>
-                    <span class="pill" style="font-size:11px;background:<%= reason.type === 'attendance' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)' %>;color:<%= reason.type === 'attendance' ? 'var(--error)' : 'var(--review)' %>;"><%= reason.message %></span>
-                  <% }); %>
-                </td>
-                <td><a href="/students/<%= r.student._id %>/analysis" class="btn btn-ghost" style="font-size:11px;padding:4px 10px;">View</a></td>
-              </tr>
+    <% /* ── Row: Top Performers + At-Risk Students — TWO separate panels,
+           scoped to THIS teacher's own classes, each toggled by GRADE (only
+           the grades they teach). Reuses the admin tp-tab / tp-list markup;
+           the switcher in dashboard-charts.js is per-panel and matches on
+           data-grade, keyed here by grade level ("" = All my grades). */ %>
+    <%
+      var perf = (stats.teacher && stats.teacher.performance) || { gradeTabs: [], topPerformers: {}, atRisk: {}, atRiskTotal: 0 };
+      var gradeTabs = [{ id: '', label: 'All my grades' }].concat((perf.gradeTabs || []).map(function (g) { return { id: g, label: 'Grade ' + g }; }));
+      var tpByGrade = perf.topPerformers || {};
+      var arByGrade = perf.atRisk || {};
+      var arTotal = perf.atRiskTotal || 0;
+    %>
+    <div class="charts-row charts-row--tp charts-row--equal">
+      <!-- Top Performers (my classes) -->
+      <div class="panel">
+        <div class="panel-head"><h2>Top Performers <span class="chart-subtitle">My students · avg % / Att % · top 10 per grade</span></h2></div>
+        <div class="tp-tabs" role="tablist">
+          <% gradeTabs.forEach(function(t) { %>
+          <button type="button" class="tp-tab<%= t.id === '' ? ' active' : '' %>" data-grade="<%= t.id %>" role="tab" aria-selected="<%= t.id === '' %>"><%= t.label %></button>
+          <% }); %>
+        </div>
+        <div class="panel-body capped-scroll capped-scroll--360" style="padding:6px 0;">
+          <% gradeTabs.forEach(function(t) { %>
+          <% var tpList = tpByGrade[t.id] || []; %>
+          <div class="tp-list" data-grade="<%= t.id %>"<%- t.id === '' ? '' : ' style="display:none;"' %>>
+            <% if (tpList.length > 0) { %>
+              <% tpList.forEach(function(p, i) { %>
+              <div style="display:flex;align-items:center;gap:12px;padding:9px 20px;<%= i < tpList.length - 1 ? 'border-bottom:1px solid var(--border);' : '' %>">
+                <div style="width:26px;height:26px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;background:<%= i < 3 ? 'rgba(124,58,237,0.12)' : 'var(--paper)' %>;color:<%= i < 3 ? 'var(--ocr)' : 'var(--ink-soft)' %>;"><%= i + 1 %></div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:600;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><%= p.name %></div>
+                  <div style="font-size:11px;color:var(--ink-soft);">Roll #<%= p.rollNumber %><% if (p.className) { %> · <%= p.className %><% } %><% if (p.parentName) { %> · Parent: <%= p.parentName %><% } %> · <%= p.tests %> test<%= p.tests === 1 ? '' : 's' %></div>
+                </div>
+                <%
+                  var pAtt = p.attendancePercent;
+                  var pAttLow = pAtt != null && pAtt < alertThresholds.ATTENDANCE;
+                %>
+                <div style="flex:none;text-align:right;min-width:58px;">
+                  <div style="font-weight:700;font-size:14px;color:var(--ocr);"><%= p.average %>%</div>
+                  <div title="Attendance" style="font-size:11px;font-weight:600;color:<%= pAtt == null ? 'var(--ink-soft)' : (pAttLow ? 'var(--error)' : 'var(--paid)'); %>"><%= pAtt == null ? 'Att —' : 'Att ' + pAtt + '%' %></div>
+                </div>
+              </div>
               <% }); %>
-            </tbody>
-          </table>
+            <% } else { %>
+              <div class="empty" style="padding:24px;"><div class="display" style="font-size:16px;">No scored tests yet</div><p>Nothing has been marked for <%= t.id === '' ? 'your grades' : t.label.toLowerCase() %> yet.</p></div>
+            <% } %>
+          </div>
+          <% }); %>
+        </div>
+      </div>
+
+      <!-- At-Risk Students (my classes) -->
+      <div class="panel">
+        <div class="panel-head"><h2>At-Risk Students <span class="chart-subtitle"><%= arTotal %> flagged · by grade</span></h2></div>
+        <div class="tp-tabs" role="tablist" aria-label="Filter at-risk students by grade" style="padding-top:2px;">
+          <% gradeTabs.forEach(function(t) { %>
+          <button type="button" class="tp-tab<%= t.id === '' ? ' active' : '' %>" data-grade="<%= t.id %>" role="tab" aria-selected="<%= t.id === '' %>"><%= t.label %></button>
+          <% }); %>
+        </div>
+        <div class="panel-body capped-scroll capped-scroll--360" style="padding:6px 0;">
+          <% gradeTabs.forEach(function(t) { %>
+          <% var arList = arByGrade[t.id] || []; %>
+          <div class="tp-list" data-grade="<%= t.id %>"<%- t.id === '' ? '' : ' style="display:none;"' %>>
+            <% if (arList.length > 0) { %>
+              <% arList.forEach(function(r, i) { %>
+              <%
+                var arAtt = r.attendancePercent;
+                var arAttLow = arAtt != null && arAtt < alertThresholds.ATTENDANCE;
+                var arAvg = r.averagePercent;
+              %>
+              <a href="/students/<%= r.student._id %>/analysis" style="display:flex;align-items:center;gap:12px;padding:9px 20px;text-decoration:none;color:inherit;<%= i < arList.length - 1 ? 'border-bottom:1px solid var(--border);' : '' %>">
+                <div style="width:26px;height:26px;flex:none;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;background:<%= i < 3 ? 'rgba(239,68,68,0.12)' : 'var(--paper)' %>;color:<%= i < 3 ? 'var(--error)' : 'var(--ink-soft)' %>;"><%= i + 1 %></div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:600;font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><%= r.student.name %></div>
+                  <div style="font-size:11px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Roll #<%= r.student.rollNumber %> · <%= r.student.className %><% if (r.student.parentName) { %> · Parent: <%= r.student.parentName %><% } %></div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;">
+                    <% (r.reasons || []).forEach(function(reason) { %>
+                      <span class="pill" style="font-size:10.5px;background:<%= reason.type === 'attendance' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)' %>;color:<%= reason.type === 'attendance' ? 'var(--error)' : 'var(--review)' %>;"><%= reason.message %></span>
+                    <% }); %>
+                  </div>
+                </div>
+                <div style="flex:none;text-align:right;min-width:58px;">
+                  <div style="font-weight:700;font-size:14px;color:var(--error);"><%= arAvg == null ? '—' : arAvg + '%' %></div>
+                  <div title="Attendance" style="font-size:11px;font-weight:600;color:<%= arAtt == null ? 'var(--ink-soft)' : (arAttLow ? 'var(--error)' : 'var(--paid)'); %>"><%= arAtt == null ? 'Att —' : 'Att ' + arAtt + '%' %></div>
+                </div>
+              </a>
+              <% }); %>
+            <% } else { %>
+              <div class="empty" style="padding:24px;"><div class="display" style="font-size:16px;">No at-risk students</div><p>Nobody in <%= t.id === '' ? 'your grades' : t.label.toLowerCase() %> is below the <%= alertThresholds.SCORE %>% marks or <%= alertThresholds.ATTENDANCE %>% attendance threshold.</p></div>
+            <% } %>
+          </div>
+          <% }); %>
         </div>
       </div>
     </div>
-    <% } %>
 
     <!-- Quick actions -->
     <div class="panel">

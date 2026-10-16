@@ -66,7 +66,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
     // Distinct grades and sections present in the real class data. Sections are
     // scoped per-grade so the client cascade can narrow the Section picker.
     const grades = [...new Set(classes.map((c) => c.gradeLevel).filter(Boolean))]
-      .sort(gradeRank);
+      .sort((a, b) => gradeRank(a) - gradeRank(b));
     const sectionsForGrade = (g) =>
       [...new Set(
         classes

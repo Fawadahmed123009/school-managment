@@ -197,7 +197,12 @@ exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy, gradeLevel, option
 // ── Teacher ─────────────────────────────────────────────────────────────────
 // Scoped to teacher's assigned classes (attendance) and only their subjects
 // (scores). A Math teacher won't see students flagged for Chemistry.
-exports.getAtRiskStudentsTeacher = async (teacherId) => {
+// options.maxList overrides the 10-row panel cap; pass null for the FULL ranked
+// list so the dashboard can bucket rows per class tab client-side (mirrors the
+// admin grade-tab approach). Every row also carries the display fields the
+// Top-Performers-style row needs — classId (the bucket key), parentName,
+// averagePercent and tests — none of which change the flag criteria.
+exports.getAtRiskStudentsTeacher = async (teacherId, options) => {
   // 1. Teacher's assignments → subjects & classes
   const assignments = await Assignment.find({ teacher: teacherId })
     .populate("subject", "name")
@@ -242,8 +247,9 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
     isWithdrawn: { $ne: true },
     status: { $ne: "inactive" },
   })
-    .select("_id name studentId rollNumber classLevel")
+    .select("_id name studentId rollNumber classLevel parent fatherName")
     .populate("classLevel", "name gradeLevel group section")
+    .populate("parent", "name")
     .sort("name")
     .lean();
 
@@ -293,8 +299,12 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
       }
     }
 
-    // Per-subject score check — ONLY teacher's subjects
+    // Per-subject score check — ONLY teacher's subjects. Also accumulate the
+    // overall average + test count across the teacher's subjects so the panel
+    // row can show "avg %" exactly like the admin At-Risk / Top-Performers row.
     const subjectAgg = {};
+    let pctSum = 0;
+    let pctCount = 0;
     filteredResults
       .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks && r.absent !== true && r.score > 0)
       .forEach((r) => {
@@ -303,6 +313,8 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
         if (!subjectAgg[subjectName]) subjectAgg[subjectName] = { total: 0, count: 0 };
         subjectAgg[subjectName].total += percent;
         subjectAgg[subjectName].count += 1;
+        pctSum += percent;
+        pctCount += 1;
       });
 
     const lowSubjects = Object.keys(subjectAgg)
@@ -330,8 +342,18 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
           studentId: student.studentId,
           rollNumber: student.rollNumber,
           className: student.classLevel ? student.classLevel.name : "—",
+          gradeLevel: student.classLevel && student.classLevel.gradeLevel != null
+            ? String(student.classLevel.gradeLevel)
+            : "",
+          // Bucket key for the dashboard's per-class tabs.
+          classId: student.classLevel ? String(student.classLevel._id) : "",
+          // Same parent convention as the admin panels: linked Parent record
+          // first, then the student's own fatherName as a fallback.
+          parentName: (student.parent && student.parent.name) || student.fatherName || "",
         },
         attendancePercent: attPercent,
+        averagePercent: pctCount > 0 ? Math.round((pctSum / pctCount) * 100) / 100 : null,
+        tests: pctCount,
         reasons,
       });
     }
@@ -345,8 +367,12 @@ exports.getAtRiskStudentsTeacher = async (teacherId) => {
     return b.reasons.length - a.reasons.length;
   });
 
+  // Cap: panel default is MAX_LIST_SIZE; options.maxList = null returns the
+  // full ranked list so the caller can slice per-class buckets itself.
+  const maxListT = options && options.maxList !== undefined ? options.maxList : MAX_LIST_SIZE;
+
   return {
-    students: atRisk.slice(0, MAX_LIST_SIZE),
+    students: maxListT === null ? atRisk : atRisk.slice(0, maxListT),
     total: atRisk.length,
     hasMore: atRisk.length > MAX_LIST_SIZE,
   };

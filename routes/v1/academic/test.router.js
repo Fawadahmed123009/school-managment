@@ -35,11 +35,13 @@ const {
   getAllTestsController,
   getTestsByRoleController,
   getTeacherAssignedClassesController,
-  getTeacherAssignedSubjectsController,
-  getTeacherScopedTestsByClassSubjectController,
   getTeacherCascadeSessionsController,
+  getTeacherCascadeGradesController,
+  getTeacherCascadeSectionsController,
   getTeacherCascadePhasesController,
   getTeacherCascadeWeeksController,
+  getTeacherCascadeSubjectsController,
+  getTeacherScopedTestsByClassSubjectController,
   getTestRosterController,
   submitTestResultsController,
   getMarksAuditController,
@@ -130,14 +132,18 @@ testRouter.route("/tests").post(isLoggedIn, isAdminOrManager, createTestControll
 // GET /tests — admin sees all; teacher sees only their assigned subjects/classes
 testRouter.route("/tests").get(isLoggedIn, isAdminOrTeacher, getTestsByRoleController);
 
-// ── Cascade API routes for Class → Subject → Session → Phase → Week → Test ──
+// ── Cascade API routes for Session → Grade → Section → Phase → Week → Subject → Test ──
 // These must come BEFORE /:testId routes to avoid route conflicts.
 // Only teachers need these; managers/admins use the full test list.
+// Every level is derived from the teacher's own Assignment records (see the
+// cascade services in test.service.js) — client ids are filters, never grants.
 testRouter.get("/tests/cascade/classes", isLoggedIn, isTeacher, getTeacherAssignedClassesController);
-testRouter.get("/tests/cascade/subjects", isLoggedIn, isTeacher, getTeacherAssignedSubjectsController);
 testRouter.get("/tests/cascade/sessions", isLoggedIn, isTeacher, getTeacherCascadeSessionsController);
+testRouter.get("/tests/cascade/grades", isLoggedIn, isTeacher, getTeacherCascadeGradesController);
+testRouter.get("/tests/cascade/sections", isLoggedIn, isTeacher, getTeacherCascadeSectionsController);
 testRouter.get("/tests/cascade/phases", isLoggedIn, isTeacher, getTeacherCascadePhasesController);
 testRouter.get("/tests/cascade/weeks", isLoggedIn, isTeacher, getTeacherCascadeWeeksController);
+testRouter.get("/tests/cascade/subjects", isLoggedIn, isTeacher, getTeacherCascadeSubjectsController);
 testRouter.get("/tests/cascade/tests", isLoggedIn, isTeacher, getTeacherScopedTestsByClassSubjectController);
 
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);
