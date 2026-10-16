@@ -6,7 +6,7 @@
  * dashboard) can chase up outstanding marking across the whole staff.
  *
  *   • getPendingMarkingAllTeachers() → [{ _id, name, teacher, teacherId,
- *       subject, classes, date, expected, marked }, …]
+ *       subject, classes, grades, whatsapp, date, expected, marked }, …]
  *
  * A test counts as pending for a teacher when ALL of these hold:
  *   1. the test date has passed;
@@ -32,6 +32,16 @@ const TestResult = require("../../models/Academic/testResult.model");
 
 const asId = (ref) => (ref && ref._id ? String(ref._id) : ref ? String(ref) : null);
 
+// Dashboard grace window: the admin "Tests awaiting marking" panel only lists
+// tests held MORE than this many days ago — a teacher gets 3 days to finish
+// marking before the row shows up as overdue. The service itself still reports
+// every past-dated pending test; the dashboard route applies this filter.
+const MARKING_GRACE_DAYS = 3;
+
+function isBeyondMarkingGrace(testDate, now = new Date()) {
+  return Math.floor((now.getTime() - new Date(testDate).getTime()) / 86400000) > MARKING_GRACE_DAYS;
+}
+
 // A pupil admitted AFTER a test was held is not part of that test's expected
 // marking pool — same rule the mark-entry roster and the teacher dashboard use.
 const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
@@ -41,7 +51,7 @@ async function loadPastDatedTests() {
   return Test.find({ date: { $lt: new Date() } })
     .select("name subject classLevels date")
     .populate("subject", "name displayName")
-    .populate("classLevels", "name")
+    .populate("classLevels", "name gradeLevel")
     .lean();
 }
 
@@ -58,12 +68,17 @@ async function getPendingMarkingAllTeachers() {
       isWithdrawn: { $ne: true },
     }).select("_id classLevel dateAdmitted").lean(),
     TestResult.find().select("test student").lean(),
-    Teacher.find().select("name").lean(),
+    Teacher.find().select("name whatsappNumber").lean(),
   ]);
 
+  // name + WhatsApp number per teacher — the number is carried onto every
+  // pending row so the admin dashboard can build a wa.me marking-reminder link
+  // with the SAME digits-only pattern the marks-audit and fee views use.
   const teacherNames = {};
+  const teacherWhatsapp = {};
   teachers.forEach((t) => {
     teacherNames[String(t._id)] = t.name;
+    teacherWhatsapp[String(t._id)] = t.whatsappNumber || "";
   });
 
   // class level → its enrolled students (active / not graduated / not withdrawn),
@@ -125,13 +140,22 @@ async function getPendingMarkingAllTeachers() {
         const markedSet = markedByTest[String(t._id)] || new Set();
         const marked = expectedIds.reduce((n, id) => n + (markedSet.has(id) ? 1 : 0), 0);
         if (marked >= expectedIds.length) return;
+        // Compact grade label (e.g. "9, 10") for the dashboard reminder table —
+        // the full class-name list stays available as `classes` (tooltip).
+        const gradeById = {};
+        (t.classLevels || []).forEach((c) => {
+          if (c && c._id && c.gradeLevel) gradeById[String(c._id)] = c.gradeLevel;
+        });
+        const grades = [...new Set(inScope.map((cid) => gradeById[String(cid)]).filter(Boolean))].join(", ");
         pending.push({
           _id: t._id,
           name: t.name,
           teacherId: tid,
           teacher: teacherNames[tid] || "Unknown",
+          whatsapp: teacherWhatsapp[tid] || "",
           subject: duty.name,
           classes: inScope.map((cid) => classNameById[cid]).filter(Boolean).join(", "),
+          grades,
           date: t.date,
           expected: expectedIds.length,
           marked,
@@ -236,4 +260,4 @@ async function getTeacherTestMarkingSummary() {
   );
 }
 
-module.exports = { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary };
+module.exports = { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary, isBeyondMarkingGrace, MARKING_GRACE_DAYS };

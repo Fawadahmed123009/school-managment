@@ -3,8 +3,10 @@
  *
  * Covers two areas:
  *
- *   1. Threshold logic — attendance < 75 % and per-subject average < 40 %
- *      trigger flags; values at or above the thresholds do NOT.
+ *   1. Threshold logic — the ADMIN panel flags on MARKS ONLY (per-subject
+ *      average < 40 %); attendance is display data and never flags there.
+ *      The TEACHER panel keeps the original dual criteria: attendance < 75 %
+ *      or per-subject average < 40 %.
  *
  *   2. Access-boundary scoping — a teacher only sees flags for students in
  *      their assigned classes, and only for subjects they teach.  An admin
@@ -126,24 +128,20 @@ describe("THRESHOLDS", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// ADMIN — threshold logic
+// ADMIN — threshold logic (MARKS ONLY — attendance never flags here)
 // ═════════════════════════════════════════════════════════════════════════════
 describe("getAtRiskStudentsAdmin — threshold logic", () => {
-  test("flags student with attendance below 75%", async () => {
+  test("does NOT flag on attendance alone — admin flags are marks-only", async () => {
     const s1 = makeStudent("s1", "Alice", CLASS_A, "Class A");
     setupStudentFind([s1]);
-    // 6 present + 0 late = 60% out of 10 days
+    // 6 present + 0 late = 60% — would have flagged under the OLD criteria
     setupAttendanceAggregate([makeAttRow("s1", 6, 4, 0)]);
     setupTestResultFind([]);
 
     const result = await getAtRiskStudentsAdmin();
 
-    expect(result.total).toBe(1);
-    expect(result.students).toHaveLength(1);
-    expect(result.students[0].student.name).toBe("Alice");
-    expect(result.students[0].reasons).toEqual(
-      expect.arrayContaining([expect.objectContaining({ type: "attendance", value: 60 })])
-    );
+    expect(result.total).toBe(0);
+    expect(result.students).toHaveLength(0);
   });
 
   test("flags student with per-subject average below 40%", async () => {
@@ -203,12 +201,24 @@ describe("getAtRiskStudentsAdmin — threshold logic", () => {
     expect(result.total).toBe(0);
   });
 
-  test("late counts as present in attendance %", async () => {
+  test("late counts as present in the displayed attendance %", async () => {
     const s1 = makeStudent("s1", "Frank", CLASS_A, "Class A");
     setupStudentFind([s1]);
-    // 5 present + 3 late = 8/10 = 80% → NOT flagged
+    // 5 present + 3 late = 8/10 = 80% — displayed, but the flag comes from marks
     setupAttendanceAggregate([makeAttRow("s1", 5, 2, 3)]);
-    setupTestResultFind([]);
+    setupTestResultFind([makeResult("s1", SUBJECT_MATH, "Math", 20, 100)]); // 20% → flagged
+
+    const result = await getAtRiskStudentsAdmin();
+
+    expect(result.total).toBe(1);
+    expect(result.students[0].attendancePercent).toBe(80);
+  });
+
+  test("attendance-only student with passing marks is NOT flagged even at 0% attendance", async () => {
+    const s1 = makeStudent("s1", "Gina", CLASS_A, "Class A");
+    setupStudentFind([s1]);
+    setupAttendanceAggregate([makeAttRow("s1", 0, 10, 0)]); // 0% attendance
+    setupTestResultFind([makeResult("s1", SUBJECT_MATH, "Math", 85, 100)]); // 85% — fine
 
     const result = await getAtRiskStudentsAdmin();
 
@@ -259,10 +269,10 @@ describe("getAtRiskStudentsAdmin — threshold logic", () => {
     setupStudentFind([s1]);
     // Even though attendance agg has data for Class B student, they're not in the student list
     setupAttendanceAggregate([
-      makeAttRow("s1", 5, 5, 0),   // 50% → flagged
-      makeAttRow("s2", 5, 5, 0),   // 50% but not in student list
+      makeAttRow("s1", 5, 5, 0),
+      makeAttRow("s2", 5, 5, 0),
     ]);
-    setupTestResultFind([]);
+    setupTestResultFind([makeResult("s1", SUBJECT_MATH, "Math", 20, 100)]); // 20% → flagged
 
     const result = await getAtRiskStudentsAdmin(CLASS_A);
 
@@ -294,7 +304,7 @@ describe("getAtRiskStudentsAdmin — threshold logic", () => {
   });
 
   test("list is capped at 10 with hasMore = true when more exist", async () => {
-    // Create 12 at-risk students (all with 50% attendance)
+    // Create 12 at-risk students (all with a 20% Math average)
     const students = Array.from({ length: 12 }, (_, i) =>
       makeStudent(`s${i}`, `Student ${i}`, CLASS_A, "Class A")
     );
@@ -302,13 +312,48 @@ describe("getAtRiskStudentsAdmin — threshold logic", () => {
     setupAttendanceAggregate(
       students.map((_, i) => makeAttRow(`s${i}`, 5, 5, 0))
     );
-    setupTestResultFind([]);
+    setupTestResultFind(
+      students.map((s) => makeResult(String(s._id), SUBJECT_MATH, "Math", 20, 100))
+    );
 
     const result = await getAtRiskStudentsAdmin();
 
     expect(result.students).toHaveLength(10);
     expect(result.total).toBe(12);
     expect(result.hasMore).toBe(true);
+  });
+
+  test("exposes Top-Performers-style display fields (averagePercent, tests)", async () => {
+    const s1 = makeStudent("s1", "Zoe", CLASS_A, "Class A");
+    setupStudentFind([s1]);
+    setupAttendanceAggregate([makeAttRow("s1", 8, 2, 0)]); // 80% — display only
+    // Math 20%, English 60% → overall average 40%, 2 tests
+    setupTestResultFind([
+      makeResult("s1", SUBJECT_MATH, "Math", 20, 100),
+      makeResult("s1", SUBJECT_ENG, "English", 60, 100),
+    ]);
+
+    const result = await getAtRiskStudentsAdmin();
+
+    expect(result.total).toBe(1); // flagged via the low Math subject
+    expect(result.students[0].averagePercent).toBe(40);
+    expect(result.students[0].tests).toBe(2);
+    expect(result.students[0].attendancePercent).toBe(80);
+  });
+
+  test("default sort ranks the LOWEST marks average first", async () => {
+    const s1 = makeStudent("s1", "Weak", CLASS_A, "Class A");
+    const s2 = makeStudent("s2", "Mid", CLASS_A, "Class A");
+    setupStudentFind([s1, s2]);
+    setupAttendanceAggregate([]);
+    setupTestResultFind([
+      makeResult("s1", SUBJECT_MATH, "Math", 15, 100), // 15% avg
+      makeResult("s2", SUBJECT_MATH, "Math", 30, 100), // 30% avg
+    ]);
+
+    const result = await getAtRiskStudentsAdmin();
+
+    expect(result.students.map((r) => r.student.name)).toEqual(["Weak", "Mid"]);
   });
 });
 

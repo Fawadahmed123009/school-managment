@@ -7,9 +7,8 @@ const Attendance = require("../../models/Academic/attendance.model");
 const TestResult = require("../../models/Academic/testResult.model");
 const Test = require("../../models/Academic/test.model");
 const Assignment = require("../../models/Academic/assignment.model");
-const ClassLevel = require("../../models/Academic/class.model");
 const { getAtRiskStudentsAdmin, getAtRiskStudentsTeacher, THRESHOLDS } = require("../../services/alerts/atRiskAlerts.service");
-const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary } = require("../../services/academic/markingFollowUp.service");
+const { getPendingMarkingAllTeachers, getTeacherTestMarkingSummary, isBeyondMarkingGrace } = require("../../services/academic/markingFollowUp.service");
 const { admissionCutoffForTest, isAdmittedByTest } = require("../../utils/testRosterEligibility");
 const { dateKeyStage, localDateKey } = require("../../utils/localDateKey");
 const logger = require("../../config/logger");
@@ -39,7 +38,7 @@ router.get("/dashboard", async (req, res) => {
     return res.redirect("/parent-portal");
   }
 
-  const stats = { students: 0, staff: 0, collected: 0, outstanding: 0 };
+  const stats = { students: 0, staff: 0, inactiveStudents: 0, collected: 0, outstanding: 0 };
   const charts = { attendanceTrend: [], feeCollection: [], feeBreakdown: [], teacherTests: [] };
   let atRisk = null;
   let alertThresholds = THRESHOLDS;
@@ -47,43 +46,207 @@ router.get("/dashboard", async (req, res) => {
   try {
     if (req.user.role === "admin" || req.user.isManager) {
       const isAdmin = req.user.role === "admin";
-      const fetches = [
-        Student.countDocuments(),
-        Teacher.countDocuments(),
-      ];
-      // Only fetch fee data for full admin (not manager)
-      if (isAdmin) fetches.push(Fees.find().lean());
-      // Resolve inactive student IDs to exclude their unpaid fees from stats
-      const inactiveStudents = await Student.find({ status: "inactive" }).select("_id").lean();
-      const inactiveSet = new Set(inactiveStudents.map((s) => s._id.toString()));
-      const results = await Promise.all(fetches);
-      stats.students = results[0];
-      stats.staff = results[1];
-      if (isAdmin && results[2]) {
-        for (const f of results[2]) {
-          if (f.status === "paid") stats.collected += f.amount;
-          else if (!inactiveSet.has(f.student.toString())) stats.outstanding += f.amount;
-        }
-      }
 
-      // ── Chart data: Attendance trend (last 30 days) ──
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       thirtyDaysAgo.setHours(0, 0, 0, 0);
+      const sixMonthsAgo = monthsAgo(6);
 
-      const attAgg = await Attendance.aggregate([
-        { $match: { date: { $gte: thirtyDaysAgo } } },
+      // Active-enrolled triple, used everywhere in the project: not inactive,
+      // not graduated, not withdrawn. "Enrolled students" must count only these.
+      const ACTIVE_STUDENTS = {
+        status: { $ne: "inactive" },
+        isGraduated: { $ne: true },
+        isWithdrawn: { $ne: true },
+      };
+
+      // Shared fee scoping — replaces the old full-collection Fees.find().lean()
+      // JS-loop with the SAME aggregate technique the fee charts already use:
+      // soft-deleted rows are dropped by the Fees pre-aggregate hook, and the
+      // $lookup drops arrears owed by inactive students so they never inflate
+      // "outstanding". Reused by the KPI totals and both charts below.
+      const feeScope = [
+        { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
+        { $addFields: { _stuStatus: { $arrayElemAt: ["$_stu.status", 0] } } },
+        { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
+      ];
+
+      // School-wide test average + top performers share the scoring convention
+      // already used by the student branch and the at-risk service: a result
+      // contributes score/totalMarks as a percent, and absences (stored as a
+      // placeholder score 0) are excluded so they never drag the average down.
+      // Results are also limited to active-enrolled students.
+      const scoredResultScope = [
+        { $match: { absent: { $ne: true }, score: { $gt: 0 } } },
+        { $lookup: { from: "tests", localField: "test", foreignField: "_id", as: "_test" } },
+        { $addFields: { _totalMarks: { $arrayElemAt: ["$_test.totalMarks", 0] } } },
+        { $match: { _totalMarks: { $gt: 0 } } },
+        { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
         {
-          $group: {
-            _id: dateKeyStage(),
-            present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
-            absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
-            late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+          $addFields: {
+            _stuStatus: { $arrayElemAt: ["$_stu.status", 0] },
+            _stuGrad: { $arrayElemAt: ["$_stu.isGraduated", 0] },
+            _stuWith: { $arrayElemAt: ["$_stu.isWithdrawn", 0] },
+            _pct: { $multiply: [{ $divide: ["$score", "$_totalMarks"] }, 100] },
           },
         },
-        { $sort: { _id: 1 } },
+        { $match: { _stuStatus: { $ne: "inactive" }, _stuGrad: { $ne: true }, _stuWith: { $ne: true } } },
+      ];
+
+      // Every fetch below is independent — none feeds another — so the whole
+      // admin/manager data load runs concurrently in ONE Promise.all (was ~6
+      // sequential awaits). The marking follow-up that used to be a separate
+      // sequential block after the role chain is folded in here too. Fee
+      // aggregates are admin-only (null for manager); everything else is shared.
+      const [
+        studentCount,
+        staffCount,
+        feeTotalsRows,
+        attAgg,
+        feeAgg,
+        feeTypeAgg,
+        atRiskResult,
+        pendingMarking,
+        teacherTests,
+        inactiveCount,
+        topPerformerRows,
+        attLifetimeAgg,
+      ] = await Promise.all([
+        Student.countDocuments(ACTIVE_STUDENTS),
+        Teacher.countDocuments(),
+        isAdmin
+          ? Fees.aggregate([
+              ...feeScope,
+              {
+                $group: {
+                  _id: null,
+                  collected: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
+                  outstanding: { $sum: { $cond: [{ $ne: ["$status", "paid"] }, "$amount", 0] } },
+                },
+              },
+            ])
+          : null,
+        Attendance.aggregate([
+          { $match: { date: { $gte: thirtyDaysAgo } } },
+          {
+            $group: {
+              _id: dateKeyStage(),
+              present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+              absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+              late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+            },
+          },
+          { $sort: { _id: 1 } },
+        ]),
+        // Fee collection by month — grouped with dateKeyStage() so buckets use
+        // the school's LOCAL calendar (was plain UTC $dateToString, the same
+        // off-by-one-day bug already fixed for attendance).
+        isAdmin
+          ? Fees.aggregate([
+              { $match: { createdAt: { $gte: sixMonthsAgo } } },
+              ...feeScope,
+              {
+                $group: {
+                  _id: dateKeyStage("%Y-%m", "$createdAt"),
+                  collected: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
+                  outstanding: { $sum: { $cond: [{ $ne: ["$status", "paid"] }, "$amount", 0] } },
+                },
+              },
+              { $sort: { _id: 1 } },
+            ])
+          : null,
+        isAdmin
+          ? Fees.aggregate([
+              ...feeScope,
+              {
+                $group: {
+                  _id: "$feeType",
+                  total: { $sum: "$amount" },
+                  paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
+                },
+              },
+              { $sort: { total: -1 } },
+            ])
+          : null,
+        // FULL ranked list (no 10-row cap) — bucketed per grade tab below and
+        // rendered as pre-built client-side lists, exactly like Top Performers,
+        // so grade toggling never hits the server.
+        getAtRiskStudentsAdmin(undefined, "", undefined, { maxList: null }),
+        getPendingMarkingAllTeachers(),
+        getTeacherTestMarkingSummary(),
+        // Inactive pupils (status === "inactive") — mirrors the students-list
+        // STATUS_CLAUSES.inactive filter so the KPI card matches that view.
+        Student.countDocuments({ status: "inactive" }),
+        // Top performers per grade, ranked by average %, with class grade and
+        // parent name attached (via $lookup into classlevels / parents). No
+        // $limit here — the whole ranked list is bucketed by grade below and
+        // trimmed to the top 10 for each of grades 9–12.
+        TestResult.aggregate([
+          ...scoredResultScope,
+          {
+            $addFields: {
+              _stuName: { $arrayElemAt: ["$_stu.name", 0] },
+              _roll: { $arrayElemAt: ["$_stu.rollNumber", 0] },
+              _classLevel: { $arrayElemAt: ["$_stu.classLevel", 0] },
+              _parentRef: { $arrayElemAt: ["$_stu.parent", 0] },
+              _fatherName: { $arrayElemAt: ["$_stu.fatherName", 0] },
+            },
+          },
+          { $lookup: { from: "classlevels", localField: "_classLevel", foreignField: "_id", as: "_cl" } },
+          { $addFields: { _grade: { $arrayElemAt: ["$_cl.gradeLevel", 0] } } },
+          { $lookup: { from: "parents", localField: "_parentRef", foreignField: "_id", as: "_par" } },
+          {
+            $addFields: {
+              // Prefer the linked Parent/Family record's name; fall back to the
+              // student's own fatherName when no parent account is linked.
+              _parentName: {
+                $cond: [
+                  { $gt: [{ $size: "$_par" }, 0] },
+                  { $arrayElemAt: ["$_par.name", 0] },
+                  "$_fatherName",
+                ],
+              },
+            },
+          },
+          {
+            $group: {
+              _id: "$student",
+              name: { $first: "$_stuName" },
+              rollNumber: { $first: "$_roll" },
+              gradeLevel: { $first: "$_grade" },
+              parentName: { $first: "$_parentName" },
+              tests: { $sum: 1 },
+              avg: { $avg: "$_pct" },
+            },
+          },
+          { $sort: { avg: -1, name: 1 } },
+        ]),
+        // Lifetime attendance % per student for the Top Performers "Att %" column
+        // — the same (present + late) / total convention as the at-risk service,
+        // over ALL attendance records (not the 30-day trend window).
+        Attendance.aggregate([
+          {
+            $group: {
+              _id: "$student",
+              present: { $sum: { $cond: [{ $eq: ["$status", "present"] }, 1, 0] } },
+              absent: { $sum: { $cond: [{ $eq: ["$status", "absent"] }, 1, 0] } },
+              late: { $sum: { $cond: [{ $eq: ["$status", "late"] }, 1, 0] } },
+            },
+          },
+        ]),
       ]);
 
+      stats.students = studentCount;
+      stats.staff = staffCount;
+      stats.inactiveStudents = inactiveCount || 0;
+
+      if (isAdmin && feeTotalsRows && feeTotalsRows.length > 0) {
+        stats.collected = Math.round(feeTotalsRows[0].collected);
+        stats.outstanding = Math.round(feeTotalsRows[0].outstanding);
+      }
+
+      // Attendance trend line keeps its shape; the donut reuses the SAME
+      // aggregation's per-day present/absent/late — summed here, no second query.
       charts.attendanceTrend = attAgg.map((d) => ({
         date: d._id,
         rate: d.present + d.absent + d.late > 0
@@ -91,75 +254,75 @@ router.get("/dashboard", async (req, res) => {
           : 0,
         total: d.present + d.absent + d.late,
       }));
+      charts.attendanceBreakdown = attAgg.reduce(
+        (t, d) => ({
+          present: t.present + d.present,
+          absent: t.absent + d.absent,
+          late: t.late + d.late,
+        }),
+        { present: 0, absent: 0, late: 0 }
+      );
 
-      // Fee charts only for full admin (not manager)
-      if (req.user.role === "admin") {
-        // ── Chart data: Fee collection (last 6 months) ──
-        const sixMonthsAgo = monthsAgo(6);
-        const feeAgg = await Fees.aggregate([
-          { $match: { createdAt: { $gte: sixMonthsAgo } } },
-          // Join student to check status — exclude unpaid fees for inactive students
-          { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
-          { $addFields: { _stuStatus: { $arrayElemAt: ["$_stu.status", 0] } } },
-          { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
-          { $project: { _stu: 0, _stuStatus: 0 } },
-          {
-            $group: {
-              _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
-              collected: {
-                $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] },
-              },
-              outstanding: {
-                $sum: { $cond: [{ $ne: ["$status", "paid"] }, "$amount", 0] },
-              },
-            },
-          },
-          { $sort: { _id: 1 } },
-        ]);
-
-        charts.feeCollection = feeAgg.map((d) => ({
+      if (isAdmin) {
+        charts.feeCollection = (feeAgg || []).map((d) => ({
           month: d._id,
           collected: d.collected,
           outstanding: d.outstanding,
         }));
-
-        // ── Chart data: Fee breakdown by type ──
-        const feeTypeAgg = await Fees.aggregate([
-          // Exclude unpaid fees for inactive students
-          { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
-          { $addFields: { _stuStatus: { $arrayElemAt: ["$_stu.status", 0] } } },
-          { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
-          { $project: { _stu: 0, _stuStatus: 0 } },
-          {
-            $group: {
-              _id: "$feeType",
-              total: { $sum: "$amount" },
-              paid: { $sum: { $cond: [{ $eq: ["$status", "paid"] }, "$amount", 0] } },
-            },
-          },
-          { $sort: { total: -1 } },
-        ]);
-
-        charts.feeBreakdown = feeTypeAgg.map((d) => ({
+        charts.feeBreakdown = (feeTypeAgg || []).map((d) => ({
           type: d._id || "Other",
           total: d.total,
           paid: d.paid,
         }));
       }
 
-      // ── At-Risk Students panel ──
-      const classFilter = req.query.classLevel || "";
-      const sortBy = req.query.sortBy || "";
-      const [atRiskResult, classes] = await Promise.all([
-        getAtRiskStudentsAdmin(classFilter || undefined, sortBy),
-        ClassLevel.find().sort({ gradeLevel: 1, name: 1 }).lean(),
-      ]);
+      // At-Risk lists bucketed per grade tab ("" = All grades). The incoming
+      // list is already sorted lowest-average-first, so the first 10 seen for
+      // a grade ARE that grade's 10 weakest — identical to a per-grade query.
+      const AR_GRADE_TABS = ["9", "10", "11", "12"];
+      const arLists = { "": [] };
+      AR_GRADE_TABS.forEach((g) => { arLists[g] = []; });
+      ((atRiskResult && atRiskResult.students) || []).forEach((r) => {
+        if (arLists[""].length < 10) arLists[""].push(r);
+        const bucket = arLists[r.student && r.student.gradeLevel ? String(r.student.gradeLevel) : ""];
+        if (bucket && bucket.length < 10) bucket.push(r);
+      });
       atRisk = {
-        ...atRiskResult,
-        classFilter,
-        sortBy,
-        classes,
+        lists: arLists,
+        gradeTabs: AR_GRADE_TABS,
+        total: (atRiskResult && atRiskResult.total) || 0,
       };
+
+      // Marking follow-up across all teachers (was a second sequential block),
+      // minus the 3-day grace window — only tests held MORE than 3 days ago
+      // are surfaced as awaiting marking on this panel.
+      stats.marking = pendingMarking.filter((t) => isBeyondMarkingGrace(t.date));
+      charts.teacherTests = teacherTests;
+
+      // Top performers bucketed per grade (admin + manager). Rows arrive sorted
+      // by average % desc, so the first 10 seen for a grade ARE its top 10.
+      const GRADE_TABS = ["9", "10", "11", "12"];
+      const attPctById = {};
+      attLifetimeAgg.forEach((a) => {
+        const total = a.present + a.absent + a.late;
+        if (total > 0) attPctById[String(a._id)] = Math.round(((a.present + a.late) / total) * 10000) / 100;
+      });
+      const byGrade = {};
+      GRADE_TABS.forEach((g) => { byGrade[g] = []; });
+      (topPerformerRows || []).forEach((r) => {
+        const bucket = byGrade[r.gradeLevel];
+        if (!bucket || bucket.length >= 10) return;
+        bucket.push({
+          _id: r._id,
+          name: r.name,
+          rollNumber: r.rollNumber,
+          parentName: r.parentName || "",
+          tests: r.tests,
+          average: Math.round(r.avg * 100) / 100,
+          attendancePercent: attPctById[String(r._id)] !== undefined ? attPctById[String(r._id)] : null,
+        });
+      });
+      stats.topPerformers = { gradeTabs: GRADE_TABS, byGrade };
 
     } else if (req.user.role === "student") {
       const studentId = req.user._id;
@@ -451,16 +614,8 @@ router.get("/dashboard", async (req, res) => {
       }
     }
 
-    // ── Admin/Manager: marking follow-up across ALL teachers ──
-    // Same scoping as each teacher's own panel above, aggregated per teacher.
-    if (req.user.role === "admin" || req.user.isManager) {
-      const [pendingMarking, teacherTests] = await Promise.all([
-        getPendingMarkingAllTeachers(),
-        getTeacherTestMarkingSummary(),
-      ]);
-      stats.marking = pendingMarking;
-      charts.teacherTests = teacherTests;
-    }
+    // Admin/manager marking follow-up (pendingMarking + teacherTests) and the
+    // school-wide test widgets are fetched in the parallel batch above.
   } catch (err) {
     logger.warn("Dashboard stats error", { error: err.message, userId: req.user?._id });
     // graceful degradation — dashboard still renders with zeros
