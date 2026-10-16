@@ -6,6 +6,12 @@ const Assignment = require("../../models/Academic/assignment.model");
 const mongoose = require("mongoose");
 const { dateKeyStage, localDateKey } = require("../../utils/localDateKey");
 
+// Students we count as "enrolled" for attendance. Mirrors the enrolled
+// head-count convention used across the dashboards/reports: a student whose
+// status is "inactive" is no longer expected in any roster and must never be
+// marked, listed, or counted.
+const ACTIVE_STUDENT_FILTER = { status: { $ne: "inactive" } };
+
 // Bulk mark a whole class's attendance for one day in a single call
 exports.markClassAttendanceService = async (classLevel, date, records, teacherId, res) => {
   if (!Array.isArray(records) || records.length === 0) {
@@ -14,6 +20,23 @@ exports.markClassAttendanceService = async (classLevel, date, records, teacherId
 
   const day = new Date(date);
   day.setHours(0, 0, 0, 0);
+
+  // Fail-closed guard: only active students of THIS class may be marked. A
+  // direct API POST that names an inactive (or foreign) student is rejected in
+  // full and nothing is written — hiding the row in the roster isn't enough.
+  const submittedIds = records.map((r) => String(r.student));
+  const activeStudents = await Student
+    .find({ classLevel, ...ACTIVE_STUDENT_FILTER })
+    .select("_id")
+    .lean();
+  const activeSet = new Set(activeStudents.map((s) => s._id.toString()));
+  const disallowed = submittedIds.filter((id) => !activeSet.has(id));
+  if (disallowed.length > 0) {
+    return responseStatus(
+      res, 403, "failed",
+      "Cannot mark attendance for students who are not active in this class"
+    );
+  }
 
   const results = [];
   for (const r of records) {
@@ -30,7 +53,7 @@ exports.markClassAttendanceService = async (classLevel, date, records, teacherId
 
 // Roster for a class + whatever attendance already exists for a given day (used to pre-fill the marking UI)
 exports.getClassRosterForDateService = async (classLevel, date, res) => {
-  const students = await Student.find({ classLevel })
+  const students = await Student.find({ classLevel, ...ACTIVE_STUDENT_FILTER })
     .select("name studentId rollNumber parent")
     .populate("parent", "name");
 
@@ -177,9 +200,12 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
 
   if (scope === "specificStudent") {
     // ── Specific student: per-student list + one student's day-by-day history ──
-    const studentClassFilter = classLevel && mongoose.Types.ObjectId.isValid(classLevel)
-      ? { classLevel: new mongoose.Types.ObjectId(classLevel) }
-      : { classLevel: { $in: effectiveClassLevels } };
+    const studentClassFilter = {
+      ...(classLevel && mongoose.Types.ObjectId.isValid(classLevel)
+        ? { classLevel: new mongoose.Types.ObjectId(classLevel) }
+        : { classLevel: { $in: effectiveClassLevels } }),
+      ...ACTIVE_STUDENT_FILTER,
+    };
 
     const students = await Student.find(studentClassFilter)
       .select("name studentId rollNumber classLevel")
@@ -420,8 +446,8 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
     // so the head-count and enrolledTotal reflect only the assigned classes.
     Student.aggregate([
       { $match: teacherScoped
-        ? { status: { $ne: "inactive" }, classLevel: { $in: scopeIds } }
-        : { status: { $ne: "inactive" } } },
+        ? { ...ACTIVE_STUDENT_FILTER, classLevel: { $in: scopeIds } }
+        : { ...ACTIVE_STUDENT_FILTER } },
       { $group: { _id: "$classLevel", n: { $sum: 1 } } },
     ]),
     ClassLevel.find(teacherScoped ? { _id: { $in: scopeIds } } : {}, "_id name").sort("name").lean(),
@@ -525,8 +551,9 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
 exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, startDate, endDate, res) => {
   const { classLevel, rollNumber, name, sortBy } = filters;
 
-  // Build student search filter — same pattern as students list / fees list
-  const studentFilter = {};
+  // Build student search filter — same pattern as students list / fees list.
+  // Inactive students are excluded, consistent with the marking roster.
+  const studentFilter = { ...ACTIVE_STUDENT_FILTER };
   if (classLevel && mongoose.Types.ObjectId.isValid(classLevel)) {
     studentFilter.classLevel = new mongoose.Types.ObjectId(classLevel);
   }
