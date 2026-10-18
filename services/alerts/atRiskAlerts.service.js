@@ -74,7 +74,7 @@ exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy, gradeLevel, option
   }
 
   const students = await Student.find(studentFilter)
-    .select("_id name studentId rollNumber classLevel parent fatherName")
+    .select("_id name studentId rollNumber classLevel parent fatherName whatsappNumber")
     .populate("classLevel", "name gradeLevel group section")
     .populate("parent", "name")
     .sort("name")
@@ -160,6 +160,10 @@ exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy, gradeLevel, option
         // Same parent convention as Top Performers: linked Parent record first,
         // then the student's own fatherName as fallback.
         parentName: (student.parent && student.parent.name) || student.fatherName || "",
+        // Parent-facing WhatsApp line — same field the fee-reminder (defaulters)
+        // panel targets. Carried so the At-Risk row can build a wa.me deep link
+        // without any extra per-row query (it's already in the projection above).
+        whatsappNumber: student.whatsappNumber || "",
       },
       attendancePercent: attPercent,
       averagePercent: pctCount > 0 ? Math.round((pctSum / pctCount) * 100) / 100 : null,
