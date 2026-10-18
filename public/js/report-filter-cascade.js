@@ -32,6 +32,15 @@
 // keep the values from colliding. Every field is optional: the "All …" option
 // (value "") means no narrowing.
 //
+// The factory is also reused by the admin/manager Test Analytics page
+// (/tests/analytics, prefix 'ax' — see public/js/tests-analytics-cascade.js),
+// which re-renders itself after a GET submit. `restore` (optional) carries the
+// just-applied filter values { sessionId, grade, section, studentId, subjectId,
+// testId } so the cascade comes back pre-narrowed: fields whose options are
+// server-rendered (session/student/subject/test) are set before the initial
+// rebuild keeps them; grade/section options only exist after the first rebuild,
+// so a pending value is applied once its option materialises.
+//
 // The Student level is a SEARCHABLE picker (public/js/student-typeahead.js — the
 // same component the Fee add-record selector uses). It deliberately adds no new
 // data path: it searches the live option pool of the hidden `<idp>-student`
@@ -86,8 +95,12 @@
       opt.textContent = it.label;
       selectEl.appendChild(opt);
     });
-    var stillValid = items.some(function (it) { return it.value === previous; });
-    selectEl.value = stillValid && items.length > 1 ? previous : '';
+    // Keep a still-valid choice even when it is the ONLY choice — the documented
+    // contract is "stale is cleared, a still-valid choice is kept". (The old
+    // items.length > 1 guard silently dropped valid picks as soon as upstream
+    // narrowing left exactly one option, which the analytics page's applied-
+    // filter restore exposed.)
+    selectEl.value = items.some(function (it) { return it.value === previous; }) ? previous : '';
     selectEl.disabled = items.length === 0;
   }
 
@@ -168,8 +181,11 @@
   }
 
   // Wire one panel's six selects. Returns the test select so the caller can add
-  // a panel-specific submit guard.
-  function initCascade(idp) {
+  // a panel-specific submit guard. `restore` (optional) pre-applies an
+  // already-submitted filter selection — see the header note; pages without a
+  // restore state (all three PDF-report panels) behave exactly as before.
+  function initCascade(idp, restore) {
+    restore = restore || {};
     var sessionSelect = document.getElementById(idp + '-session');
     var gradeSelect = document.getElementById(idp + '-grade');
     var sectionSelect = document.getElementById(idp + '-section');
@@ -189,6 +205,17 @@
     var TESTS = snapshotTestOptions(testSelect);       // { value, label, session, subject, classes[] }
     var SUBJ = snapshotSubjectOptions(subjectSelect);  // { value, label }
     var TOTAL_TESTS = TESTS.length;
+
+    // Restore an applied selection. Session/Student/Subject/Test options are
+    // server-rendered, so setting the value now works and the initial rebuild
+    // below keeps any choice that is still valid. Grade/Section start as
+    // placeholders — their pending values are consumed by the first rebuild.
+    if (restore.sessionId) sessionSelect.value = String(restore.sessionId);
+    if (restore.studentId) studentSelect.value = String(restore.studentId);
+    if (restore.subjectId) subjectSelect.value = String(restore.subjectId);
+    if (restore.testId) testSelect.value = String(restore.testId);
+    var pendingGrade = restore.grade ? String(restore.grade) : '';
+    var pendingSection = restore.section ? String(restore.section) : '';
 
     // ClassLevels covered by at least one test of the chosen session.
     // Empty string / null sessionId → null meaning "no session narrowing".
@@ -252,6 +279,11 @@
         ? (items.length ? 'All grades' : 'No grades in this session')
         : 'All grades';
       fillSelect(gradeSelect, placeholder, items);
+      if (pendingGrade) {
+        var pg = pendingGrade;
+        pendingGrade = '';
+        if (items.some(function (it) { return it.value === pg; })) gradeSelect.value = pg;
+      }
       rebuildSections();
     }
 
@@ -259,9 +291,15 @@
       var g = gradeSelect.value;
       var pool = sessionPool();
       if (g) pool = pool.filter(function (s) { return s.grade === g; });
-      fillSelect(sectionSelect, 'All sections', distinct(pool, 'section', function (s) {
+      var items = distinct(pool, 'section', function (s) {
         return s === SECTION_NONE ? 'No section' : s;
-      }));
+      });
+      fillSelect(sectionSelect, 'All sections', items);
+      if (pendingSection) {
+        var ps = pendingSection;
+        pendingSection = '';
+        if (items.some(function (it) { return it.value === ps; })) sectionSelect.value = ps;
+      }
       rebuildStudents();
     }
 
@@ -371,6 +409,9 @@
   var rsTest = initCascade('rs');
   initCascade('an');
   initCascade('sr');
+  // Exposed for the analytics page's own prefix (no-ops above when the
+  // rs/an/sr elements are absent, so sharing this file is safe). 
+  window.initReportFilterCascade = initCascade;
 
   // A result sheet is generated for exactly one Test, so unlike the other two
   // panels its Test field cannot stay on "All tests". The generator's contract is

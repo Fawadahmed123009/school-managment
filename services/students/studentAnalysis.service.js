@@ -3,6 +3,7 @@ const Student = require("../../models/Students/students.model");
 const Attendance = require("../../models/Academic/attendance.model");
 const TestResult = require("../../models/Academic/testResult.model");
 const Fees = require("../../models/Fees/fees.model");
+const { localDateKey, LOCAL_TZ } = require("../../utils/localDateKey");
 
 exports.getStudentAnalysisService = async (studentId, res) => {
   const student = await Student.findById(studentId).populate("classLevel", "name gradeLevel group section");
@@ -16,6 +17,27 @@ exports.getStudentAnalysisService = async (studentId, res) => {
   const attendancePercent = totalMarked > 0
     ? Math.round(((attendanceTotals.present + attendanceTotals.late) / totalMarked) * 10000) / 100
     : null;
+
+  // ---- Current-month attendance (pie chart) ----
+  // Bucket the already-loaded records by LOCAL calendar month via localDateKey —
+  // attendance docs are written at server-LOCAL midnight (Asia/Karachi), so a
+  // UTC month key (toISOString/getMonth on the raw date) would silently shift
+  // early-month records into the previous month. See utils/localDateKey.js.
+  const monthKey = localDateKey(new Date()).slice(0, 7); // "YYYY-MM", school TZ
+  const monthTotals = { present: 0, absent: 0, late: 0 };
+  let monthMarked = 0;
+  attendanceRecords.forEach((r) => {
+    if (!r.date) return;
+    if (localDateKey(r.date).slice(0, 7) !== monthKey) return;
+    if (monthTotals[r.status] === undefined) return; // unknown status never counts
+    monthTotals[r.status]++;
+    monthMarked++;
+  });
+  const monthPercent = monthMarked > 0
+    ? Math.round(((monthTotals.present + monthTotals.late) / monthMarked) * 10000) / 100
+    : null;
+  const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: LOCAL_TZ })
+    .format(new Date());
 
   // ---- Test results, grouped by session ----
   const testResults = await TestResult.find({ student: studentId })
@@ -92,13 +114,23 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     if (!test || !test.totalMarks) return;
     const subjectName = test.subject ? test.subject.name : "Unknown";
     const percent = Math.round((r.score / test.totalMarks) * 10000) / 100;
-    if (!subjectAgg[subjectName]) subjectAgg[subjectName] = { total: 0, count: 0 };
+    if (!subjectAgg[subjectName]) {
+      subjectAgg[subjectName] = {
+        total: 0,
+        count: 0,
+        // Chart / alert display label — `displayName || name` convention from
+        // the subject-naming work. Keying stays on raw `name` (above) so
+        // program-split subjects sharing a displayName remain separate.
+        label: test.subject ? (test.subject.displayName || test.subject.name) : "Unknown",
+      };
+    }
     subjectAgg[subjectName].total += percent;
     subjectAgg[subjectName].count += 1;
   });
   const bySubject = Object.keys(subjectAgg)
     .map((subject) => ({
       subject,
+      label: subjectAgg[subject].label,
       count: subjectAgg[subject].count,
       average:
         Math.round((subjectAgg[subject].total / subjectAgg[subject].count) * 100) / 100,
@@ -134,11 +166,21 @@ exports.getStudentAnalysisService = async (studentId, res) => {
       studentId: student.studentId,
       classLevel: student.classLevel,
       photoUrl: student.photoUrl,
+      // Parent-facing contact number — same field every existing WhatsApp
+      // feature targets (fee reminders, at-risk rows, PDF report sharing).
+      whatsappNumber: student.whatsappNumber || "",
     },
     attendance: {
       totalMarked,
       ...attendanceTotals,
       percent: attendancePercent,
+      currentMonth: {
+        monthKey,
+        monthLabel,
+        totalMarked: monthMarked,
+        ...monthTotals,
+        percent: monthPercent,
+      },
     },
     marks: {
       overallAverage,

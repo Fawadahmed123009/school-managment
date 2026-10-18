@@ -67,8 +67,8 @@ describe("getStudentAnalysisService — subject & progress aggregation", () => {
 
     // Science (90) outranks Math (avg of 80 & 60 = 70)
     expect(marks.bySubject).toEqual([
-      { subject: "Science", count: 1, average: 90 },
-      { subject: "Math", count: 2, average: 70 },
+      { subject: "Science", label: "Science", count: 1, average: 90 },
+      { subject: "Math", label: "Math", count: 2, average: 70 },
     ]);
     expect(marks.overallAverage).toBe(76.67); // (80 + 60 + 90) / 3
   });
@@ -102,7 +102,7 @@ describe("getStudentAnalysisService — subject & progress aggregation", () => {
 
     const { marks } = await getStudentAnalysisService("s1", {});
 
-    expect(marks.bySubject).toEqual([{ subject: "Unknown", count: 1, average: 90 }]);
+    expect(marks.bySubject).toEqual([{ subject: "Unknown", label: "Unknown", count: 1, average: 90 }]);
   });
 
   test("empty test results yield empty bySubject and progress arrays", async () => {
@@ -113,5 +113,60 @@ describe("getStudentAnalysisService — subject & progress aggregation", () => {
     expect(marks.bySubject).toEqual([]);
     expect(marks.progress).toEqual([]);
     expect(marks.overallAverage).toBeNull();
+  });
+
+  test("bySubject.label uses displayName for the chart while keying stays on name",
+    async () => {
+      // Program-split subjects share a displayName but must average separately,
+      // so `subject` keys off raw name while `label` carries displayName || name.
+      mockTestResultFind.mockReturnValue(
+        withPopulate([
+          { score: 50, test: { name: "T1", subject: { name: "Math-IB", displayName: "Mathematics" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-10" } },
+          { score: 80, test: { name: "T2", subject: { name: "Math-Cam" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-11" } },
+        ])
+      );
+
+      const { marks } = await getStudentAnalysisService("s1", {});
+
+      expect(marks.bySubject.map((s) => s.subject)).toEqual(["Math-Cam", "Math-IB"]); // keyed by raw name
+      expect(marks.bySubject.find((s) => s.subject === "Math-IB").label).toBe("Mathematics");
+      expect(marks.bySubject.find((s) => s.subject === "Math-Cam").label).toBe("Math-Cam"); // no displayName → name
+    });
+});
+
+describe("getStudentAnalysisService — current-month attendance pie", () => {
+  // The service buckets records by LOCAL (Asia/Karachi) calendar month via
+  // localDateKey. Build dates in that month so the assertion is timezone-stable:
+  // today's record is in-month; a record ~2 months back is always excluded.
+  const inThisMonth = new Date();
+  const outOfMonth = new Date();
+  outOfMonth.setMonth(outOfMonth.getMonth() - 2);
+
+  test("counts only current-month records into attendance.currentMonth", async () => {
+    mockAttendanceFind.mockResolvedValue([
+      { status: "present", date: inThisMonth },
+      { status: "late", date: inThisMonth },
+      { status: "absent", date: inThisMonth },
+      { status: "present", date: outOfMonth }, // previous/all-time only, not this month
+    ]);
+
+    const { attendance } = await getStudentAnalysisService("s1", {});
+
+    expect(attendance.currentMonth.present).toBe(1); // present, late, absent this month
+    expect(attendance.currentMonth.totalMarked).toBe(3);
+    // present + late over marked = (1 + 1) / 3 → 66.67 %
+    expect(attendance.currentMonth.percent).toBe(66.67);
+    // All-time still counts the older record too (4 marked) — proves the two
+    // figures are independent, not the month overwriting the total.
+    expect(attendance.totalMarked).toBe(4);
+  });
+
+  test("yields a null month percent when nothing is marked this month", async () => {
+    mockAttendanceFind.mockResolvedValue([{ status: "present", date: outOfMonth }]);
+
+    const { attendance } = await getStudentAnalysisService("s1", {});
+
+    expect(attendance.currentMonth.totalMarked).toBe(0);
+    expect(attendance.currentMonth.percent).toBeNull();
   });
 });

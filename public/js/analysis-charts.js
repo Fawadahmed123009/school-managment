@@ -19,6 +19,50 @@ document.addEventListener('DOMContentLoaded', function () {
   var payload = dataEl ? JSON.parse(dataEl.textContent) : {};
   var progress = payload.progress || [];
   var bySubject = payload.bySubject || [];
+  var monthAtt = payload.monthAttendance || null;
+
+  // ── Current-month attendance (pie: Present / Absent / Late) ──
+  // Only rendered on pages that carry #monthAttendanceChart (the admin/manager
+  // student view); no-ops everywhere else, same guard pattern as the other
+  // charts in this file.
+  var pieCanvas = document.getElementById('monthAttendanceChart');
+  var pieEmpty = document.getElementById('monthAttendanceEmpty');
+  if (pieCanvas) {
+    var pieTotal = monthAtt ? (monthAtt.present + monthAtt.absent + monthAtt.late) : 0;
+    if (pieTotal > 0) {
+      new Chart(pieCanvas, {
+        type: 'doughnut',
+        data: {
+          labels: ['Present', 'Absent', 'Late'],
+          datasets: [{
+            data: [monthAtt.present, monthAtt.absent, monthAtt.late],
+            backgroundColor: ['#10b981', '#ef4444', '#f59e0b'],
+            borderWidth: 0,
+            hoverOffset: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '55%',
+          plugins: {
+            legend: { position: 'bottom' },
+            tooltip: {
+              callbacks: {
+                label: function (ctx) {
+                  var pct = Math.round((ctx.parsed / pieTotal) * 1000) / 10;
+                  return ctx.label + ': ' + ctx.parsed + ' day' + (ctx.parsed === 1 ? '' : 's') + ' (' + pct + '%)';
+                }
+              }
+            }
+          }
+        }
+      });
+    } else {
+      pieCanvas.style.display = 'none';
+      if (pieEmpty) pieEmpty.style.display = 'flex';
+    }
+  }
 
   // ── Test progress across sessions (line chart) ──
   var progCanvas = document.getElementById('progressChart');
@@ -73,7 +117,7 @@ document.addEventListener('DOMContentLoaded', function () {
       new Chart(subjCanvas, {
         type: 'bar',
         data: {
-          labels: bySubject.map(function (d) { return d.subject; }),
+          labels: bySubject.map(function (d) { return d.label || d.subject; }),
           datasets: [{
             label: 'Average (%)',
             data: bySubject.map(function (d) { return d.average; }),

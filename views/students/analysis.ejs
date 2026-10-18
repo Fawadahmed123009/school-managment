@@ -6,6 +6,10 @@
   <div class="page-head"><div><h1>Student analysis</h1></div></div>
   <div class="flash error">Couldn't load analysis: <%= loadError %></div>
 <% } else { %>
+  <% /* Flash for send-report failures (route redirects back with ?reportError=). */ %>
+  <% if (typeof reportError !== 'undefined' && reportError) { %>
+    <div class="flash error"><%= reportError %></div>
+  <% } %>
   <div class="page-head">
     <div style="display:flex; align-items:center; gap:16px;">
       <% if (analysis.student.photoUrl) { %>
@@ -17,6 +21,21 @@
       </div>
     </div>
     <div class="page-head-actions">
+      <% /* Admin/manager only (page === 'students' is the requireAdminOrManager route).
+             Generates the latest-session report card PDF server-side, then lands on
+             the existing "PDF Ready" page with the wa.me deep link — same flow as
+             /reports/generate sharing. Targets Student.whatsappNumber, the parent-
+             facing number used by every other WhatsApp feature in the app. */ %>
+      <% if (page === 'students') { %>
+        <% if (analysis.student.whatsappNumber) { %>
+          <form method="post" action="/students/<%= analysis.student._id %>/send-report" style="display:inline;">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+            <button type="submit" class="btn" style="background:#25D366; color:#fff;">Send report on WhatsApp</button>
+          </form>
+        <% } else { %>
+          <span class="pill review" title="No WhatsApp number saved for this student — add it in the Edit form">no #</span>
+        <% } %>
+      <% } %>
       <a href="/students/<%= analysis.student._id %>/photo" class="btn btn-ghost">Photo</a>
       <a href="/students" class="btn btn-ghost">← Back to students</a>
     </div>
@@ -46,7 +65,7 @@
     <% if (analysis.marks.bySubject) { %>
       <% analysis.marks.bySubject.forEach(function(s) { %>
         <% if (s.average < alertThresholds.SCORE) { %>
-          <% aAlerts.push({ type: 'score', message: s.average + '% avg in ' + s.subject }); %>
+          <% aAlerts.push({ type: 'score', message: s.average + '% avg in ' + (s.label || s.subject) }); %>
         <% } %>
       <% }); %>
     <% } %>
@@ -72,6 +91,27 @@
       <div><span class="pill paid">Present</span> <%= analysis.attendance.present %></div>
       <div><span class="pill error">Absent</span> <%= analysis.attendance.absent %></div>
       <div><span class="pill review">Late</span> <%= analysis.attendance.late %></div>
+    </div>
+  </div>
+
+  <% /* ── Charts: current-month attendance pie + subject-average bar ──
+         Same JSON-island + external-script pattern as the parent child-analysis
+         view (CSP forbids inline scripts); analysis-charts.js no-ops on canvases
+         that aren't present, so a page only needs the islands its charts read. */ %>
+  <div class="charts-row">
+    <div class="panel chart-panel">
+      <div class="panel-head"><h2>Attendance — <%= analysis.attendance.currentMonth.monthLabel %> <span class="chart-subtitle"><%= analysis.attendance.currentMonth.percent !== null ? analysis.attendance.currentMonth.percent + '% present · ' + analysis.attendance.currentMonth.totalMarked + ' days marked' : 'nothing marked this month' %></span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="monthAttendanceChart"></canvas>
+        <div class="chart-empty" id="monthAttendanceEmpty" style="display:none;">No attendance marked this month yet</div>
+      </div>
+    </div>
+    <div class="panel chart-panel">
+      <div class="panel-head"><h2>Subject-wise performance <span class="chart-subtitle">Average % per subject</span></h2></div>
+      <div class="panel-body chart-body">
+        <canvas id="subjectChart"></canvas>
+        <div class="chart-empty" id="subjectEmpty" style="display:none;">No test results yet</div>
+      </div>
     </div>
   </div>
 
@@ -127,6 +167,10 @@
       </div>
     <% } %>
   </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script type="application/json" id="analysis-data"><%- JSON.stringify({ progress: analysis.marks.progress || [], bySubject: analysis.marks.bySubject || [], monthAttendance: analysis.attendance.currentMonth }).replace(/</g, '\\u003c') %></script>
+  <script src="/js/analysis-charts.js"></script>
 <% } %>
 
 <%- include('../partials/foot') %>

@@ -127,7 +127,7 @@
 
   <!-- Filter bar -->
   <div style="padding:16px 24px; border-bottom:1px solid var(--border); background:#fafbfd;">
-    <form method="GET" action="/students" class="filter-bar">
+    <form method="GET" action="/students" class="filter-bar" id="st-filter-form">
       <div style="min-width:150px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Grade</label>
         <select name="grade" id="st-filter-grade">
@@ -160,16 +160,28 @@
       </div>
       <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Status</label>
-        <select name="status">
+        <select name="status" id="st-filter-status">
           <option value="">All statuses</option>
           <% filterOptions.statuses.forEach(function(st) { %>
             <option value="<%= st.value %>" <%= filters.status === st.value ? 'selected' : '' %>><%= st.label %></option>
           <% }); %>
         </select>
       </div>
-      <div style="min-width:160px;">
-        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student name</label>
-        <input type="text" name="name" value="<%= filters.name %>" placeholder="Search by name…" />
+      <div class="student-picker" style="min-width:220px;">
+        <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Student</label>
+        <!-- Searchable pupil picker (shared component: /js/student-typeahead.js —
+             the one the Fee add-record selector and the PDF-report cascade use).
+             Searches by name OR roll number and is narrowed LIVE by the Grade /
+             Section / Class / Status filters above, so it can only offer pupils
+             those filters still allow. Committing a row writes the hidden `name`
+             control (the value GET /students already filters on) and submits, so
+             the table narrows to that pupil while the cascade filters carry over.
+             The hidden input keeps a URL-supplied partial (pagination / reload) as
+             a plain substring search too, so nothing the old text box did is lost. -->
+        <input type="text" id="st-student-search" class="student-typeahead-input" autocomplete="off"
+               placeholder="Search by name or roll number..." value="<%= filters.name %>" />
+        <input type="hidden" name="name" id="st-student-name" value="<%= filters.name %>" />
+        <div id="st-student-results" class="student-typeahead-results" style="display:none;"></div>
       </div>
       <div style="min-width:160px;">
         <label style="font-size:11px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:0.04em;">Parent name</label>
@@ -306,6 +318,11 @@
   <% } %>
 </div>
 
+<!-- Full roster for the searchable Student picker — a non-executed JSON island,
+     "<" escaped so a stored name can never break out of the script tag. -->
+<script type="application/json" id="students-typeahead-pool"><%- JSON.stringify(typeof studentPool !== 'undefined' ? studentPool : []).replace(/</g, '\\u003c') %></script>
+<script src="/js/student-typeahead.js"></script>
 <script src="/js/students-filter-cascade.js"></script>
+<script src="/js/students-typeahead.js"></script>
 
 <%- include('../partials/foot') %>

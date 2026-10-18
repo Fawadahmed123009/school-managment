@@ -1491,34 +1491,21 @@ exports.getTestAnalyticsService = async (filters, res) => {
 };
 
 // ── Admin class-filter resolver ─────────────────────────────────────────────
-// Resolves a comma-separated list of class tokens — each either a ClassLevel
-// id or a whole grade as "grade:<level>" (e.g. "grade:9") — into distinct
-// ClassLevel documents. Tokens are unioned; invalid ids and grades with no
-// matching class are ignored. An empty resolution returns [] so callers can
-// fall back to "no restriction" rather than accidentally matching nothing.
+// Resolves a comma-separated list of ClassLevel ids into distinct ClassLevel
+// documents. Invalid ids are ignored; an empty resolution returns [] so callers
+// can fall back to "no restriction" rather than accidentally matching nothing.
+// The legacy "grade:<level>" grouping token is retired: the unified filter
+// cascade (Session → Grade → Section → Student → Subject → Test) replaced the
+// grade-grouped class checkboxes, and the analytics view route translates the
+// picked grade + section into explicit ClassLevel ids before calling here.
 async function resolveClassTokens(param) {
   if (!param) return [];
-  const tokens = String(param)
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-  const idSet = new Set();
-  const gradeSet = new Set();
-  // Token parsing does no DB work — grade tokens are batched into one query.
-  for (const token of tokens) {
-    if (token.startsWith("grade:")) {
-      gradeSet.add(token.slice("grade:".length));
-    } else if (mongoose.isValidObjectId(token)) {
-      idSet.add(token);
-    }
-  }
-  // One query resolves every "grade:<level>" token at once (was one per grade).
-  if (gradeSet.size > 0) {
-    const docs = await ClassLevel.find({ gradeLevel: { $in: [...gradeSet] } })
-      .select("_id")
-      .lean();
-    docs.forEach((d) => idSet.add(String(d._id)));
-  }
+  const idSet = new Set(
+    String(param)
+      .split(",")
+      .map((t) => t.trim())
+      .filter((t) => mongoose.isValidObjectId(t))
+  );
   if (idSet.size === 0) return [];
   return ClassLevel.find({ _id: { $in: [...idSet] } })
     .sort({ gradeLevel: 1, group: 1, section: 1 })
@@ -1527,28 +1514,36 @@ async function resolveClassTokens(param) {
 
 // ── Enhanced analytics: per-test stats, comparison, distribution ────────────
 // Computes average, max, min, standard deviation for a selected test, scoped
-// by class / student name / roll number / subject filters.  Also finds the
+// by class / student id / student name / roll number filters.  Also finds the
 // most recent prior test for the same subject + class and returns the same
 // stats for comparison.
+// The unified filter cascade posts sessionId/grade/section/studentId/
+// subjectId/testId; the view route translates grade + section into ClassLevel
+// ids (classLevelId) so this service keeps its internal query shape. Session
+// and Subject only drive the picker cascade client-side and are not consumed
+// here — the chosen test already pins both down.
 exports.getEnhancedTestAnalyticsService = async (filters, res) => {
-  const { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, sortBy } = filters;
+  const { testId, classLevelId, studentId, nameSearch, rollNumberSearch, sortBy } = filters;
 
-  // The class filter is a multi-select: a comma-separated list of ClassLevel
-  // ids and/or "grade:<level>" tokens. Empty/invalid → no restriction.
+  // Grade/section picked in the cascade, already translated to ClassLevel ids
+  // by the view route. Empty → no restriction.
   const selectedClasses = await resolveClassTokens(classLevelId);
   const selectedClassIds = selectedClasses.map((c) => String(c._id));
 
   // ── Load filter-option dropdowns ──
-  const testQuery = {};
-  if (subjectId) testQuery.subject = subjectId;
-  if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
-
+  // Cascade snapshot: the FULL unfiltered test list. The shared filter cascade
+  // narrows Session → Grade → Section → Student → Subject → Test client-side
+  // from every option's data-session / data-subject / data-classes, so it must
+  // receive the whole catalogue — pre-narrowing by the currently-submitted
+  // subject/class would collapse the dropdowns and make them un-reducible
+  // after one apply (same pattern as the teacher-analytics testSnapshot).
   const [classes, subjects, tests] = await Promise.all([
     ClassLevel.find().sort({ gradeLevel: 1, group: 1, section: 1 }).lean(),
     Subject.find().sort("name").lean(),
-    Test.find(testQuery)
+    Test.find({})
       .populate("subject", "name displayName")
       .populate("classLevels", "name")
+      .populate("session", "name")
       .populate("week", "name startDate endDate")
       .sort({ date: -1 })
       .lean(),
@@ -1579,14 +1574,14 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   // ── Build student filter pipeline ──
   const studentMatch = {};
   if (selectedClassIds.length) studentMatch.classLevel = { $in: selectedClassIds };
+  // The cascade's searchable Student picker replaces the old name/roll free-
+  // text search with an exact pupil id (nameSearch/rollNumberSearch stay
+  // supported for the retired query shape — bookmarks/API callers).
+  if (studentId) studentMatch._id = studentId;
   if (nameSearch) studentMatch.name = { $regex: nameSearch, $options: "i" };
   if (rollNumberSearch) {
     studentMatch.rollNumber = { $regex: String(rollNumberSearch).trim(), $options: "i" };
   }
-
-  // If subject filter is set, further restrict to students in classes that
-  // offer this subject (only meaningful when no classLevel filter is set).
-  // We'll apply subject filter on tests instead.
 
   // ── Fetch results for the current test ──
   let resultQuery = { test: testId };
@@ -1695,7 +1690,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     distribution,
     resultRows,
     resultCount: results.length,
-    filters: { testId, classLevelId, subjectId, nameSearch, rollNumberSearch, sortBy },
+    filters: { testId, classLevelId, studentId, nameSearch, rollNumberSearch, sortBy },
   });
 };
 
@@ -1761,12 +1756,17 @@ exports.resolveClassTokens = resolveClassTokens;
 // Mode A (student): one line per subject (or a single subject if filtered).
 // Mode B (class):   class-average line (+ min/max band) for a subject.
 exports.getTestTrendService = async (filters, res) => {
-  const { mode, studentId, subjectId, classLevelId } = filters;
+  const { mode, studentId, subjectId, classLevelId, sessionId } = filters;
 
-  // Multi-select class filter: comma-separated ClassLevel ids and/or
-  // "grade:<level>" tokens (same contract as the enhanced analytics).
+  // Class scope from the cascade's Grade + Section levels, already translated
+  // to ClassLevel ids by the view route (comma-separated, no restriction when
+  // empty). Same contract as the enhanced analytics.
   const selectedClasses = await resolveClassTokens(classLevelId);
   const selectedClassIds = selectedClasses.map((c) => String(c._id));
+
+  // Session picked in the cascade restricts which tests feed the trend lines
+  // (student mode filters per result's test session; class mode scopes the
+  // subject's test query). Empty → across all sessions.
 
   // Shared dropdown data
   const [classes, subjects] = await Promise.all([
@@ -1790,11 +1790,14 @@ exports.getTestTrendService = async (filters, res) => {
       });
     }
 
-    // Fetch all results for this student, populate test → subject + date
+    // Fetch all results for this student, populate test → subject + session + date
     const results = await TestResult.find({ student: studentId })
       .populate({
         path: "test",
-        populate: [{ path: "subject", select: "name displayName" }],
+        populate: [
+          { path: "subject", select: "name displayName" },
+          { path: "session", select: "name" },
+        ],
       })
       .lean();
 
@@ -1804,6 +1807,10 @@ exports.getTestTrendService = async (filters, res) => {
       if (!r.test) return false;
       if (r.absent === true || r.score === 0) return false;
       if (subjectId && r.test.subject && r.test.subject._id.toString() !== subjectId) return false;
+      if (sessionId) {
+        const sid = r.test.session ? String(r.test.session._id || r.test.session) : "";
+        if (sid !== String(sessionId)) return false;
+      }
       return true;
     });
 
@@ -1859,9 +1866,11 @@ exports.getTestTrendService = async (filters, res) => {
       });
     }
 
-    // Tests for this subject, restricted to the selected classes when any.
+    // Tests for this subject, restricted to the selected classes and/or the
+    // cascade-picked session when either is set.
     const testQuery = { subject: subjectId };
     if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
+    if (sessionId) testQuery.session = sessionId;
 
     const tests = await Test.find(testQuery)
       .populate("subject", "name displayName")

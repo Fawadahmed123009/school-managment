@@ -1,7 +1,8 @@
 <%
 // ── Unified PDF-report filter cascade ───────────────────────────────────────
 // One markup definition shared verbatim by all three report panels (Result
-// Sheet, Session Report Card, Analytics) so their filter UI can never drift.
+// Sheet, Session Report Card, Analytics) AND the admin/manager Test Analytics
+// page (/tests/analytics, prefix 'ax') so their filter UI can never drift.
 // Session → Grade → Section → Student → Subject → Test, every field optional
 // ("All …" = no narrowing). ONE chain per panel, driven by real data:
 //   • Session picks the classes its tests cover (Test.classLevels, read from
@@ -17,10 +18,11 @@
 // views/reports/generate.ejs.
 //
 // Locals:
-//   idp     — element-id prefix ('rs' | 'sr' | 'an')
-//   namep   — submit-name prefix ('resultSheet' | 'sessionReport' | 'analytics');
-//             unique per panel because all three share ONE <form> and a hidden
-//             input still submits — a shared name would double-post.
+//   idp     — element-id prefix ('rs' | 'sr' | 'an' | 'ax')
+//   namep   — submit-name prefix ('resultSheet' | 'sessionReport' | 'analytics'
+//             | 'ax'); unique per panel because the three report panels share
+//             ONE <form> and a hidden input still submits — a shared name
+//             would double-post. ('ax' lives on the analytics page's own form.)
 //   students, subjects, tests, sessions — server-rendered option lists,
 //             already role-scoped by the view route (GET /pdf-reports/teacher-
 //             students for pupils), so a plain teacher's Student search can

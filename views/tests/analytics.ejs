@@ -29,50 +29,14 @@
       <form method="GET" action="/tests/analytics">
         <input type="hidden" name="viewMode" value="trend" />
         <input type="hidden" name="mode" value="<%= trendMode || 'student' %>" />
-        <% if (trendMode === 'class') { %>
-          <div class="field-row">
-            <div class="field" style="flex:1 1 240px;">
-              <%- include('./partials/class-filter') %>
-            </div>
-            <div class="field">
-              <label for="subjectId">Subject</label>
-              <select name="subjectId" id="subjectId">
-                <option value="">Select a subject…</option>
-                <% subjects.forEach(function(s) { %>
-                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
-                <% }); %>
-              </select>
-            </div>
-          </div>
-        <% } else { %>
-          <!-- Class filter sits on its own row directly above the Student
-               picker so it reads as a filter for the student list. -->
-          <div class="field-row">
-            <div class="field" style="flex:1 1 240px;">
-              <%- include('./partials/class-filter') %>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field">
-              <label for="studentId">Student <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-soft);">(narrowed by the class above)</span></label>
-              <select name="studentId" id="studentId">
-                <option value="">Select a student…</option>
-                <% students.forEach(function(s) { %>
-                  <option value="<%= s._id %>" data-cls="<%= s.classLevel && s.classLevel._id ? s.classLevel._id : '' %>" <%= filters.studentId === String(s._id) ? 'selected' : '' %>><%= s.name %> (<%= s.studentId %>)<% if (s.classLevel) { %> — <%= s.classLevel.name %><% } %></option>
-                <% }); %>
-              </select>
-            </div>
-            <div class="field">
-              <label for="subjectId">Subject</label>
-              <select name="subjectId" id="subjectId">
-                <option value="">All subjects</option>
-                <% subjects.forEach(function(s) { %>
-                  <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
-                <% }); %>
-              </select>
-            </div>
-          </div>
-        <% } %>
+        <!-- Unified filter cascade (same shared partial + JS as the PDF Reports
+             page, fresh 'ax' prefix): Session → Grade → Section → Student →
+             Subject → Test. Grade/Section are translated to class ids by the
+             view route and Session/Grade/Section/Student/Subject feed the trend
+             service; the Test level only narrows the picker (a trend spans
+             every matching test). Client-side wiring: #report-class-scope +
+             #ax-filter-state islands below. -->
+        <%- include('../reports/partials/filter-cascade', { idp: 'ax', namep: 'ax', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
         <button type="submit" class="btn btn-primary">Apply filters</button>
       </form>
     </div>
@@ -153,43 +117,15 @@
   <div class="panel-head"><h2>Filters</h2></div>
   <div class="panel-body">
     <form method="GET" action="/tests/analytics">
+      <!-- Unified filter cascade (same shared partial + JS as the PDF Reports
+           page, fresh 'ax' prefix): Session → Grade → Section → Student →
+           Subject → Test. The searchable Student picker replaces the old
+           name/roll free-text search; grade/section are translated to class
+           ids by the view route. A Test must be picked for results — the
+           levels above it only narrow this dropdown (and the result set).
+           Selection survives the GET reload via #ax-filter-state below. -->
+      <%- include('../reports/partials/filter-cascade', { idp: 'ax', namep: 'ax', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
       <div class="field-row">
-        <div class="field">
-          <label for="testId">Test / Phase</label>
-          <select name="testId" id="testId">
-            <option value="">Select a test…</option>
-            <% tests.forEach(function(t) { %>
-              <%
-                var label = t.name;
-                if (t.subject) label += ' — ' + (t.subject.displayName || t.subject.name);
-                if (t.date) label += ' · ' + new Date(t.date).toLocaleDateString();
-              %>
-              <option value="<%= t._id %>" <%= filters.testId === String(t._id) ? 'selected' : '' %>><%= label %></option>
-            <% }); %>
-          </select>
-        </div>
-        <div class="field" style="flex:1 1 240px;">
-          <%- include('./partials/class-filter') %>
-        </div>
-        <div class="field">
-          <label for="subjectId">Subject</label>
-          <select name="subjectId" id="subjectId">
-            <option value="">All subjects</option>
-            <% subjects.forEach(function(s) { %>
-              <option value="<%= s._id %>" <%= filters.subjectId === String(s._id) ? 'selected' : '' %>><%= s.displayName || s.name %></option>
-            <% }); %>
-          </select>
-        </div>
-      </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="nameSearch">Student name</label>
-          <input type="text" name="nameSearch" id="nameSearch" value="<%= filters.nameSearch || '' %>" placeholder="Search by name…" />
-        </div>
-        <div class="field">
-          <label for="rollNumberSearch">Roll number</label>
-          <input type="text" name="rollNumberSearch" id="rollNumberSearch" value="<%= filters.rollNumberSearch || '' %>" placeholder="Search by roll #…" />
-        </div>
         <div class="field">
           <label for="sortBy">Sort by</label>
           <select name="sortBy" id="sortBy">
@@ -349,6 +285,15 @@
 
 <% } %>
 
-<script src="/js/analytics-class-filter.js"></script>
+<!-- ── Shared filter cascade wiring (same files as the PDF Reports page) ──
+     #report-class-scope: classLevelId → {grade, section} map the cascade reads
+     to resolve a test's grade/section behind its ClassLevels.
+     #ax-filter-state: the just-applied cascade selection, re-applied by
+     public/js/tests-analytics-cascade.js through the shared factory. -->
+<script type="application/json" id="report-class-scope"><%- JSON.stringify(classScope || {}).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="ax-filter-state"><%- JSON.stringify(filterState || {}).replace(/</g, '\\u003c') %></script>
+<script src="/js/student-typeahead.js"></script>
+<script src="/js/report-filter-cascade.js"></script>
+<script src="/js/tests-analytics-cascade.js"></script>
 
 <%- include('../partials/foot') %>

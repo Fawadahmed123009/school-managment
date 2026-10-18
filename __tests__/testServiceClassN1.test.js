@@ -10,6 +10,11 @@
  * validation behavior is preserved (a batched `$in` must still reject a set
  * that contains one invalid class, and must name the offending class).
  *
+ * resolveClassTokens later lost its grade-token branch entirely: the unified
+ * filter cascade replaced the grade-grouped class checkboxes, and the analytics
+ * view route translates grade + section into explicit ClassLevel ids, so the
+ * resolver is ids-only now (legacy "grade:<level>" tokens are ignored).
+ *
  * Models are mocked at the data layer so the real service logic executes.
  */
 
@@ -160,46 +165,37 @@ describe("validateSubjectClassScope — single query + preserved rejection", () 
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// resolveClassTokens — one grade query for ALL grade tokens (was one per token)
+// resolveClassTokens — ids only, legacy "grade:<level>" tokens ignored
 // ═════════════════════════════════════════════════════════════════════════════
-describe("resolveClassTokens — batched grade resolution", () => {
+describe("resolveClassTokens — ids only, legacy grade tokens ignored", () => {
   const gradeQueries = () =>
     mockClassLevelFind.mock.calls.filter((c) => c[0] && c[0].gradeLevel);
 
-  test("two grade tokens resolve via a SINGLE gradeLevel:$in query", async () => {
+  test("comma-separated ids resolve via ONE _id:$in query", async () => {
+    const classes = await resolveClassTokens(`${C1},${C2}`);
+
+    expect(classes.map((c) => String(c._id))).toEqual([C1, C2]);
+    expect(mockClassLevelFind).toHaveBeenCalledTimes(1);
+    expect(mockClassLevelFind.mock.calls[0][0]).toEqual({ _id: { $in: [C1, C2] } });
+  });
+
+  test("legacy grade:<level> tokens are ignored — no gradeLevel query, no match", async () => {
+    // The class-filter checkbox partial that produced these tokens is retired;
+    // a stale bookmark must degrade to "those tokens match nothing", NEVER to a
+    // gradeLevel expansion (and the callers treat [] as "no restriction", which
+    // the analytics view route guards against before calling).
     const classes = await resolveClassTokens("grade:1,grade:2");
 
-    // Exactly one query touches gradeLevel, and it carries both grades at once.
-    const gq = gradeQueries();
-    expect(gq).toHaveLength(1);
-    expect(gq[0][0].gradeLevel).toEqual({ $in: ["1", "2"] });
-
-    // And it produced the union of both grades' classes.
-    expect(classes.map((c) => String(c._id)).sort()).toEqual([C1, C2].sort());
-  });
-
-  test("three grade tokens still cost a single grade query", async () => {
-    await resolveClassTokens("grade:1,grade:2,grade:3");
-    const gq = gradeQueries();
-    expect(gq).toHaveLength(1);
-    expect(gq[0][0].gradeLevel).toEqual({ $in: ["1", "2", "3"] });
-  });
-
-  test("mixes grade tokens with explicit ids without extra grade queries", async () => {
-    const classes = await resolveClassTokens(`grade:1,${C3}`);
-    // grade:1 → C1; explicit C3 kept. Union = {C1, C3}.
-    expect(classes.map((c) => String(c._id)).sort()).toEqual([C1, C3].sort());
-    // One grade query, one final _id:$in query.
-    expect(gradeQueries()).toHaveLength(1);
-    const finalQuery = mockClassLevelFind.mock.calls.find(
-      (c) => c[0] && c[0]._id && c[0]._id.$in
-    );
-    expect(finalQuery).toBeTruthy();
-  });
-
-  test("no grade tokens → no grade query at all (ids only)", async () => {
-    await resolveClassTokens(`${C1},${C2}`);
     expect(gradeQueries()).toHaveLength(0);
+    expect(classes).toEqual([]);
+  });
+
+  test("grade tokens mixed with explicit ids keep only the ids", async () => {
+    const classes = await resolveClassTokens(`grade:1,${C3}`);
+
+    expect(classes.map((c) => String(c._id))).toEqual([C3]);
+    expect(gradeQueries()).toHaveLength(0);
+    expect(mockClassLevelFind).toHaveBeenCalledTimes(1);
   });
 
   test("empty / null param returns [] without querying", async () => {

@@ -7,7 +7,9 @@
     <p class="eyebrow">Reports</p>
     <h1>PDF Ready</h1>
   </div>
-  <a href="/reports/generate" class="btn btn-ghost">&#8592; Generate another</a>
+  <% /* Callers outside the generate flow (e.g. the View Student WhatsApp send-report
+         route) can point the back link at their own page. */ %>
+  <a href="<%= typeof backUrl !== 'undefined' && backUrl ? backUrl : '/reports/generate' %>" class="btn btn-ghost">&#8592; <%= typeof backLabel !== 'undefined' && backLabel ? backLabel : 'Generate another' %></a>
 </div>
 
 <div class="panel">

@@ -150,6 +150,36 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
 
     const totalStudents = await require("../../models/Students/students.model").countDocuments();
 
+    // Pool for the searchable Student typeahead in the filter bar. Admin/Manager
+    // page (they already see the whole roster), so offer every pupil: the picker
+    // narrows this LIVE by the current Grade/Section/Class/Status selections, so
+    // it can only suggest what those filters still allow. classLevel id → the
+    // class document already in hand (grade + section resolved identically to the
+    // cascade), so no populate/re-fetch is needed. Same embedded-pool shape the
+    // Fee picker uses (views/fees/list.ejs #fees-students).
+    const rosterForPicker = await Student.find(
+      {},
+      "name rollNumber classLevel status isGraduated isWithdrawn isSuspended"
+    ).lean();
+    const classLookup = {};
+    (classes || []).forEach(function (c) { classLookup[String(c._id)] = c; });
+    const studentPool = rosterForPicker.map(function (s) {
+      const cls = classLookup[String(s.classLevel)] || null;
+      return {
+        id: String(s._id),
+        name: s.name,
+        rollNumber: s.rollNumber || "",
+        classId: cls ? String(cls._id) : "",
+        grade: cls ? cls.gradeLevel || "" : "",
+        section: cls ? classSectionName(cls) : "",
+        className: cls ? cls.name : "Unassigned",
+        status: s.status || "active",
+        isGraduated: !!s.isGraduated,
+        isWithdrawn: !!s.isWithdrawn,
+        isSuspended: !!s.isSuspended,
+      };
+    });
+
     res.render("students/list", {
       page: "students",
       user: req.user,
@@ -158,6 +188,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       students: studentsResult.data || [],
       pagination: studentsResult.pagination || null,
       classes: classes || [],
+      studentPool,
       filters: {
         class: classFilter, grade: gradeFilter, section: sectionFilter,
         status: statusFilter, name: nameSearch, parent: parentSearch, sortBy: sortBy,
@@ -176,6 +207,7 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       createError: null,
       students: [],
       classes: [],
+      studentPool: [],
       filters: { class: "", grade: "", section: "", status: "", name: "", parent: "", sortBy: "" },
       filterOptions: { grades: [], sections: [], statuses: STATUS_OPTIONS },
       totalStudents: 0,
