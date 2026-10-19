@@ -21,6 +21,14 @@
     if (enteredCount) enteredCount.textContent = count;
   }
 
+  // An empty box or a literal "A"/"a" is an ABSENCE marker; anything else must
+  // parse as a number (a typed 0 is a genuine score, shown "0" and counted in
+  // every average — only absences are excluded).
+  function absentToken(v) {
+    const t = (v || '').trim();
+    return t === '' || t.toLowerCase() === 'a';
+  }
+
   // ── Live percentage (score / current total marks) ────────────────────
   // Each row's % cell refreshes as the teacher types, so the ratio is
   // always visible next to the raw score before anything is saved.
@@ -51,7 +59,9 @@
       const max = currentMax();
       if (max === null) return;
       document.querySelectorAll('.score-input').forEach(function (el) {
-        el.max = max;
+        // dataset (not setAttribute) — keeps the vm-based regression harnesses
+        // with their minimal element stubs working.
+        el.dataset.max = max;
       });
       // Percentages are relative to the total — refresh with the new ceiling.
       updatePercentages();
@@ -83,19 +93,31 @@
       // Re-query rows from the DOM so we pick up the current (possibly sorted) order.
       // Each row carries data-student, so score→student binding is per-row, not positional.
       const currentRows = document.querySelectorAll('#roster-body tr');
+      const invalid = [];
       currentRows.forEach(function (row) {
         const studentId = row.dataset.student;
         const input = row.querySelector('.score-input');
-        if (input.value === '') {
-          // A blank box means the pupil was absent for this test. Send null so
-          // the server records an absence (shown as "A", excluded from average)
-          // instead of silently dropping the row as "unmarked".
+        const v = (input.value || '').trim();
+        if (absentToken(v)) {
+          // Blank box or typed "A" → the pupil was ABSENT for this test. Send
+          // null so the server records an absence (shown as "A", excluded from
+          // average) instead of silently dropping the row as "unmarked".
           absentCount++;
           records.push({ student: studentId, score: null });
+        } else if (!Number.isFinite(Number(v)) || v === '' || Number(v) < 0) {
+          invalid.push(row.querySelector('td strong') ? row.querySelector('td strong').textContent : studentId);
         } else {
-          records.push({ student: studentId, score: Number(input.value) });
+          records.push({ student: studentId, score: Number(v) });
         }
       });
+
+      // Text inputs accept anything — catch stray text before it becomes a
+      // NaN/absent surprise on the server (Number('x') is NaN, and JSON would
+      // silently turn it into null = absence).
+      if (invalid.length > 0) {
+        alert('Each box must be a number or "A" (absent). Fix: ' + invalid.slice(0, 5).join(', ') + (invalid.length > 5 ? '…' : ''));
+        return;
+      }
 
       if (records.length === 0) {
         alert('No pupils to save — the roster is empty.');
@@ -113,10 +135,11 @@
         }
       }
 
-      // Make the automatic absence explicit before committing — a blank box is
-      // saved as Absent (A), so the teacher confirms that's intended.
+      // Make the automatic absence explicit before committing — a blank box or
+      // a typed "A" is saved as Absent (A), so the teacher confirms that's
+      // intended. A typed 0 is NOT here — it saves as a real 0.
       if (absentCount > 0 &&
-        !confirm(absentCount + ' pupil(s) left blank will be saved as Absent (A) and excluded from the class average. Continue?')) {
+        !confirm(absentCount + ' pupil(s) marked blank/"A" will be saved as Absent (A) and excluded from the class average. Continue?')) {
         return;
       }
 

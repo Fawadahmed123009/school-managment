@@ -52,6 +52,12 @@ exports.getStudentAnalysisService = async (studentId, res) => {
   // Group by session name (or "Standalone tests" for tests with no session).
   // Same pattern as the session report card: results keyed by session, each
   // row carries score/totalMarks/percent like the analytics endpoint.
+  // An ABSENT mark now counts as a real 0% toward every average here (its stored
+  // score is 0, so score/totalMarks is 0) — included in the denominator and
+  // dragging the average down, exactly like a genuine typed 0. The `absent` flag
+  // is still carried per row so the UI can render "A" for the cell while the
+  // number behind it is 0. (Result-sheet / analytics PDFs and the dashboard
+  // score scope still EXCLUDE absences — a different code path.)
   const bySession = {};
   testResults.forEach((r) => {
     const test = r.test;
@@ -60,6 +66,7 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     const sessionName = test.session ? test.session.name : "Standalone tests";
     if (!bySession[sessionName]) bySession[sessionName] = [];
 
+    const absent = r.absent === true;
     const percent = test.totalMarks
       ? Math.round((r.score / test.totalMarks) * 10000) / 100
       : null;
@@ -72,6 +79,7 @@ exports.getStudentAnalysisService = async (studentId, res) => {
       subject: test.subject ? (test.subject.displayName || test.subject.name) : "Unknown",
       date: test.date,
       score: r.score,
+      absent,
       totalMarks: test.totalMarks,
       percent,
     });
@@ -94,6 +102,9 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     return { session: sessionName, tests, average };
   });
 
+  // Overall average: an absence counts as 0% here (score 0 / totalMarks), so it
+  // enters the denominator and drags the average down — same rule as the
+  // sessions, subjects, trends and the at-risk service on this path.
   const allPercents = testResults
     .filter((r) => r.test && r.test.totalMarks)
     .map((r) => Math.round((r.score / r.test.totalMarks) * 10000) / 100);
@@ -107,7 +118,8 @@ exports.getStudentAnalysisService = async (studentId, res) => {
   // ---- Subject-wise aggregation (average % per subject, across all sessions) ----
   // The per-session tables list each test as a raw row, so a subject repeats
   // across rows. Roll those up here so the UI can show one average per subject
-  // instead of a flat, repeating column.
+  // instead of a flat, repeating column. Absences count as 0% (included in the
+  // denominator and dragging the subject average down) — same rule as above.
   const subjectAgg = {};
   testResults.forEach((r) => {
     const test = r.test;

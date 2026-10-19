@@ -111,7 +111,7 @@ describe("test-scores.js (mark a test — Save scores)", () => {
 
     h.scoreInputs[0].value = "18";
     // row 1 stays blank → absence (null, server stores as A / excluded from avg)
-    h.scoreInputs[2].value = "0"; // a typed zero is also an absence
+    h.scoreInputs[2].value = "0"; // a typed zero is a GENUINE score, not an absence
 
     h.fire(h.saveBtn, "click");
 
@@ -122,6 +122,35 @@ describe("test-scores.js (mark a test — Save scores)", () => {
       { student: "stu-1", score: null },
       { student: "stu-2", score: 0 },
     ]);
+  });
+
+  test('typing "A"/"a" marks the pupil absent — sent as null, exactly like a blank box', () => {
+    const h = buildHarness();
+    h.run();
+
+    h.scoreInputs[0].value = "A";
+    h.scoreInputs[1].value = "a";
+    h.scoreInputs[2].value = "12";
+
+    h.fire(h.saveBtn, "click");
+
+    expect(h.scoresForm.submit).toHaveBeenCalledTimes(1);
+    const records = JSON.parse(h.recordsInput.value);
+    expect(records).toEqual([
+      { student: "stu-0", score: null },
+      { student: "stu-1", score: null },
+      { student: "stu-2", score: 12 },
+    ]);
+  });
+
+  test("stray non-numeric text blocks the save (no silent NaN → absence)", () => {
+    const h = buildHarness();
+    h.run();
+
+    h.scoreInputs[0].value = "abc";
+    h.fire(h.saveBtn, "click");
+
+    expect(h.scoresForm.submit).not.toHaveBeenCalled();
   });
 
   test("live percentage updates on input (also proves the load-time crash is gone)", () => {

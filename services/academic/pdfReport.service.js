@@ -218,9 +218,15 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
   if (results.length === 0) return { rows: [], studentName: null, mode: "single-week", periodLabel: null };
 
   const rows = results.map((r) => {
-    const percent = r.test.totalMarks
-      ? Math.round((r.score / r.test.totalMarks) * 10000) / 100
-      : null;
+    // The absent FLAG is authoritative (same rule as the result sheet and every
+    // other reader): an absent row is KEPT so its cell can render "A", but its
+    // percent is null so it drops out of every average, sum and denominator.
+    // A genuine 0 (absent false) keeps percent 0 and counts as a real 0%.
+    const absent = r.absent === true;
+    const percent =
+      !absent && r.test.totalMarks
+        ? Math.round((r.score / r.test.totalMarks) * 10000) / 100
+        : null;
     // Week metadata drives the analytics mode layouts: populated week → its id/
     // name; a test outside any week buckets as "No week" (never dropped).
     const week = r.test.week && r.test.week._id ? r.test.week : null;
@@ -245,6 +251,7 @@ async function gatherAnalytics({ studentId, subjectId, period, grade, section, t
       score: r.score,
       totalMarks: r.test.totalMarks,
       percent,
+      absent,
       weekId: week ? String(week._id) : null,
       weekName: week ? week.name : null,
       weekStart: week ? week.startDate : null,
@@ -347,7 +354,11 @@ function buildSessionRows(testList, resultByTest) {
   return testList
     .filter((t) => resultByTest[String(t._id)] !== undefined)
     .map((t) => {
-      const score = resultByTest[String(t._id)];
+      const entry = resultByTest[String(t._id)];
+      // Gather entries are { score, absent }. A bare number is still accepted
+      // (legacy/synthetic callers and unit tests) and counts as present.
+      const score = entry && typeof entry === "object" ? entry.score : entry;
+      const absent = !!(entry && typeof entry === "object" && entry.absent);
       const totalMarks = t.totalMarks;
       const weekPop = t.week && t.week._id ? t.week : null;
       return {
@@ -356,7 +367,13 @@ function buildSessionRows(testList, resultByTest) {
         subject: t.subject ? t.subject.name : "Unknown",
         subjectDisplay: t.subject ? t.subject.displayName || t.subject.name : "Unknown",
         score,
+        absent,
         totalMarks,
+        // On the Session Report Card an absence counts as 0% (its stored score is
+        // 0, so score/totalMarks is 0) and therefore enters every phase/overall
+        // average and drags it down — the `absent` flag is kept only so the cell
+        // still renders "A". The Analytics PDF and Result Sheet (separate gather
+        // paths) still leave absent percent null so those rows stay excluded.
         percent: totalMarks ? Math.round((score / totalMarks) * 10000) / 100 : null,
         weekId: weekPop ? String(weekPop._id) : t.week ? String(t.week) : null,
         weekName: weekPop ? weekPop.name : null,
@@ -366,6 +383,9 @@ function buildSessionRows(testList, resultByTest) {
 }
 
 function averagePercent(rows) {
+  // Absent rows on the Session Report Card carry percent 0 (they count as a 0%
+  // attempt and drag the average down); only a test with no usable total marks
+  // (percent null) is skipped. A genuine 0 behaves identically.
   const valid = rows.filter((r) => r.percent !== null);
   return valid.length > 0 ? Math.round((valid.reduce((sum, r) => sum + r.percent, 0) / valid.length) * 100) / 100 : null;
 }
@@ -472,7 +492,14 @@ function groupRowsByStudent(rows) {
 
 // Multi-week shape: subject → one row per week (scores of that week's tests
 // summed, out-of summed), weeks in calendar order, totals + percentage bottomed.
-function buildSubjectWeekGroups(rows) {
+// By default an absent row is EXCLUDED from both the obtained and the out-of
+// sums (the flag is the authority) — the behaviour the Analytics PDF relies on.
+// The Session Report Card opts into `absentAsZero` instead: an absence still
+// renders "A" (its marked count stays 0), but its total marks join the
+// out-of denominator so the subject percentage and the card's overall
+// percentage are dragged down, i.e. the absence counts as a real 0%.
+function buildSubjectWeekGroups(rows, opts = {}) {
+  const absentAsZero = opts.absentAsZero === true;
   const bySubject = new Map();
   rows.forEach((r) => {
     const subj = String(r.subject || "Unknown");
@@ -485,21 +512,36 @@ function buildSubjectWeekGroups(rows) {
         start: r.weekStart ? new Date(r.weekStart) : r.date ? new Date(r.date) : null,
         score: 0,
         outOf: 0,
+        marked: 0,
+        absentCount: 0,
       });
     }
     const w = weeks.get(wkey);
-    w.score += Number(r.score) || 0;
-    w.outOf += Number(r.totalMarks) || 0;
+    if (r.absent === true) {
+      w.absentCount++;
+      // Session card only: contribute 0 obtained but the full total marks, so the
+      // absence enters the denominator and pulls the percentage down.
+      if (absentAsZero) w.outOf += Number(r.totalMarks) || 0;
+    } else {
+      w.score += Number(r.score) || 0;
+      w.outOf += Number(r.totalMarks) || 0;
+      w.marked++;
+    }
   });
   return [...bySubject.entries()]
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
     .map(([subject, weeks]) => {
-      const lines = [...weeks.values()]
-        .sort((x, y) => (x.start && y.start && x.start - y.start !== 0 ? x.start - y.start : 0) || String(x.label).localeCompare(String(y.label)))
-        .map((w) => ({ label: w.label, score: w.score, outOf: w.outOf, percent: analyticsPercentLabel(w.score, w.outOf) }));
+      const buckets = [...weeks.values()].sort((x, y) => (x.start && y.start && x.start - y.start !== 0 ? x.start - y.start : 0) || String(x.label).localeCompare(String(y.label)));
+      const lines = buckets.map((w) => ({
+        label: w.label,
+        score: w.score,
+        outOf: w.outOf,
+        absent: w.marked === 0 && w.absentCount > 0,
+        percent: analyticsPercentLabel(w.score, w.outOf),
+      }));
       const totalScore = lines.reduce((s, l) => s + l.score, 0);
       const totalOutOf = lines.reduce((s, l) => s + l.outOf, 0);
-      return { subject, lines, totalScore, totalOutOf, percent: analyticsPercentLabel(totalScore, totalOutOf) };
+      return { subject, lines, totalScore, totalOutOf, absent: lines.length > 0 && lines.every((l) => l.absent), percent: analyticsPercentLabel(totalScore, totalOutOf) };
     });
 }
 
@@ -538,15 +580,25 @@ function buildFullPhasePivot(rows) {
         cells: {},
         totalObtained: 0,
         totalOutOf: 0,
+        marked: 0,
+        absentCount: 0,
       });
     }
     const stu = stuMap.get(key);
     const colKey = r.testId ? String(r.testId) : `name:${r.test}`;
-    const obtained = Number(r.score) || 0;
-    const outOf = Number(r.totalMarks) || 0;
-    stu.cells[colKey] = { obtained, outOf };
-    stu.totalObtained += obtained;
-    stu.totalOutOf += outOf;
+    if (r.absent === true) {
+      // Absent cell renders "A" and joins NEITHER the obtained nor the out-of
+      // side of the student's grand total (excluded from the denominator).
+      stu.cells[colKey] = { absent: true };
+      stu.absentCount++;
+    } else {
+      const obtained = Number(r.score) || 0;
+      const outOf = Number(r.totalMarks) || 0;
+      stu.cells[colKey] = { obtained, outOf };
+      stu.totalObtained += obtained;
+      stu.totalOutOf += outOf;
+      stu.marked++;
+    }
   });
   const students = [...stuMap.values()].sort(
     (a, b) =>
@@ -571,7 +623,9 @@ async function gatherSessionReport(sessionId, studentId, period = {}) {
   const results = await TestResult.find({ test: { $in: testIds }, student: studentId });
   const resultByTest = {};
   results.forEach((r) => {
-    resultByTest[r.test.toString()] = r.score;
+    // Carry the absent FLAG alongside the score so the card can render "A" and
+    // exclude the row from every sum, average and denominator.
+    resultByTest[r.test.toString()] = { score: r.score, absent: r.absent === true };
   });
 
   const phaseBlocks = buildPhaseBlocks(session.phases, tests, resultByTest);
@@ -645,7 +699,9 @@ async function gatherSessionReportsBulk({ sessionId, studentIds, period = {} }) 
   results.forEach((r) => {
     const sid = String(r.student && r.student._id ? r.student._id : r.student);
     const tid = String(r.test && r.test._id ? r.test._id : r.test);
-    (byStudent[sid] = byStudent[sid] || {})[tid] = r.score;
+    // { score, absent } — same shape as the single-student gather so one
+    // buildSessionRows handles both paths.
+    (byStudent[sid] = byStudent[sid] || {})[tid] = { score: r.score, absent: r.absent === true };
   });
 
   const periodLabel = await resolvePeriodLabel(session, period);
@@ -698,16 +754,15 @@ function generateResultSheetPDF(data, schoolName) {
     subtitle: `${test.subject ? test.subject.displayName || test.subject.name : ""} — ${test.name}`,
   });
 
-  // Stats
-  const passCount = results.filter((r) => r.score >= test.passMarks).length;
-  // Finding 1.3: show meaningful message when test has zero results
-  const passRate = results.length > 0 ? Math.round((passCount / results.length) * 100) : 0;
-
-  // Class average (percentage) — absent pupils (score 0 + absent flag, the
-  // placeholder the marking services store) are excluded, same rule as the
-  // roster UI and the marking statistics.
+  // Stats — the absent flag is authoritative: absent pupils (placeholder
+  // score 0, shown as "A") are excluded from the pass stats and the class
+  // average. A genuine 0 (no flag) counts: it fails and drags the averages
+  // down like any other mark. Same rule as the marks audit and dashboards.
   const hasPct = Number(test.totalMarks) > 0;
   const marked = results.filter((r) => !r.absent);
+  const passCount = marked.filter((r) => r.score >= test.passMarks).length;
+  // Finding 1.3: show meaningful message when test has zero results
+  const passRate = marked.length > 0 ? Math.round((passCount / marked.length) * 100) : 0;
   const classAverage =
     hasPct && marked.length > 0
       ? Math.round((marked.reduce((s, r) => s + (r.score / test.totalMarks) * 100, 0) / marked.length) * 100) / 100
@@ -834,15 +889,17 @@ function drawAnalyticsGroupedTables(doc, startY, rows, chrome) {
       let cumScore = 0;
       let cumOutOf = 0;
       const lines = g.lines.map((l) => {
+        // A fully-absent week shows "A" (and a dash for the out-of, which is 0
+        // once the absence is excluded); it adds nothing to the running totals.
         cumScore += l.score;
         cumOutOf += l.outOf;
         const cumPct = analyticsPercentLabel(cumScore, cumOutOf);
-        return [l.label, String(l.score), String(l.outOf), String(cumScore), String(cumOutOf), cumPct];
+        return [l.label, l.absent ? "A" : String(l.score), l.absent ? CARD_DASH : String(l.outOf), String(cumScore), String(cumOutOf), cumPct];
       });
       // Total line: the per-row pair carries the subject totals; the
       // cumulative columns end on the same figures, so they stay blank there
       // and the final "Total %" shows the overall percentage.
-      const totalsRow = ["Total", String(g.totalScore), String(g.totalOutOf), "", "", g.percent];
+      const totalsRow = ["Total", g.absent ? "A" : String(g.totalScore), g.absent ? CARD_DASH : String(g.totalOutOf), "", "", g.absent ? "A" : g.percent];
       y = drawCardTable(doc, y, { ...tableShape, rows: [...lines, totalsRow], chrome });
       y += 14;
     });
@@ -901,10 +958,14 @@ function drawAnalyticsFullPhasePivot(doc, startY, rows, chrome) {
     stu.rollNumber || CARD_DASH,
     ...columns.map((c) => {
       const cell = stu.cells[c.key];
-      return cell ? `${cell.obtained}/${cell.outOf}` : CARD_DASH;
+      if (!cell) return CARD_DASH;
+      if (cell.absent) return "A";
+      return `${cell.obtained}/${cell.outOf}`;
     }),
-    `${stu.totalObtained}/${stu.totalOutOf}`,
-    analyticsPercentLabel(stu.totalObtained, stu.totalOutOf),
+    // Grand total + percentage over the MARKED tests only (absences excluded
+    // from both sides); a pupil with nothing but absences shows "A", not 0/0.
+    stu.marked === 0 && stu.absentCount > 0 ? "A" : `${stu.totalObtained}/${stu.totalOutOf}`,
+    stu.marked === 0 && stu.absentCount > 0 ? "A" : analyticsPercentLabel(stu.totalObtained, stu.totalOutOf),
   ]);
 
   y = drawCardTable(doc, y, { headers, rows: tableRows, colWidths, aligns, fontSize, chrome });
@@ -930,8 +991,10 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
   });
 
   // Stats — same labeled black-on-white cells as the session card
-  // Filter out rows where totalMarks is falsy (0 or undefined) to avoid NaN — Finding 2.1
-  const validRows = rows.filter((r) => r.totalMarks);
+  // Filter out rows where totalMarks is falsy (0 or undefined) to avoid NaN — Finding 2.1.
+  // Absent rows (percent null, flag set) never enter the average either — the
+  // flag is the authority; a genuine 0 stays a real 0% and drags it down.
+  const validRows = rows.filter((r) => r.totalMarks && r.absent !== true && r.percent !== null);
   const avg = validRows.length > 0 ? Math.round((validRows.reduce((s, r) => s + r.percent, 0) / validRows.length) * 100) / 100 : 0;
 
   let y;
@@ -984,9 +1047,11 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
       r.test,
       new Date(r.date).toLocaleDateString(),
       r.subjectDisplay || r.subject,
-      String(r.score),
+      // Absent pupil: "A" in Obtained AND % (result-sheet convention). Total
+      // Marks keeps the test maximum — it is the same for everyone.
+      r.absent ? "A" : String(r.score),
       String(r.totalMarks),
-      r.percent !== null ? `${r.percent}%` : "N/A",
+      r.absent ? "A" : r.percent !== null ? `${r.percent}%` : "N/A",
     ]);
     y = drawCardTable(doc, y, { headers, rows: tableRows, colWidths, aligns, chrome });
   } else {
@@ -1009,9 +1074,9 @@ function generateAnalyticsPDF(data, schoolName, filters, photoResult) {
       r.rollNumber || CARD_DASH,
       r.test,
       r.subjectDisplay || r.subject,
-      String(r.score),
+      r.absent ? "A" : String(r.score),
       String(r.totalMarks),
-      r.percent !== null ? `${r.percent}%` : "N/A",
+      r.absent ? "A" : r.percent !== null ? `${r.percent}%` : "N/A",
     ]);
     y = drawCardTable(doc, y, { headers, rows: tableRows, colWidths, aligns, chrome });
   }
@@ -1080,7 +1145,9 @@ function drawSessionSingleWeekTable(doc, startY, groups, chrome, subjectDisp) {
   const headers = ["Subject", "Obtained", "Total Marks", "Percentage"];
   const colWidths = [225, 80, 90, 100];
   const aligns = ["left", "center", "center", "center"];
-  const tableRows = groups.map((g) => [subjectDisp.get(g.subject) || g.subject, String(g.totalScore), String(g.totalOutOf), g.percent]);
+  // A subject whose tests are ALL absent shows "A" (dash for the out-of, which
+  // is 0 once the absences are excluded) instead of "0"/"0"/"N/A".
+  const tableRows = groups.map((g) => [subjectDisp.get(g.subject) || g.subject, g.absent ? "A" : String(g.totalScore), g.absent ? CARD_DASH : String(g.totalOutOf), g.absent ? "A" : g.percent]);
   const grandScore = groups.reduce((s, g) => s + g.totalScore, 0);
   const grandOutOf = groups.reduce((s, g) => s + g.totalOutOf, 0);
   tableRows.push(["Total", String(grandScore), String(grandOutOf), analyticsPercentLabel(grandScore, grandOutOf)]);
@@ -1103,8 +1170,8 @@ function drawSessionMultiWeekGroups(doc, startY, groups, chrome, subjectDisp) {
     doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK)
       .text(clipCardLine(doc, subjectDisp.get(g.subject) || g.subject, CARD_TABLE_W, "Helvetica-Bold", 9.5), CARD_TABLE_X, y);
     y += 16;
-    const lines = g.lines.map((l) => [l.label, String(l.score), String(l.outOf), l.percent]);
-    const totalsRow = ["Total", String(g.totalScore), String(g.totalOutOf), g.percent];
+    const lines = g.lines.map((l) => [l.label, l.absent ? "A" : String(l.score), l.absent ? CARD_DASH : String(l.outOf), l.absent ? "A" : l.percent]);
+    const totalsRow = ["Total", g.absent ? "A" : String(g.totalScore), g.absent ? CARD_DASH : String(g.totalOutOf), g.absent ? "A" : g.percent];
     y = drawCardTable(doc, y, { ...tableShape, rows: [...lines, totalsRow], chrome });
     y += 14;
   });
@@ -1160,7 +1227,7 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
         .text("No test results recorded for this period.", TABLE_X, y);
       y += 24;
     } else {
-      const groups = buildSubjectWeekGroups(flatRows);
+      const groups = buildSubjectWeekGroups(flatRows, { absentAsZero: true });
       // Groups key off the internal subject name; labels come from the rows'
       // subjectDisplay (fallback to name).
       const subjectDisp = buildSubjectDisplayMap(flatRows);
@@ -1182,8 +1249,8 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
       doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK)
         .text(
           mode === "single-week"
-            ? "One row per subject for the selected week. Obtained and Total Marks combine every test recorded for that subject in the week; the percentage is obtained \u00F7 total marks."
-            : "Subjects are grouped with one row per selected week (that week's tests summed) and a per-subject Total line. The percentage is obtained \u00F7 total marks; the Overall line combines every subject.",
+            ? "One row per subject for the selected week. Obtained and Total Marks combine every test recorded for that subject in the week; the percentage is obtained \u00F7 total marks. A pupil marked absent shows \u201CA\u201D but is counted as a 0% attempt, so it lowers the percentage."
+            : "Subjects are grouped with one row per selected week (that week's tests summed) and a per-subject Total line. The percentage is obtained \u00F7 total marks; the Overall line combines every subject. A pupil marked absent shows \u201CA\u201D but is counted as a 0% attempt, so it lowers the percentage.",
           TABLE_X,
           y,
           { width: TABLE_W }
@@ -1220,7 +1287,7 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
     const slotX = (i) => TABLE_X + subjW + i * testW; // left edge of slot i
     const obtX = (i) => slotX(i);
     const totX = (i) => slotX(i) + subW;
-    const fmtObt = (t) => (t ? String(t.score) : CARD_DASH);
+    const fmtObt = (t) => (t ? (t.absent ? "A" : String(t.score)) : CARD_DASH);
     const fmtTot = (t) => (t ? String(t.totalMarks) : CARD_DASH);
 
     const groupSpans = [];
@@ -1293,9 +1360,14 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
         const t = cellOf(subj, i);
         cells.push({ x: obtX(i), w: subW, text: fmtObt(t), align: "center" });
         cells.push({ x: totX(i), w: subW, text: fmtTot(t), align: "center" });
+        // Absent cells show "A" but count as a 0% attempt on this card: they
+        // contribute nothing to the obtained sum yet their total marks join the
+        // slot denominator, so the absence drags the percentage down.
         if (t) {
-          subjSum += t.score;
-          colObt[i] += t.score;
+          if (!t.absent) {
+            subjSum += t.score;
+            colObt[i] += t.score;
+          }
           colTot[i] += t.totalMarks;
           colHasScore[i] = true;
         }
@@ -1328,7 +1400,7 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
     doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK)
       .text(
         `Overall percentage is provisional — the simple average of phase averages${phaseAvgs.length ? ` (${phaseAvgs.join("; ")})` : ""}. ` +
-          `Each test shows two columns: "Obt" (marks scored) and "Tot" (maximum marks). The Total column and the Obtained cells of the Total row sum marks scored; a dash means the subject has no test recorded in that slot.`,
+          `Each test shows two columns: "Obt" (marks scored) and "Tot" (maximum marks). The Total column and the Obtained cells of the Total row sum marks scored; a dash means the subject has no test recorded in that slot. "A" means the pupil was absent for that test — it is counted as a 0% attempt, so its total marks still enter the denominator and lower the phase average and every percentage.`,
         TABLE_X,
         y,
         { width: TABLE_W }

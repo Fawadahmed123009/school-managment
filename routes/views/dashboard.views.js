@@ -71,13 +71,13 @@ router.get("/dashboard", async (req, res) => {
         { $match: { $or: [{ status: "paid" }, { _stuStatus: { $ne: "inactive" } }] } },
       ];
 
-      // School-wide test average + top performers share the scoring convention
-      // already used by the student branch and the at-risk service: a result
-      // contributes score/totalMarks as a percent, and absences (stored as a
-      // placeholder score 0) are excluded so they never drag the average down.
-      // Results are also limited to active-enrolled students.
+      // Top performers scoring convention (admin/manager). A result contributes
+      // score/totalMarks as a percent. An ABSENCE (the absent flag, stored score
+      // 0) now counts as a real 0% attempt — it enters the average and drags it
+      // down, exactly like a genuine typed 0 — so this panel matches the At-Risk
+      // panel beside it (which uses the same absence-as-0 rule). Results are
+      // limited to active-enrolled students.
       const scoredResultScope = [
-        { $match: { absent: { $ne: true }, score: { $gt: 0 } } },
         { $lookup: { from: "tests", localField: "test", foreignField: "_id", as: "_test" } },
         { $addFields: { _totalMarks: { $arrayElemAt: ["$_test.totalMarks", 0] } } },
         { $match: { _totalMarks: { $gt: 0 } } },
@@ -475,6 +475,10 @@ router.get("/dashboard", async (req, res) => {
       //                    KPI (ONE query — the mix was previously discarded).
       //   • topRows      — per-student average across the teacher's SUBJECTS only,
       //                    restricted to the teacher's CLASSES (Top Performers).
+      //                    An absence counts as a 0% attempt (dragging the average
+      //                    down) to match the admin panel and the At-Risk panel;
+      //                    the teacher testAverage KPI derived from these rows
+      //                    follows the same rule.
       //   • attLifetime  — lifetime attendance % per student (the Att % column).
       const [attAgg, topRows, attLifetimeAgg] = await Promise.all([
         classLevelIds.length > 0
@@ -493,7 +497,6 @@ router.get("/dashboard", async (req, res) => {
           : Promise.resolve([]),
         classLevelIds.length > 0 && subjectIds.length > 0
           ? TestResult.aggregate([
-              { $match: { absent: { $ne: true }, score: { $gt: 0 } } },
               { $lookup: { from: "tests", localField: "test", foreignField: "_id", as: "_test" } },
               {
                 $addFields: {

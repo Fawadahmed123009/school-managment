@@ -29,10 +29,12 @@ const testResultSchema = new mongoose.Schema(
         message: "Score cannot exceed the test's total marks",
       },
     },
-    // A pupil recorded absent has no score, so the row is stored with
-    // score 0 + absent true. The score 0 is only a placeholder — absences are
-    // shown as "A" in the UI and are excluded from every class/subject average,
-    // so they never drag the statistics down (see the marking services).
+    // The `absent` flag is the sole source of truth for an absence. An absent
+    // pupil is entered as blank or "A" and stored with score 0 + absent true —
+    // that 0 is only a placeholder and the row is shown as "A" and excluded
+    // from every class/subject average, pass rate and at-risk calculation.
+    // A genuine typed 0 is stored with absent false and counts as a real 0%
+    // (it can be the class minimum and can flag the pupil at-risk).
     absent: {
       type: Boolean,
       default: false,

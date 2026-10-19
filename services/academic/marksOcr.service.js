@@ -24,7 +24,9 @@ Return ONLY a JSON array, no other text, no markdown code fences. Each item must
 - "rollNo": the row's roll/serial number as printed, as a string (use null if the sheet has no roll column)
 - "score": the handwritten score as a number (no units, no "/100")
 
-If a handwritten score is genuinely illegible or the space is left blank, set "score" to null (the pupil is treated as Absent).
+A row whose score space shows the letter "A" or "a" (upper or lower case, any handwriting style) means the pupil was ABSENT — set "score" to null for that row. A real 0 is a genuine mark and must stay the number 0: only "A"/"a" or an empty space counts as absent.
+
+If a handwritten score is genuinely illegible or the space is left blank, set "score" to null (the pupil is treated as Absent). Never return the letter "A" as the score value — always null for an absence.
 
 Example output:
 [{"name": "John Smith", "rollNo": "12", "score": 78}, {"name": "Jane Doe", "rollNo": null, "score": null}]`;

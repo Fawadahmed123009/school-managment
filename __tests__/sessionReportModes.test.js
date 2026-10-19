@@ -29,7 +29,7 @@ jest.mock("../models/Students/students.model", () => ({ findById: (...a) => mock
 jest.mock("../models/Academic/week.model", () => ({ find: (...a) => mockWeekFind(...a), findById: (...a) => mockWeekFindById(...a) }));
 
 const pdfReport = require("../services/academic/pdfReport.service");
-const { buildSessionRows } = pdfReport._sessionReportInternals;
+const { buildSessionRows, averagePercent, buildPhaseBlocks } = pdfReport._sessionReportInternals;
 const { detectAnalyticsMode, buildSubjectWeekGroups } = pdfReport._analyticsInternals;
 
 const SESSION = "507f1f77bcf86cd799439000";
@@ -80,6 +80,101 @@ describe("buildSessionRows — week metadata", () => {
   test("percent division stays guarded for a zero-total test", () => {
     const rows = buildSessionRows([{ _id: "z", name: "Z", totalMarks: 0, subject: { name: "Arts" }, week: null }], { z: 0 });
     expect(rows[0].percent).toBeNull();
+  });
+
+  test("{ score, absent } entry → row carries the flag with percent 0 (counts as 0%)", () => {
+    const rows = buildSessionRows(
+      [{ _id: "t1", name: "T1", totalMarks: 50, subject: { name: "Math" }, week: null }],
+      { t1: { score: 0, absent: true } }
+    );
+    // On the Session Report Card an absence is kept visible (absent:true → "A")
+    // but counts as a real 0% toward the average, so percent is 0 not null.
+    expect(rows[0]).toMatchObject({ absent: true, score: 0, percent: 0 });
+  });
+
+  test("{ score:0, absent:false } (genuine 0) → percent 0, still counts", () => {
+    const rows = buildSessionRows(
+      [{ _id: "t1", name: "T1", totalMarks: 50, subject: { name: "Math" }, week: null }],
+      { t1: { score: 0, absent: false } }
+    );
+    expect(rows[0]).toMatchObject({ absent: false, score: 0, percent: 0 });
+  });
+
+  test("a bare-number entry (legacy shape) is treated as present", () => {
+    const rows = buildSessionRows(
+      [{ _id: "t1", name: "T1", totalMarks: 50, subject: { name: "Math" }, week: null }],
+      { t1: 40 }
+    );
+    expect(rows[0]).toMatchObject({ absent: false, score: 40, percent: 80 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Absent counts as 0: an absence stays shown as "A" but is averaged in as a real
+// 0% attempt, dragging every session/phase/subject average down.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("session card absence handling (absent counts as 0%)", () => {
+  const testDocs = [
+    { _id: "t1", name: "T1", totalMarks: 50, subject: { name: "Math" }, week: null, phase: null },
+    { _id: "t2", name: "T2", totalMarks: 50, subject: { name: "Math" }, week: null, phase: null },
+  ];
+
+  test("averagePercent counts an absent row as 0 alongside a genuine 0 (two tests, both 0%)", () => {
+    const rows = buildSessionRows(testDocs, {
+      t1: { score: 0, absent: true },   // absent → 0%
+      t2: { score: 0, absent: false },  // genuine 0 → 0%
+    });
+    // Both rows now enter the average (denominator is TWO, not one); each is 0%.
+    expect(rows[0].absent).toBe(true);
+    expect(rows[0].percent).toBe(0);
+    expect(rows[1].percent).toBe(0);
+    expect(averagePercent(rows)).toBe(0);
+  });
+
+  test("an absence drags the average down: marked 80% + absent 0% → 40", () => {
+    const rows = buildSessionRows(testDocs, {
+      t1: { score: 40, absent: false },
+      t2: { score: 0, absent: true },
+    });
+    // The absence is averaged in as a 0%, so the single 80% is halved to 40.
+    expect(averagePercent(rows)).toBe(40);
+  });
+
+  test("buildPhaseBlocks phase average counts absences as 0", () => {
+    const blocks = buildPhaseBlocks(
+      [{ _id: "p1", name: "Phase 1", order: 1 }],
+      testDocs.map((t) => ({ ...t, phase: { _id: "p1" } })),
+      { t1: { score: 40, absent: false }, t2: { score: 0, absent: true } }
+    );
+    // 80% and an absent 0% → phase average of 40.
+    expect(blocks[0].average).toBe(40);
+  });
+
+  test("buildSubjectWeekGroups with absentAsZero pulls an absence into the denominator", () => {
+    const rows = [
+      { subject: "Math", test: "T1", score: 40, totalMarks: 50, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") },
+      { subject: "Math", test: "T2", score: 0, totalMarks: 50, absent: true, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") },
+    ];
+    // Session-card mode: the absence adds its 50 marks to the denominator only →
+    // 40/100 = 40.0% (the marked 40/50 alone would have been 80.0%).
+    const groups = buildSubjectWeekGroups(rows, { absentAsZero: true });
+    expect(groups[0].totalScore).toBe(40);
+    expect(groups[0].totalOutOf).toBe(100);
+    expect(groups[0].percent).toBe("40.0%");
+    // The week still has a marked test, so the line itself is not flagged fully
+    // absent (that flag only shows a lone "A" when NO test in the week is marked).
+    expect(groups[0].lines[0].absent).toBe(false);
+  });
+
+  test("buildSubjectWeekGroups default (analytics) still EXCLUDES the absence — no leak", () => {
+    const rows = [
+      { subject: "Math", test: "T1", score: 40, totalMarks: 50, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") },
+      { subject: "Math", test: "T2", score: 0, totalMarks: 50, absent: true, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") },
+    ];
+    const groups = buildSubjectWeekGroups(rows);
+    expect(groups[0].totalScore).toBe(40);
+    expect(groups[0].totalOutOf).toBe(50);
+    expect(groups[0].percent).toBe("80.0%");
   });
 });
 

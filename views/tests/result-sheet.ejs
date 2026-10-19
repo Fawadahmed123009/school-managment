@@ -6,6 +6,10 @@
   <div class="page-head"><div><h1>Result sheet</h1></div></div>
   <div class="flash error"><%= loadError %></div>
 <% } else { %>
+  <% /* The absent flag is authoritative: absent pupils (placeholder score 0,
+       shown "A") are excluded from the pass rate; a genuine 0 counts as a
+       failed attempt. Mirrors the PDF result sheet. */ %>
+  <% const marked = results.filter(function (r) { return !r.absent; }); %>
   <div class="page-head">
     <div>
       <p class="eyebrow"><%= test.subject ? (test.subject.displayName || test.subject.name) : '' %></p>
@@ -28,12 +32,12 @@
       <div class="l">Total marks</div>
     </div>
     <div class="stat">
-      <div class="n mono"><%= results.length %></div>
+      <div class="n mono"><%= results.length %><% if (results.length !== marked.length) { %> <span style="font-size:12px;color:var(--error);">(<%= results.length - marked.length %> absent)</span><% } %></div>
       <div class="l">Students marked</div>
     </div>
     <div class="stat">
       <div class="n mono">
-        <%= results.length > 0 ? Math.round((results.filter(function(r) { return r.score >= test.passMarks; }).length / results.length) * 100) : 0 %>%
+        <%= marked.length > 0 ? Math.round((marked.filter(function(r) { return r.score >= test.passMarks; }).length / marked.length) * 100) : 0 %>%
       </div>
       <div class="l">Pass rate</div>
     </div>
@@ -51,13 +55,14 @@
         </thead>
         <tbody>
           <% results.forEach(function(r) { %>
-            <% const pct = Math.round((r.score / test.totalMarks) * 10000) / 100; %>
+            <% const pct = r.absent ? null : Math.round((r.score / test.totalMarks) * 10000) / 100; %>
             <tr>
               <td><strong><%= r.student.name %></strong> <span class="mono" style="color:var(--ink-soft)"><%= r.student.studentId %></span></td>
-              <td class="num mono"><%= r.score %></td>
-              <td class="num mono"><%= pct %>%</td>
+              <td class="num mono"><% if (r.absent) { %><span style="color:var(--error);font-weight:600;" title="Absent — not counted in the stats">A</span><% } else { %><%= r.score %><% } %></td>
+              <td class="num mono"><%= pct !== null ? pct + '%' : '—' %></td>
               <td>
-                <% if (r.score >= test.passMarks) { %><span class="pill paid">Pass</span>
+                <% if (r.absent) { %><span class="pill" style="color:var(--error);border-color:var(--error);" title="Absent — excluded from the pass rate">Absent</span>
+                <% } else if (r.score >= test.passMarks) { %><span class="pill paid">Pass</span>
                 <% } else { %><span class="pill error">Fail</span><% } %>
               </td>
             </tr>

@@ -111,13 +111,16 @@ exports.getAtRiskStudentsAdmin = async (classLevelId, sortBy, gradeLevel, option
       }
     }
 
-    // Per-subject score check + overall average (same per-test convention as
-    // the Top Performers ranking, so the two panels' numbers are comparable).
+    // Per-subject score check + overall average. An ABSENT mark now counts as a
+    // real 0% attempt (its stored score is 0, so score/totalMarks is 0): it is
+    // INCLUDED in the per-subject and overall averages and drags them down,
+    // exactly like a genuine typed 0. (The result-sheet / analytics PDFs and the
+    // dashboard score scope still EXCLUDE absences — that is a different path.)
     const subjectAgg = {};
     let pctSum = 0;
     let pctCount = 0;
     testResults
-      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks && r.absent !== true && r.score > 0)
+      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks)
       .forEach((r) => {
         const subjectName = r.test.subject ? r.test.subject.name : "Unknown";
         const percent = Math.round((r.score / r.test.totalMarks) * 10000) / 100;
@@ -310,7 +313,7 @@ exports.getAtRiskStudentsTeacher = async (teacherId, options) => {
     let pctSum = 0;
     let pctCount = 0;
     filteredResults
-      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks && r.absent !== true && r.score > 0)
+      .filter((r) => r.student.toString() === sid && r.test && r.test.totalMarks)
       .forEach((r) => {
         const subjectName = r.test.subject ? r.test.subject.name : "Unknown";
         const percent = Math.round((r.score / r.test.totalMarks) * 10000) / 100;

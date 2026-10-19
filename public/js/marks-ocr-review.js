@@ -153,7 +153,7 @@
           </td>
           <td><span class="mono roll-cell" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
           <td><span class="mono sheet-roll-cell" data-roll="${esc(sheetRoll)}" style="font-size:12px;${rollMismatch ? 'color:var(--error);font-weight:600;' : 'color:var(--ink-soft);'}" title="${rollMismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet'}">${sheetRoll ? esc(sheetRoll) : ''}</span></td>
-          <td class="num"><input type="number" class="score-input" data-row="${i}" value="${esc(row.score ?? '')}" placeholder="Absent (A)" /></td>
+          <td class="num"><input type="text" class="score-input" maxlength="6" autocomplete="off" data-row="${i}" value="${esc(row.score === null || row.score === undefined ? 'A' : row.score)}" placeholder="Absent (A)" title="Score, or A for absent" /></td>
           <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"></span></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
@@ -265,17 +265,20 @@
     const selects = document.querySelectorAll('.student-select');
     const scores = document.querySelectorAll('.score-input');
     const records = [];
+    const invalidScore = [];
     let missingStudent = 0;
     let absentCount = 0;
 
     selects.forEach((sel, i) => {
       const studentId = sel.value;
-      const score = scores[i].value;
+      const score = String(scores[i].value || '').trim();
       // A confirmed student with no readable score counts as ABSENT — saved
       // as Absent (A) instead of being dropped (blank was previously skipped
-      // silently). The server stores the absence and excludes it from average.
+      // silently). Typing "A"/"a" marks the same absence explicitly; a typed
+      // 0 is a genuine score and goes through as a real mark.
       if (studentId) {
-        if (score === '') { absentCount++; records.push({ student: studentId, score: null }); }
+        if (score === '' || score.toLowerCase() === 'a') { absentCount++; records.push({ student: studentId, score: null }); }
+        else if (!Number.isFinite(Number(score)) || Number(score) < 0) { invalidScore.push(score); }
         else { records.push({ student: studentId, score: Number(score) }); }
       } else {
         // No student resolved for this row — it cannot be saved; count it so
@@ -283,6 +286,13 @@
         missingStudent++;
       }
     });
+
+    // Score boxes are free text now (they accept "A" for absent) — catch stray
+    // non-numeric values before they become silent NaNs in the payload.
+    if (invalidScore.length > 0) {
+      alert(`Each score box must be a number or "A" (absent). Invalid value(s): ${invalidScore.slice(0, 5).join(', ')}${invalidScore.length > 5 ? '…' : ''}`);
+      return;
+    }
 
     if (records.length === 0) {
       alert('No rows are ready to save.\n\n' + (missingStudent > 0
@@ -298,7 +308,7 @@
       return;
     }
 
-    if (absentCount > 0 && !confirm(`${absentCount} row(s) have no score — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
+    if (absentCount > 0 && !confirm(`${absentCount} row(s) are blank/"A" — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
       return;
     }
 

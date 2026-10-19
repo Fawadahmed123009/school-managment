@@ -197,6 +197,26 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
     expect(row.passCount).toBe(2); // 40 and 30 ≥ passMarks 20
   });
 
+  test("a genuine 0 (absent flag false) counts in every stat and can be the class minimum", async () => {
+    // The new semantics split: score 0 WITHOUT the absent flag is a real mark.
+    mockResultFind.mockReturnValue(
+      chainQuery([...RESULTS_ONE, { test: "test-1", student: "b4", score: 0, absent: false, markedBy: TEACHER_A, createdAt: new Date("2026-09-14T08:00:00Z"), updatedAt: new Date("2026-09-14T08:00:00Z") }])
+    );
+
+    const res = mockRes();
+    await getMarksAuditService({}, res);
+    const row = auditRows(res).find((r) => r.testId === "test-1");
+
+    expect(row.absentCount).toBe(0);
+    expect(row.markedCount).toBe(4);
+    // (10 + 40 + 30 + 0) / 4 — the 0 is included in the denominator.
+    expect(row.avgScore).toBe(20);
+    expect(row.minScore).toBe(0);
+    expect(row.maxScore).toBe(40);
+    expect(row.minPercent).toBe(0);
+    expect(row.passCount).toBe(2); // 0 < passMarks 20 — counted, but failed
+  });
+
   test("surfaces when marks were uploaded and who last changed them", async () => {
     const res = mockRes();
     await getMarksAuditService({}, res);
@@ -264,12 +284,14 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
     expect(empty.markers).toEqual([]);
   });
 
-  test("counts 0-mark students as absent, excludes them from stats, flags overdue, resolves reminder teachers", async () => {
-    // Add a zero-score result → that student is reported absent AND dropped
-    // from the avg / min / max stats (they must not drag the average down).
+  test("counts absent-flag rows as absent, excludes them from stats, flags overdue, resolves reminder teachers", async () => {
+    // Add an absence (blank / "A" mark → stored score 0 + absent:true) → that
+    // student is reported absent AND dropped from the avg / min / max stats
+    // (they must not drag the average down). A bare 0 WITHOUT the flag is now
+    // a genuine score — see the follow-up test.
     // The class roster grows to match, so marking stays complete here.
     mockResultFind.mockReturnValue(
-      chainQuery([...RESULTS_ONE, { test: "test-1", student: "b4", score: 0, markedBy: TEACHER_A, createdAt: new Date("2026-09-14T08:00:00Z"), updatedAt: new Date("2026-09-14T08:00:00Z") }])
+      chainQuery([...RESULTS_ONE, { test: "test-1", student: "b4", score: 0, absent: true, markedBy: TEACHER_A, createdAt: new Date("2026-09-14T08:00:00Z"), updatedAt: new Date("2026-09-14T08:00:00Z") }])
     );
     // Grow c1 to 6 students so that 4 of them marked still means outstanding.
     mockStudentFind.mockReturnValue(
@@ -281,12 +303,12 @@ describe("getMarksAuditService — per-test stats and marking timeline", () => {
     const rows = auditRows(res);
     const row = rows.find((r) => r.testId === "test-1");
 
-    // One student scored exactly 0 → counted as absent (and not passed).
+    // One absence (flag, placeholder score 0) → counted as absent (not passed).
     expect(row.absentCount).toBe(1);
     expect(row.passCount).toBe(2);
     // markedCount still counts every entered row, including the absence.
     expect(row.markedCount).toBe(4);
-    // Stats are over the three real marks (10, 40, 30) — unchanged by the 0.
+    // Stats are over the three real marks (10, 40, 30) — unchanged by the absence.
     expect(row.avgScore).toBe(26.67);
     expect(row.minScore).toBe(10);
     expect(row.maxScore).toBe(40);

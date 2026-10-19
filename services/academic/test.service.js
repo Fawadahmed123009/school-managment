@@ -851,9 +851,10 @@ exports.getTestRosterService = async (testId, teacherId, res) => {
   existing.forEach((r) => {
     existingMap[r.student.toString()] = {
       score: r.score,
-      // Legacy rows predate the absent flag and recorded an absence as a bare
-      // score 0, so treat both the flag and a 0 as absent for display ("A").
-      absent: r.absent === true || r.score === 0,
+      // The absent flag is the single source of truth: the write path stores it
+      // for blank / "A" marks and the migration backfilled legacy bare-score-0
+      // rows — a 0 WITHOUT the flag is now a genuine score, never an absence.
+      absent: r.absent === true,
       markedAt: r.updatedAt || r.createdAt || null,
       firstMarkedAt: r.createdAt || null,
       markedByName: r.markedBy && r.markedBy.name ? r.markedBy.name : null,
@@ -890,15 +891,21 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  // An empty mark (null / undefined / "") means the pupil was ABSENT for this
-  // test. Absences are stored as score 0 + absent true so the numeric column
-  // stays intact for every legacy reader, while the flag lets the UI show "A"
-  // and the analytics exclude the row from all averages. A typed 0 is treated
-  // the same way (0 has always meant "absent" in this system's marks audit).
+  // Absence semantics (product rule): an EMPTY mark (null / undefined / "") or
+  // a literal "A"/"a" means the pupil was ABSENT — stored as score 0 + absent
+  // true so the numeric column stays intact, while the flag lets the UI show
+  // "A" and every average/at-risk/pass-rate reader exclude the row. A TYPED 0
+  // is a genuine score (absent false): it counts as 0% against the averages,
+  // can be the class minimum and can flag the pupil at-risk. The string "A"
+  // is also tolerated from the OCR path, where Gemini may echo a handwritten
+  // absent mark instead of null.
   const normalized = records.map((r) => {
-    const blank = r.score === null || r.score === undefined || r.score === "";
-    const score = blank ? 0 : Number(r.score);
-    return { student: r.student, score, absent: blank || score === 0 };
+    const raw = typeof r.score === "string" ? r.score.trim() : r.score;
+    const absentMark =
+      raw === null || raw === undefined || raw === "" ||
+      (typeof raw === "string" && raw.toLowerCase() === "a");
+    const score = absentMark ? 0 : Number(raw);
+    return { student: r.student, score, absent: absentMark };
   });
 
   // Reject any present score that is negative or exceeds the test's totalMarks.
@@ -1004,8 +1011,10 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
  * Admin marks audit — one row per test with score statistics AND the marking
  * timeline: when marks were first uploaded (earliest TestResult createdAt),
  * when they were last changed (latest updatedAt) and which teacher entered
- * them. A stored score of 0 is treated as an absence: it is counted in
- * `absentCount` but excluded from the avg / min / max stats. Tests with no
+ * them. Rows carrying the absent flag (blank / "A" marks, stored with the
+ * placeholder score 0) are counted in `absentCount` but excluded from the
+ * avg / min / max stats — a stored 0 WITHOUT the flag is a genuine score and
+ * stays in the stats. Tests with no
  * results yet are included (markedCount 0) so the admin
  * can also see what is still unmarked. Marking status is derived from the
  * class rosters: a test is `marked` once every ACTIVE student of its classes
@@ -1068,7 +1077,7 @@ exports.getMarksAuditService = async (query, res) => {
 
   // Group every TestResult by test to derive per-test stats + timeline.
   const results = await TestResult.find({})
-    .select("test student score createdAt updatedAt markedBy")
+    .select("test student score absent createdAt updatedAt markedBy")
     .populate("markedBy", "name")
     .lean();
   const byTest = {};
@@ -1143,14 +1152,16 @@ exports.getMarksAuditService = async (query, res) => {
 
   let rows = tests.map((t) => {
     const rs = byTest[String(t._id)] || [];
-    const scores = rs.map((r) => r.score).filter((s) => typeof s === "number" && !isNaN(s));
-    // A stored 0 means the student was absent (0-mark entries are how absences
-    // are recorded), so absences are counted separately and EXCLUDED from the
-    // score/percentage stats below — otherwise they unfairly drag the average
-    // and min down. markedCount / passCount keep counting over all entries
-    // (a 0 can never reach a positive pass mark, so passCount is unaffected).
-    const absentCount = scores.filter((s) => s === 0).length;
-    const present = scores.filter((s) => s > 0);
+    // The absent flag is authoritative: absences are counted separately and
+    // EXCLUDED from the score/percentage stats below — otherwise they unfairly
+    // drag the average and min down. A 0 WITHOUT the flag is a genuine score
+    // and legitimately pulls them down. markedCount / passCount keep counting
+    // over every submitted entry (an absent row is still a submitted entry).
+    const absentCount = rs.filter((r) => r.absent === true).length;
+    const present = rs
+      .filter((r) => r.absent !== true)
+      .map((r) => r.score)
+      .filter((s) => typeof s === "number" && !isNaN(s));
     // Percentages are computed against the test's CURRENT totalMarks; if the
     // scale was lowered after marking, a stored score may exceed it — those
     // rows are excluded from percent stats rather than reported >100%.
@@ -1254,14 +1265,14 @@ exports.getMarksAuditService = async (query, res) => {
       expectedCount,
       fullyMarked,
       status: fullyMarked ? "marked" : "unmarked",
-      // Stats are over present (non-zero) scores only — see absentCount note.
+      // Stats are over present (non-absent) scores only — see absentCount note.
       avgScore: stat(present, (a) => a.reduce((x, y) => x + y, 0) / a.length),
       minScore: stat(present, (a) => Math.min(...a)),
       maxScore: stat(present, (a) => Math.max(...a)),
       avgPercent: stat(percents, (a) => a.reduce((x, y) => x + y, 0) / a.length),
       minPercent: stat(percents, (a) => Math.min(...a)),
       maxPercent: stat(percents, (a) => Math.max(...a)),
-      passCount: t.passMarks != null ? scores.filter((s) => s >= t.passMarks).length : null,
+      passCount: t.passMarks != null ? present.filter((s) => s >= t.passMarks).length : null,
       absentCount,
       overdue,
       critical,
@@ -1615,7 +1626,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
     studentClassMap[String(s._id)] = s;
   });
 
-  const scores = results.filter((r) => !r.absent && r.score > 0).map((r) => r.score);
+  const scores = results.filter((r) => !r.absent).map((r) => r.score);
   const currentStats = computeStats(scores, test);
 
   // Attach student details to results for the table
@@ -1628,9 +1639,10 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
       rollNumber: s.rollNumber,
       className: s.classLevel ? s.classLevel.name : "—",
       score: r.score,
-      // Absent pupils (blank mark, stored as score 0 + absent) are shown as "A"
-      // in the table and excluded from the stats above.
-      absent: r.absent === true || r.score === 0,
+      // Absent pupils (blank / "A" mark, stored as score 0 + absent) are shown
+      // as "A" in the table and excluded from the stats above. A genuine 0
+      // (no flag) renders as "0" and counts in the stats.
+      absent: r.absent === true,
     };
   }).sort((a, b) => {
     if (sortBy === "rollAsc") {
@@ -1671,7 +1683,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
         else prevResultQuery.student = { $in: [] }; // no match
       }
       const prevResults = await TestResult.find(prevResultQuery).lean();
-      const prevScores = prevResults.filter((r) => !r.absent && r.score > 0).map((r) => r.score);
+      const prevScores = prevResults.filter((r) => !r.absent).map((r) => r.score);
       previousStats = computeStats(prevScores, prevTest);
       previousStats.testName = prevTest.name;
       previousStats.testDate = prevTest.date;
@@ -1801,11 +1813,12 @@ exports.getTestTrendService = async (filters, res) => {
       })
       .lean();
 
-    // Filter by subject if requested; drop absences (blank mark, stored as a
-    // score 0 + absent) so they never appear as a false 0% dip in the trend.
+    // Filter by subject if requested; drop absences (blank / "A" mark, stored
+    // with the placeholder score 0 + absent) so they never appear as a false
+    // 0% dip in the trend. A genuine 0 stays — it is a real data point.
     const filtered = results.filter((r) => {
       if (!r.test) return false;
-      if (r.absent === true || r.score === 0) return false;
+      if (r.absent === true) return false;
       if (subjectId && r.test.subject && r.test.subject._id.toString() !== subjectId) return false;
       if (sessionId) {
         const sid = r.test.session ? String(r.test.session._id || r.test.session) : "";
@@ -1896,9 +1909,10 @@ exports.getTestTrendService = async (filters, res) => {
     const bucket = {};   // "classId|testId" -> [percent,...]
     const allBucket = {}; // testId -> [percent,...]
     results.forEach((r) => {
-      // Absent pupils (blank mark, stored as score 0 + absent) must not drag a
-      // class-average trend line down — they are excluded from the bucket.
-      if (r.absent === true || r.score === 0) return;
+      // Absent pupils (blank / "A" mark, stored as score 0 + absent) must not
+      // drag a class-average trend line down — they are excluded from the
+      // bucket. A genuine 0 counts and pulls the average down legitimately.
+      if (r.absent === true) return;
       const tid = String(r.test);
       const t = testById[tid];
       if (!t || !t.totalMarks) return;

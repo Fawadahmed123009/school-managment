@@ -133,7 +133,7 @@
                 <td><%= t.subject %></td>
                 <td><%= t.test %></td>
                 <td><%= new Date(t.date).toLocaleDateString() %></td>
-                <td class="num mono"><%= t.score %></td>
+                <td class="num mono"><% if (t.absent) { %><span style="color:var(--error);font-weight:600;" title="Absent — not counted in the average">A</span><% } else { %><%= t.score %><% } %></td>
                 <td class="num mono"><%= t.totalMarks %></td>
                 <td><%= t.percent !== null ? t.percent + '%' : '—' %></td>
               </tr>

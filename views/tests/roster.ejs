@@ -46,8 +46,9 @@
         <span class="pill ocr">Out of <%= test.totalMarks %></span>
       </div>
       <p style="margin:0 0 12px;font-size:12px;color:var(--ink-soft);">
-        Leave a box blank to mark the pupil <strong>Absent (A)</strong> — absences are
-        recorded automatically on save and are excluded from the class average.
+        Type <strong>A</strong> (or leave the box blank) to mark the pupil <strong>Absent</strong> —
+        absences are excluded from the class average. A typed <strong>0</strong> is a genuine score:
+        it counts as 0% and is shown as “0”, not “A”.
       </p>
       <div class="attend-filters">
         <div class="attend-filter-field">
@@ -72,7 +73,7 @@
               </td>
               <td class="num">
                 <% if (r.absent) { %><span class="pill" style="color:var(--error);border-color:var(--error);" title="Absent — not counted in the average">A</span><% } %>
-                <input type="number" class="score-input" min="0" max="<%= test.totalMarks %>" value="<%= (!r.absent && r.score != null) ? r.score : '' %>" placeholder="A" />
+                <input type="text" class="score-input" maxlength="6" autocomplete="off" data-max="<%= test.totalMarks %>" value="<%= r.absent ? 'A' : (r.score != null ? r.score : '') %>" placeholder="A" title="Score, or A for absent" />
               </td>
               <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"><%= (!r.absent && r.score != null && test.totalMarks) ? Math.round((r.score / test.totalMarks) * 1000) / 10 + '%' : '' %></span></td>
               <td style="font-size:12px;color:var(--ink-soft);">

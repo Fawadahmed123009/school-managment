@@ -163,6 +163,32 @@ describe("buildSubjectWeekGroups", () => {
     const groups = buildSubjectWeekGroups([row({ weekId: null, weekName: null, weekStart: null })]);
     expect(groups[0].lines[0].label).toBe("No week");
   });
+
+  test("an absent test is EXCLUDED from the week sums AND the out-of denominator; a genuine 0 still counts", () => {
+    const groups = buildSubjectWeekGroups([
+      row({ subject: "Math", score: 40, totalMarks: 50, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") }),
+      // Absent in the SAME week — must not add to score (70→40) nor to out-of.
+      row({ subject: "Math", test: "T-abs", absent: true, score: 0, totalMarks: 50, weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") }),
+      // A GENUINE 0 (no flag) in week B — counts its 50 toward the denominator.
+      row({ subject: "Math", test: "T-zero", absent: false, score: 0, totalMarks: 50, weekId: WEEK_B, weekName: "Week B", weekStart: new Date("2026-03-08") }),
+    ]);
+    const math = groups[0];
+    // Week A: only the marked 40/50 counts — the absence is fully excluded.
+    expect(math.lines[0]).toMatchObject({ score: 40, outOf: 50, absent: false, percent: "80.0%" });
+    // Week B: the genuine 0 shows 0/50 (a real 0%), NOT absent.
+    expect(math.lines[1]).toMatchObject({ score: 0, outOf: 50, absent: false, percent: "0.0%" });
+    // Subject total sums only the two marked tests (absent out-of never entered).
+    expect(math.totalScore).toBe(40);
+    expect(math.totalOutOf).toBe(100);
+  });
+
+  test("a week whose every test is absent is flagged absent (renderer shows 'A', not 0)", () => {
+    const groups = buildSubjectWeekGroups([
+      row({ subject: "Math", absent: true, score: 0, totalMarks: 50, weekId: WEEK_A, weekName: "Week A" }),
+    ]);
+    expect(groups[0].lines[0].absent).toBe(true);
+    expect(groups[0].absent).toBe(true);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -237,6 +263,34 @@ describe("buildFullPhasePivot", () => {
     const pivot = buildFullPhasePivot([row({ testId: "t1", score: 0, totalMarks: 0 })]);
     expect(pivot.students[0].totalOutOf).toBe(0);
     expect(analyticsPercentLabel(pivot.students[0].totalObtained, pivot.students[0].totalOutOf)).toBe("N/A");
+  });
+
+  test("absent cell is { absent:true } and excluded from the grand total; a genuine 0 counts", () => {
+    const pivot = buildFullPhasePivot([
+      row({ studentRefId: "r1", studentId: "S1", testId: "t1", score: 40, totalMarks: 50 }),
+      row({ studentRefId: "r1", studentId: "S1", testId: "t2", absent: true, score: 0, totalMarks: 50 }),
+      // Genuine 0 on a third test — counts 0/50 toward the denominator.
+      row({ studentRefId: "r1", studentId: "S1", testId: "t3", absent: false, score: 0, totalMarks: 50 }),
+    ]);
+    const stu = pivot.students[0];
+    expect(stu.cells.t2).toEqual({ absent: true });
+    // Grand total excludes the absent test's 50 (only t1 + t3 count).
+    expect(stu.totalObtained).toBe(40);
+    expect(stu.totalOutOf).toBe(100);
+    expect(stu.marked).toBe(2);
+    expect(stu.absentCount).toBe(1);
+  });
+
+  test("a pupil with ONLY absences shows 0 marked so the renderer can print 'A' not 0/0", () => {
+    const pivot = buildFullPhasePivot([
+      row({ studentRefId: "r1", studentId: "S1", testId: "t1", absent: true, score: 0, totalMarks: 50 }),
+      row({ studentRefId: "r1", studentId: "S1", testId: "t2", absent: true, score: 0, totalMarks: 50 }),
+    ]);
+    const stu = pivot.students[0];
+    expect(stu.marked).toBe(0);
+    expect(stu.absentCount).toBe(2);
+    expect(stu.totalObtained).toBe(0);
+    expect(stu.totalOutOf).toBe(0);
   });
 });
 
