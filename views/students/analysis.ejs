@@ -115,35 +115,55 @@
     </div>
   </div>
 
-  <% if (analysis.marks.bySession.length === 0) { %>
+  <% /* ── Test results: grouped by Subject, tests ordered by Week ──
+         One collapsible <details> panel per subject (labelled with displayName,
+         consistent with the subject-naming work). Uses native <details>/<summary>
+         so it needs no JS / inline handlers (CSP-safe) — same pattern already used
+         on the student add/edit forms. The FIRST subject is open by default so the
+         structure is visible immediately without dumping a wall of rows for every
+         subject at once; click any header to toggle. Within each subject the tests
+         are listed in week order (chronological). Score cell: "A" for an absence,
+         otherwise the real score (a genuine 0 shows "0"). */ %>
+  <% var subjectGroups = (analysis.marks.subjectGroups && analysis.marks.subjectGroups.length)
+        ? analysis.marks.subjectGroups
+        : (analysis.marks.bySession || []).reduce(function(acc, s) {
+            // Fallback for cached/older analysis payloads without subjectGroups:
+            // rebuild the grouping from the flat per-session rows so the section
+            // still renders (week columns will be blank).
+            s.tests.forEach(function(t) {
+              var k = t.subject || 'Unknown';
+              var g = acc.filter(function(x){ return x.label === k; })[0];
+              if (!g) { g = { label: k, tests: [], average: null }; acc.push(g); }
+              g.tests.push(t);
+            });
+            return acc;
+          }, []); %>
+  <% if (subjectGroups.length === 0) { %>
     <div class="panel"><div class="empty"><div class="display">No test results yet</div></div></div>
-  <% } else { %>
-    <% analysis.marks.bySession.forEach(function(sessionBlock) { %>
-      <div class="panel">
-        <div class="panel-head">
-          <h2><%= sessionBlock.session %></h2>
-          <% if (sessionBlock.average !== null) { %><span class="pill ocr">Average: <%= sessionBlock.average %>%</span><% } %>
-        </div>
-        <div class="table-wrap">
-        <table class="ledger">
-          <thead><tr><th>Subject</th><th>Test</th><th>Date</th><th class="num">Score</th><th class="num">Total</th><th>%</th></tr></thead>
-          <tbody>
-            <% sessionBlock.tests.forEach(function(t) { %>
-              <tr>
-                <td><%= t.subject %></td>
-                <td><%= t.test %></td>
-                <td><%= new Date(t.date).toLocaleDateString() %></td>
-                <td class="num mono"><% if (t.absent) { %><span style="color:var(--error);font-weight:600;" title="Absent — not counted in the average">A</span><% } else { %><%= t.score %><% } %></td>
-                <td class="num mono"><%= t.totalMarks %></td>
-                <td><%= t.percent !== null ? t.percent + '%' : '—' %></td>
-              </tr>
-            <% }); %>
-          </tbody>
-        </table>
-        </div>
+  <% } else { subjectGroups.forEach(function(group, gi) { %>
+    <details class="subject-group"<%= gi === 0 ? ' open' : '' %>>
+      <summary>
+        <span class="sg-title"><span class="caret">&#9656;</span> <%= group.label %></span>
+        <% if (group.average !== null) { %><span class="pill ocr">Average: <%= group.average %>%</span><% } %>
+      </summary>
+      <div class="table-wrap">
+      <table class="ledger">
+        <thead><tr><th>Test</th><th>Week</th><th class="num">Score</th><th class="num">Total</th><th>%</th></tr></thead>
+        <tbody>
+          <% group.tests.forEach(function(t) { %>
+            <tr>
+              <td><%= t.test %></td>
+              <td><%= t.weekName || '—' %></td>
+              <td class="num mono"><% if (t.absent) { %><span style="color:var(--error);font-weight:600;" title="Absent — counts as 0% here">A</span><% } else { %><%= t.score %><% } %></td>
+              <td class="num mono"><%= t.totalMarks %></td>
+              <td><%= t.percent !== null ? t.percent + '%' : '—' %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
       </div>
-    <% }); %>
-  <% } %>
+    </details>
+  <% }); } %>
 
   <div class="panel">
     <div class="panel-head"><h2>Fee records</h2></div>

@@ -503,6 +503,45 @@ a.tp-tab { text-decoration: none; display: inline-block; }
 .panel-head h2 { margin: 0; font-size: 16px; }
 .panel-body { padding: 24px; }
 
+/* ── Collapsible subject groups (View Student results) ── */
+/* Native <details>/<summary> so collapse/expand needs no JS (CSP-safe). Styled
+   to match .panel; the caret rotates and the header gains a divider when open. */
+details.subject-group {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+details.subject-group > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: #fafbfd;
+  border-bottom: 1px solid transparent;
+  user-select: none;
+}
+details.subject-group > summary::-webkit-details-marker { display: none; }
+details.subject-group[open] > summary { border-bottom-color: var(--border); }
+details.subject-group > summary .sg-title {
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details.subject-group > summary .caret {
+  color: var(--ink-soft);
+  font-size: 12px;
+  display: inline-block;
+  transition: transform 0.15s ease;
+}
+details.subject-group[open] > summary .caret { transform: rotate(90deg); }
+
 /* ── Forms ───────────────────────────────── */
 .field-row { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; margin-bottom: 14px; }

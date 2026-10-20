@@ -46,6 +46,9 @@ exports.getStudentAnalysisService = async (studentId, res) => {
       populate: [
         { path: "subject", select: "name displayName" },
         { path: "session", select: "name" },
+        // Week metadata (name + startDate) drives the subject-grouped results
+        // below, where each subject's tests are ordered chronologically by week.
+        { path: "week", select: "name startDate" },
       ],
     });
 
@@ -149,6 +152,64 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     }))
     .sort((a, b) => b.average - a.average);
 
+  // ---- Results grouped by Subject, tests ordered by Week ----
+  // The View Student page presents results as one collapsible panel per subject
+  // (labelled with displayName, consistent with the subject-naming work) with
+  // that subject's tests ordered chronologically by week. The per-session
+  // grouping above stays untouched (the progress chart keys off it). Absent rows
+  // keep `absent` + score so the UI can render "A" / "0"; on THIS page an absence
+  // still counts as 0% in every average (same rule as the sessions and subjects).
+  const subjectGroupsMap = {};
+  testResults.forEach((r) => {
+    const test = r.test;
+    if (!test) return; // orphaned result (test deleted)
+    const subjectKey = test.subject ? test.subject.name : "Unknown";
+    const label = test.subject ? (test.subject.displayName || test.subject.name) : "Unknown";
+    const absent = r.absent === true;
+    const percent = test.totalMarks
+      ? Math.round((r.score / test.totalMarks) * 10000) / 100
+      : null;
+    const wk = test.week || null;
+    if (!subjectGroupsMap[subjectKey]) subjectGroupsMap[subjectKey] = { label, tests: [] };
+    subjectGroupsMap[subjectKey].tests.push({
+      test: test.name,
+      date: test.date,
+      score: r.score,
+      absent,
+      totalMarks: test.totalMarks,
+      percent,
+      weekName: wk ? wk.name : null,
+      weekStart: wk ? wk.startDate : null,
+    });
+  });
+
+  const subjectGroups = Object.keys(subjectGroupsMap)
+    .map((key) => {
+      const group = subjectGroupsMap[key];
+      // Order by week start (chronological). A test with no week falls back to
+      // its own date so it stays time-placed rather than jumping to the top; a
+      // test with neither sinks to the bottom. Ties broken by test date.
+      const orderKey = (t) => {
+        if (t.weekStart) return new Date(t.weekStart).getTime();
+        if (t.date) return new Date(t.date).getTime();
+        return Number.MAX_SAFE_INTEGER;
+      };
+      group.tests.sort((a, b) => {
+        const ka = orderKey(a);
+        const kb = orderKey(b);
+        if (ka !== kb) return ka - kb;
+        return new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime();
+      });
+      // Header pill: subject average % across its tests (absent-as-0 rule).
+      const pcts = group.tests.filter((t) => t.percent !== null).map((t) => t.percent);
+      const average =
+        pcts.length > 0
+          ? Math.round((pcts.reduce((s, p) => s + p, 0) / pcts.length) * 100) / 100
+          : null;
+      return { subject: key, label: group.label, tests: group.tests, average };
+    })
+    .sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
   // ---- Progress series (per-session average %, ordered chronologically) ----
   // The per-session averages above are only surfaced as pills today; expose them
   // as a time-ordered series so the UI can plot a progress trend chart.
@@ -198,6 +259,7 @@ exports.getStudentAnalysisService = async (studentId, res) => {
       overallAverage,
       bySession: sessionSummaries,
       bySubject,
+      subjectGroups,
       progress,
     },
     fees: {

@@ -134,6 +134,66 @@ describe("getStudentAnalysisService — subject & progress aggregation", () => {
     });
 });
 
+describe("getStudentAnalysisService — subjectGroups (group by subject, order tests by week)", () => {
+  test("groups tests under their subject, labels with displayName, sorts groups by label", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 40, test: { name: "Bio T", subject: { name: "Biology" }, session: { name: "S" }, totalMarks: 50, date: "2026-02-01", week: { name: "Week 1", startDate: "2026-02-01" } } },
+        { score: 80, test: { name: "Math T", subject: { name: "Math-IB", displayName: "Mathematics" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-10", week: { name: "Week 1", startDate: "2026-01-05" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    // Ordered alphabetically by display label: Biology then Mathematics.
+    expect(marks.subjectGroups.map((g) => g.label)).toEqual(["Biology", "Mathematics"]);
+    // Group keyed by raw subject name, labelled with displayName.
+    expect(marks.subjectGroups[1].subject).toBe("Math-IB");
+  });
+
+  test("orders a subject's tests chronologically by week startDate, not insertion order", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        // Deliberately fed newest-week-first to prove the re-sort.
+        { score: 60, test: { name: "Late", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 100, date: "2026-03-20", week: { name: "Week 3", startDate: "2026-03-16" } } },
+        { score: 40, test: { name: "Early", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-10", week: { name: "Week 1", startDate: "2026-01-05" } } },
+        { score: 50, test: { name: "Mid", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 100, date: "2026-02-10", week: { name: "Week 2", startDate: "2026-02-09" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    const tests = marks.subjectGroups[0].tests;
+    expect(tests.map((t) => t.test)).toEqual(["Early", "Mid", "Late"]);
+    expect(tests.map((t) => t.weekName)).toEqual(["Week 1", "Week 2", "Week 3"]);
+  });
+
+  test("absent row keeps absent + placeholder score so UI shows \"A\", and counts as 0% in the group average", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 80, absent: false, test: { name: "Present", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-10", week: { name: "Week 1", startDate: "2026-01-05" } } },
+        // Absent: stored score 0 + absent true → "A" cell, 0% in the average.
+        { score: 0, absent: true, test: { name: "Skipped", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 100, date: "2026-01-20", week: { name: "Week 2", startDate: "2026-01-19" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    const tests = marks.subjectGroups[0].tests;
+    expect(tests[1].absent).toBe(true);
+    expect(tests[1].score).toBe(0);
+    expect(tests[1].percent).toBe(0);
+    // (80 + 0) / 2 = 40 — the absence drags the average down (absent-as-0 rule).
+    expect(marks.subjectGroups[0].average).toBe(40);
+  });
+
+  test("empty results yield an empty subjectGroups array", async () => {
+    mockTestResultFind.mockReturnValue(withPopulate([]));
+    const { marks } = await getStudentAnalysisService("s1", {});
+    expect(marks.subjectGroups).toEqual([]);
+  });
+});
+
 describe("getStudentAnalysisService — current-month attendance pie", () => {
   // The service buckets records by LOCAL (Asia/Karachi) calendar month via
   // localDateKey. Build dates in that month so the assertion is timezone-stable:
