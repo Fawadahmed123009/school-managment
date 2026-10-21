@@ -15,13 +15,13 @@
   </div>
 
   <% if (ok) { %><div class="flash ok">Results saved.</div><% } %>
-  <% if (marksOk) { %><div class="flash ok">Marks scale updated.</div><% } %>
   <% if (typeof error !== 'undefined' && error) { %><div class="flash error"><%= error %></div><% } %>
 
   <% if (test) { %>
-  <!-- Test score scale — the assigned teacher can fix total/pass marks here -->
-  <form method="POST" action="/tests/mark/<%= testId %>/settings" class="panel" style="margin-bottom:16px;">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+  <!-- Test score scale — the assigned teacher can fix total/pass marks here.
+       Saved via fetch (see test-scores.js), NOT a POST form: a full reload
+       would wipe any scores already typed into the roster below. -->
+  <div class="panel" id="test-settings" data-test-id="<%= testId %>" style="margin-bottom:16px;">
     <div class="panel-head"><h2>Test settings</h2></div>
     <div class="panel-body" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;">
       <div class="field" style="margin:0;">
@@ -32,9 +32,10 @@
         <label for="pass-marks-input">Pass marks</label>
         <input type="number" name="passMarks" id="pass-marks-input" min="0" value="<%= test.passMarks %>" required style="width:110px;" />
       </div>
-      <button type="submit" class="btn btn-primary">Save marks</button>
+      <button type="button" class="btn btn-primary" id="save-settings-btn">Save</button>
+      <span id="settings-status" role="status" style="font-size:13px;color:var(--ink-soft);align-self:center;"></span>
     </div>
-  </form>
+  </div>
   <% } %>
 
   <% if (roster.length === 0) { %>
@@ -51,6 +52,10 @@
         it counts as 0% and is shown as “0”, not “A”.
       </p>
       <div class="attend-filters">
+        <div class="attend-filter-field">
+          <label for="search-student">Search student</label>
+          <input type="text" id="search-student" placeholder="Name or roll number…" autocomplete="off" />
+        </div>
         <div class="attend-filter-field">
           <label for="sort-roll">Sort by</label>
           <select id="sort-roll">
@@ -84,6 +89,9 @@
               </td>
             </tr>
           <% }); %>
+          <tr id="roster-no-match" style="display:none;">
+            <td colspan="4" style="text-align:center;color:var(--ink-soft);padding:24px;">No student matches this search.</td>
+          </tr>
         </tbody>
       </table>
       </div>

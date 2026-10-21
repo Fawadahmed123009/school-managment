@@ -31,7 +31,6 @@ router.get(
       page: "tests-mark",
       user: req.user,
       ok: req.query.ok === "1",
-      marksOk: req.query.marksOk === "1",
       error: req.query.error ? String(req.query.error) : "",
       testId: req.params.testId,
       test: result.status === "success" ? result.data.test : null,
@@ -63,24 +62,9 @@ router.post(
   }
 );
 
-// Edit the test's total / pass marks from the mark page — same assignment guard
-router.post(
-  "/tests/mark/:testId/settings",
-  requireRole("teacher"),
-  isAssignedToTestView,
-  async (req, res) => {
-    const { totalMarks, passMarks } = req.body;
-
-    const result = await apiFetch(`/tests/${req.params.testId}/marks`, req.token, {
-      method: "PATCH",
-      body: JSON.stringify({ totalMarks, passMarks }),
-    });
-
-    if (result.status !== "success") {
-      return res.redirect(`/tests/mark/${req.params.testId}?error=${encodeURIComponent(result.message)}`);
-    }
-    res.redirect(`/tests/mark/${req.params.testId}?marksOk=1`);
-  }
-);
+// NOTE: Editing the test's total/pass marks is now done in-page via a
+// client-side PATCH to /api/v1/tests/:testId/marks (see public/js/test-scores.js
+// and views/tests/roster.ejs). The old POST /tests/mark/:testId/settings view
+// route was retired — it forced a full reload that wiped unsaved scores.
 
 module.exports = router;

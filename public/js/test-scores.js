@@ -52,19 +52,75 @@
   updatePercentages();
 
   // ── Keep score inputs in sync with the editable total-marks field ─────
-  // The teacher can change the test's total marks on this page; before the
-  // save-and-redirect lands, reflect the new ceiling on every score input.
+  // The teacher can change the test's total marks on this page; reflect the
+  // new ceiling on every score input and refresh the live percentages.
+  function syncMaxToInputs() {
+    const max = currentMax();
+    if (max === null) return;
+    document.querySelectorAll('.score-input').forEach(function (el) {
+      // dataset (not setAttribute) — keeps the vm-based regression harnesses
+      // with their minimal element stubs working.
+      el.dataset.max = max;
+    });
+    // Percentages are relative to the total — refresh with the new ceiling.
+    updatePercentages();
+  }
   if (totalMarksInput) {
-    totalMarksInput.addEventListener('input', function () {
-      const max = currentMax();
-      if (max === null) return;
-      document.querySelectorAll('.score-input').forEach(function (el) {
-        // dataset (not setAttribute) — keeps the vm-based regression harnesses
-        // with their minimal element stubs working.
-        el.dataset.max = max;
-      });
-      // Percentages are relative to the total — refresh with the new ceiling.
-      updatePercentages();
+    totalMarksInput.addEventListener('input', syncMaxToInputs);
+  }
+
+  // ── Save total / pass marks WITHOUT reloading the page ────────────────
+  // This used to be a POST form that redirected back here, which wiped every
+  // score the teacher had typed but not yet saved. PATCH the scale through
+  // the API instead (Bearer token from the head meta, CSRF-exempt — same
+  // pattern as the OCR page) and update the roster in place.
+  const settingsPanel = document.getElementById('test-settings');
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+  const passMarksInput = document.getElementById('pass-marks-input');
+  const settingsStatus = document.getElementById('settings-status');
+  function setSettingsStatus(text, ok) {
+    if (!settingsStatus) return;
+    settingsStatus.textContent = text || '';
+    settingsStatus.style.color = ok ? 'var(--ok)' : 'var(--error)';
+  }
+  function bearerAuth() {
+    const meta = document.querySelector('meta[name="auth-token"]');
+    return meta && meta.content ? { Authorization: 'Bearer ' + meta.content } : {};
+  }
+  if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', function () {
+      const testId = settingsPanel && settingsPanel.dataset ? settingsPanel.dataset.testId : null;
+      if (!testId) return;
+      const total = Number(totalMarksInput && totalMarksInput.value);
+      const pass = Number(passMarksInput && passMarksInput.value);
+      // Guard a mistyped scale before the round-trip (server also enforces it).
+      if (!Number.isFinite(total) || total < 1) {
+        setSettingsStatus('Total marks must be at least 1.', false);
+        return;
+      }
+      if (Number.isFinite(pass) && pass > total) {
+        setSettingsStatus('Pass marks cannot exceed total marks.', false);
+        return;
+      }
+      saveSettingsBtn.disabled = true;
+      setSettingsStatus('Saving…', true);
+      fetch('/api/v1/tests/' + testId + '/marks', {
+        method: 'PATCH',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, bearerAuth()),
+        body: JSON.stringify({ totalMarks: total, passMarks: pass }),
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (data && data.status === 'success') {
+            // New ceiling is live — re-flag any score now above it and refresh %.
+            syncMaxToInputs();
+            setSettingsStatus('Saved.', true);
+          } else {
+            setSettingsStatus((data && data.message) || 'Save failed.', false);
+          }
+        })
+        .catch(function () { setSettingsStatus('Save failed.', false); })
+        .finally(function () { saveSettingsBtn.disabled = false; });
     });
   }
 
@@ -86,13 +142,36 @@
     });
   }
 
+  // ── Search students (filter rows by name or roll number) ─────────────
+  // Client-side only: hides non-matching rows so the teacher can jump to a
+  // pupil in a long roster. Hidden rows keep their inputs in the DOM, so the
+  // save step (which re-queries every data-student row) still commits marks
+  // entered before the teacher refined the search.
+  const searchInput = document.getElementById('search-student');
+  const noMatchRow = document.getElementById('roster-no-match');
+  function applyStudentSearch() {
+    const q = (searchInput.value || '').trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('#roster-body tr[data-student]').forEach(function (row) {
+      const hay = (row.dataset.name || '') + ' ' + (row.dataset.roll || '');
+      const show = !q || hay.indexOf(q) !== -1;
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (noMatchRow) noMatchRow.style.display = (q && visible === 0) ? '' : 'none';
+  }
+  if (searchInput) {
+    searchInput.addEventListener('input', applyStudentSearch);
+  }
+
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
       const records = [];
       let absentCount = 0;
-      // Re-query rows from the DOM so we pick up the current (possibly sorted) order.
-      // Each row carries data-student, so score→student binding is per-row, not positional.
-      const currentRows = document.querySelectorAll('#roster-body tr');
+      // Re-query rows from the DOM so we pick up the current (possibly sorted)
+      // order. Only real roster rows carry data-student — this skips the
+      // "no match" placeholder row and binds each score to the right pupil.
+      const currentRows = document.querySelectorAll('#roster-body tr[data-student]');
       const invalid = [];
       currentRows.forEach(function (row) {
         const studentId = row.dataset.student;
