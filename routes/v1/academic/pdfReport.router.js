@@ -8,6 +8,9 @@ const isAdminOrManager = require("../../../middlewares/isAdminOrManager");
 // Generate PDFs
 router.post("/pdf-reports/result-sheet", isLoggedIn, isAdminOrTeacher, pdfReportController.generateResultSheet);
 router.post("/pdf-reports/analytics", isLoggedIn, isAdminOrTeacher, pdfReportController.generateAnalytics);
+// Combined subject analytics PDF — feeds the /tests/analytics "Combined subject"
+// page (admin/manager only, mirroring the interactive view's gate).
+router.post("/pdf-reports/analytics-combined", isLoggedIn, isAdminOrManager, pdfReportController.generateCombined);
 router.post("/pdf-reports/session-report", isLoggedIn, isAdminOrTeacher, pdfReportController.generateSessionReport);
 router.post("/pdf-reports/session-report-bulk", isLoggedIn, isAdminOrTeacher, pdfReportController.generateSessionReportBulk);
 

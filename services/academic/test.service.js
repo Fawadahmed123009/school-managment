@@ -994,17 +994,35 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
     );
   }
 
-  const results = [];
-  for (const r of normalized) {
-    const updated = await TestResult.findOneAndUpdate(
-      { test: testId, student: r.student },
-      { test: testId, student: r.student, score: r.score, absent: r.absent, markedBy: teacherId },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-    results.push(updated);
-  }
+  // Persist every record in ONE round-trip. This used to be a `for` loop that
+  // awaited findOneAndUpdate once per pupil sequentially — for a full-class
+  // roster (tens of students) that was N sequential writes to a remote Atlas,
+  // slow enough to trip the reverse-proxy request timeout so the teacher's
+  // "Save scores" click appeared to hang, then returned an error with nothing
+  // written. A single ordered bulkWrite keeps the previous sequential semantics
+  // (ordered:true) and still upserts per {test, student}; Mongoose casts the
+  // ObjectId fields and applies schema timestamps (createdAt/updatedAt) for
+  // updateOne upserts, so the marks timeline shown in the roster and audit is
+  // preserved.
+  const ops = normalized.map((r) => ({
+    updateOne: {
+      filter: { test: testId, student: r.student },
+      update: {
+        $set: { score: r.score, absent: r.absent, markedBy: teacherId },
+        $setOnInsert: { test: testId, student: r.student },
+      },
+      upsert: true,
+    },
+  }));
 
-  return responseStatus(res, 201, "success", results);
+  const writeResult = await TestResult.bulkWrite(ops, { ordered: true });
+
+  return responseStatus(res, 201, "success", {
+    total: normalized.length,
+    upserted: writeResult && writeResult.upsertedCount != null ? writeResult.upsertedCount : 0,
+    modified: writeResult && writeResult.modifiedCount != null ? writeResult.modifiedCount : 0,
+    matched: writeResult && writeResult.matchedCount != null ? writeResult.matchedCount : 0,
+  });
 };
 
 /**
@@ -1706,6 +1724,235 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   });
 };
 
+// ── Combined subject analytics: pool every test of ONE subject ───────────────
+// When the cascade resolves to a single Subject left on "All tests", the page
+// analyses every test of that subject in scope at once instead of one test.
+// Marks are normalised to a percentage BEFORE pooling (the combined tests can
+// carry different total marks, so raw scores would not be comparable) — the
+// pooled avg / min / max are therefore percent figures. Absent attempts are
+// excluded from every statistic, matching the single-test analytics and the
+// analytics PDF convention. The pure builder is shared with the combined PDF so
+// the report and the on-screen cards can never drift apart.
+async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy }) {
+  const selectedClasses = await resolveClassTokens(classLevelId);
+  const selectedClassIds = selectedClasses.map((c) => String(c._id));
+
+  const subject = subjectId ? await Subject.findById(subjectId).select("name displayName").lean() : null;
+
+  // Every test of this subject, optionally bounded by session and narrowed to
+  // the classes the cascade resolved.
+  const testQuery = { subject: subjectId };
+  if (sessionId) testQuery.session = sessionId;
+  if (selectedClassIds.length) testQuery.classLevels = { $in: selectedClassIds };
+
+  const tests = await Test.find(testQuery)
+    .populate("classLevels", "name")
+    .sort({ date: 1 })
+    .lean();
+
+  // Pivot columns — one per combined test, in date order. Shared by the view
+  // (marks-list headers) and the PDF (per-test cells) so both list the same set.
+  const columns = tests.map((t) => ({
+    testId: String(t._id),
+    name: t.name,
+    date: t.date,
+    totalMarks: t.totalMarks,
+  }));
+  const totalMarksById = {};
+  tests.forEach((t) => { totalMarksById[String(t._id)] = t.totalMarks; });
+
+  const emptyPayload = {
+    subject,
+    columns,
+    pooled: emptyPercentStats(),
+    perTest: columns.map((c) => ({ ...emptyPercentStats(), absentCount: 0, ...c })),
+    distribution: [],
+    marksRows: [],
+    resultCount: 0,
+  };
+
+  if (tests.length === 0) return emptyPayload;
+
+  // Which pupils appear (class scope from the cascade + an optional single pupil).
+  const studentMatch = {};
+  if (selectedClassIds.length) studentMatch.classLevel = { $in: selectedClassIds };
+  if (studentId) studentMatch._id = studentId;
+
+  let scopedStudentIds = null;
+  if (Object.keys(studentMatch).length > 0) {
+    const matching = await Student.find(studentMatch).select("_id").lean();
+    scopedStudentIds = matching.map((s) => s._id);
+    if (scopedStudentIds.length === 0) return emptyPayload;
+  }
+
+  const resultQuery = { test: { $in: tests.map((t) => t._id) } };
+  if (scopedStudentIds) resultQuery.student = { $in: scopedStudentIds };
+
+  const results = await TestResult.find(resultQuery)
+    .populate("student", "name studentId rollNumber")
+    .lean();
+
+  if (results.length === 0) return emptyPayload;
+
+  // Class name per pupil for the marks list.
+  const pupilIds = [...new Set(results.map((r) => String(r.student && r.student._id)))];
+  const pupils = await Student.find({ _id: { $in: pupilIds } })
+    .populate("classLevel", "name")
+    .select("name studentId rollNumber classLevel")
+    .lean();
+  const pupilMap = {};
+  pupils.forEach((p) => { pupilMap[String(p._id)] = p; });
+
+  // Percent for one attempt (null when absent or the test has no usable total).
+  const percentOf = (r) => {
+    if (r.absent === true) return null;
+    const total = totalMarksById[String(r.test)];
+    if (!total || !(Number(total) > 0)) return null;
+    return Math.round((Number(r.score) / Number(total)) * 10000) / 100;
+  };
+
+  // ── Pooled stats across every test's attempts (percent-normalised) ──
+  const allPercents = results.map(percentOf).filter((p) => p !== null);
+  const pooled = percentStats(allPercents);
+
+  // ── Per-test breakdown ──
+  const resultsByTest = {};
+  results.forEach((r) => {
+    const tid = String(r.test);
+    (resultsByTest[tid] = resultsByTest[tid] || []).push(r);
+  });
+  const perTest = columns.map((c) => {
+    const rs = resultsByTest[c.testId] || [];
+    const s = percentStats(rs.map(percentOf).filter((p) => p !== null));
+    return { ...c, ...s, absentCount: rs.filter((r) => r.absent === true).length };
+  });
+
+  // ── Combined marks list: one row per pupil, one cell per test ──
+  const byStudent = {};
+  results.forEach((r) => {
+    const sid = String(r.student && r.student._id);
+    if (!byStudent[sid]) byStudent[sid] = {};
+    byStudent[sid][String(r.test)] = r;
+  });
+
+  const marksRows = Object.keys(byStudent)
+    .map((sid) => {
+      const p = pupilMap[sid] || {};
+      const cells = {};
+      const ownPercents = [];
+      columns.forEach((col) => {
+        const r = byStudent[sid][col.testId];
+        if (!r) { cells[col.testId] = null; return; }
+        const pct = percentOf(r);
+        if (pct !== null) ownPercents.push(pct);
+        cells[col.testId] = {
+          score: r.score,
+          totalMarks: col.totalMarks,
+          absent: r.absent === true,
+          percent: pct,
+        };
+      });
+      return {
+        studentId: sid,
+        name: p.name,
+        studentIdStr: p.studentId,
+        rollNumber: p.rollNumber,
+        className: p.classLevel ? p.classLevel.name : "—",
+        cells,
+        overallPercent: ownPercents.length
+          ? Math.round((ownPercents.reduce((a, b) => a + b, 0) / ownPercents.length) * 100) / 100
+          : null,
+        attempts: ownPercents.length,
+      };
+    })
+    .sort(combinedStudentSorter(sortBy));
+
+  // The combined Highest / Lowest are STUDENT-level, not attempt-level: they show
+  // the best and worst pupil's own average across the combined tests (each
+  // pupil's overallPercent), so the summary answers "who did best/worst overall"
+  // rather than surfacing a single high/low score on one test. The Average still
+  // pools every attempt. (Reuses the marks rows, so it can never disagree with
+  // the per-pupil Overall % column shown beneath.)
+  const studentOveralls = marksRows.map((r) => r.overallPercent).filter((p) => p !== null);
+  pooled.max = studentOveralls.length ? Math.max(...studentOveralls) : null;
+  pooled.min = studentOveralls.length ? Math.min(...studentOveralls) : null;
+
+  return {
+    subject,
+    columns,
+    pooled,
+    perTest,
+    distribution: buildPercentDistribution(allPercents),
+    marksRows,
+    resultCount: marksRows.length,
+  };
+}
+
+exports.buildCombinedSubjectData = buildCombinedSubjectData;
+
+exports.getCombinedSubjectAnalyticsService = async (filters, res) => {
+  const { subjectId, classLevelId, studentId, sessionId, sortBy } = filters;
+  if (!subjectId) {
+    return responseStatus(res, 400, "failed", "A subject is required for combined analytics");
+  }
+  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy });
+  return responseStatus(res, 200, "success", {
+    ...data,
+    filters: { subjectId, classLevelId, studentId, sessionId, sortBy },
+  });
+};
+
+// Helper: descriptive stats over an array of percentages (0–100). Same shape as
+// computeStats but percent-native, so combined figures stay comparable even
+// when the underlying tests have different total marks.
+function percentStats(percents) {
+  if (!percents || percents.length === 0) return emptyPercentStats();
+  const n = percents.length;
+  const avg = Math.round((percents.reduce((a, b) => a + b, 0) / n) * 100) / 100;
+  const variance = percents.reduce((acc, v) => acc + Math.pow(v - avg, 2), 0) / n;
+  return {
+    avg,
+    max: Math.max(...percents),
+    min: Math.min(...percents),
+    stddev: Math.round(Math.sqrt(variance) * 100) / 100,
+    count: n,
+  };
+}
+
+function emptyPercentStats() {
+  return { avg: null, max: null, min: null, stddev: null, count: 0 };
+}
+
+// Histogram over a 0–100 % scale in ten equal buckets (the single-test
+// distribution buckets raw marks against one test's total instead).
+function buildPercentDistribution(percents) {
+  if (!percents || percents.length === 0) return [];
+  const bucketCount = 10;
+  const buckets = [];
+  for (let i = 0; i < bucketCount; i++) {
+    buckets.push({ label: `${i * 10}–${(i + 1) * 10}%`, count: 0 });
+  }
+  percents.forEach((p) => {
+    let idx = Math.floor(p / 10);
+    if (idx >= bucketCount) idx = bucketCount - 1;
+    if (idx < 0) idx = 0;
+    buckets[idx].count++;
+  });
+  return buckets;
+}
+
+function combinedStudentSorter(sortBy) {
+  return (a, b) => {
+    if (sortBy === "rollAsc") {
+      return String(a.rollNumber || "").localeCompare(String(b.rollNumber || ""), undefined, { numeric: true });
+    }
+    if (sortBy === "rollDesc") {
+      return String(b.rollNumber || "").localeCompare(String(a.rollNumber || ""), undefined, { numeric: true });
+    }
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  };
+}
+
 // Helper: compute stats from an array of scores.
 // Uses population stddev (divides by n, not n-1) because we treat the scores
 // as the full set of interest (all students who took the test), not a sample
@@ -1761,6 +2008,8 @@ function buildDistribution(scores, totalMarks) {
 // ── Exported for unit testing ────────────────────────────────────────────────
 exports.computeStats = computeStats;
 exports.buildDistribution = buildDistribution;
+exports.percentStats = percentStats;
+exports.buildPercentDistribution = buildPercentDistribution;
 exports.validateSubjectClassScope = validateSubjectClassScope;
 exports.resolveClassTokens = resolveClassTokens;
 

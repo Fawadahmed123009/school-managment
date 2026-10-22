@@ -20,6 +20,7 @@ const mockTestFindById = jest.fn();
 const mockStudentFind = jest.fn();
 const mockResultFind = jest.fn();
 const mockResultFindOneAndUpdate = jest.fn();
+const mockResultBulkWrite = jest.fn();
 const mockAssignmentFind = jest.fn();
 const mockTeacherFind = jest.fn();
 
@@ -30,6 +31,7 @@ jest.mock("../models/Academic/test.model", () => ({
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
   findOneAndUpdate: (...a) => mockResultFindOneAndUpdate(...a),
+  bulkWrite: (...a) => mockResultBulkWrite(...a),
 }));
 jest.mock("../models/Academic/testSession.model", () => ({ find: () => mockChainResolve([]) }));
 jest.mock("../models/Staff/teachers.model", () => ({ find: (...a) => mockTeacherFind(...a) }));
@@ -137,6 +139,7 @@ beforeEach(() => {
   mockStudentFind.mockImplementation((q) => mockChainResolve(filterStudents(q)));
   mockResultFind.mockImplementation(() => mockChainResolve([]));
   mockResultFindOneAndUpdate.mockImplementation(async (_q, doc) => doc);
+  mockResultBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0, matchedCount: 0 });
   mockTeacherFind.mockImplementation(() => mockChainResolve([]));
 });
 
@@ -175,7 +178,8 @@ describe("submitTestResultsService — refuses a score for a no-longer-enrolled 
     await submitTestResultsService("test-1", [{ student: "active", score: 80 }], TEACHER, res);
 
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(mockResultFindOneAndUpdate).toHaveBeenCalledTimes(1);
+    expect(mockResultBulkWrite).toHaveBeenCalledTimes(1);
+    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(1);
   });
 
   test("a batch containing an inactive pupil is rejected and writes nothing", async () => {
@@ -189,16 +193,16 @@ describe("submitTestResultsService — refuses a score for a no-longer-enrolled 
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json.mock.calls[0][0].message).toMatch(/no longer enrolled/i);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 
   test("a graduated or withdrawn pupil in the batch is rejected too", async () => {
     for (const bad of ["graduated", "withdrawn"]) {
-      mockResultFindOneAndUpdate.mockClear();
+      mockResultBulkWrite.mockClear();
       const res = mockRes();
       await submitTestResultsService("test-1", [{ student: bad, score: 40 }], TEACHER, res);
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+      expect(mockResultBulkWrite).not.toHaveBeenCalled();
     }
   });
 });

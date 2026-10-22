@@ -97,7 +97,10 @@
       </div>
       <div class="review-foot">
         <div class="total"><span class="l">Entered</span> <span id="entered-count">0</span> / <%= roster.length %></div>
-        <button type="button" class="btn btn-primary" id="save-scores-btn">Save scores</button>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span id="scores-status" role="status" style="font-size:13px;color:var(--ink-soft);"></span>
+          <button type="button" class="btn btn-primary" id="save-scores-btn">Save scores</button>
+        </div>
       </div>
     </div>
   <% } %>

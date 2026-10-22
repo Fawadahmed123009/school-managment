@@ -16,6 +16,7 @@
   <a href="/tests/analytics" class="btn <%= (!viewMode || viewMode === 'single') ? 'btn-primary' : 'btn-ghost' %>">Single test</a>
   <a href="/tests/analytics?viewMode=trend&mode=student" class="btn <%= viewMode === 'trend' && (!trendMode || trendMode === 'student') ? 'btn-primary' : 'btn-ghost' %>">Trend — Student</a>
   <a href="/tests/analytics?viewMode=trend&mode=class" class="btn <%= viewMode === 'trend' && trendMode === 'class' ? 'btn-primary' : 'btn-ghost' %>">Trend — Class</a>
+  <a href="/tests/analytics?viewMode=combined" class="btn <%= viewMode === 'combined' ? 'btn-primary' : 'btn-ghost' %>">Combined subject</a>
 </div>
 
 <% if (viewMode === 'trend') { %>
@@ -106,6 +107,160 @@
     }</script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="/js/trend-charts.js"></script>
+  <% } %>
+
+<% } else if (viewMode === 'combined') { %>
+  <!-- ════════════════════════════════════════════════════════ -->
+  <!-- ── COMBINED-SUBJECT MODE ──────────────────────────── -->
+  <!-- ════════════════════════════════════════════════════════ -->
+
+  <div class="panel">
+    <div class="panel-head"><h2>Filters</h2></div>
+    <div class="panel-body">
+      <form method="GET" action="/tests/analytics">
+        <input type="hidden" name="viewMode" value="combined" />
+        <!-- Same unified cascade as the other modes. Here leave the Test level
+             on "All tests" and pick a Subject — the page then pools every test of
+             that subject in scope. -->
+        <%- include('../reports/partials/filter-cascade', { idp: 'ax', namep: 'ax', sessions: sessions, subjects: subjects, tests: tests, students: students }) %>
+        <div class="field-row">
+          <div class="field">
+            <label for="sortBy">Sort by</label>
+            <select name="sortBy" id="sortBy">
+              <option value="" <%= !filters.sortBy ? 'selected' : '' %>>Name (A–Z)</option>
+              <option value="rollAsc" <%= filters.sortBy === 'rollAsc' ? 'selected' : '' %>>Roll number (ascending)</option>
+              <option value="rollDesc" <%= filters.sortBy === 'rollDesc' ? 'selected' : '' %>>Roll number (descending)</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Apply filters</button>
+      </form>
+    </div>
+  </div>
+
+  <% if (!combined.active) { %>
+    <div class="empty"><div class="display">Pick a Subject (leave Test on &ldquo;All tests&rdquo;) to combine every test of that subject</div></div>
+  <% } else if (!combined.pooled || combined.pooled.count === 0) { %>
+    <div class="empty"><div class="display">No results for that subject in the selected scope</div></div>
+  <% } else { %>
+
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px;">
+      <div style="font-size:13px; color:var(--ink-soft); font-weight:500;">
+        Combined: <strong style="color:var(--ink);"><%= combined.subject ? (combined.subject.displayName || combined.subject.name) : 'Subject' %></strong>
+        · <span class="mono"><%= combined.columns.length %></span> test<%= combined.columns.length !== 1 ? 's' : '' %>
+      </div>
+      <a class="btn btn-primary" href="/tests/analytics/pdf?<%= pdfQuery %>">Download PDF</a>
+    </div>
+
+    <!-- ── Pooled stat cards (percent-normalised across all combined tests) ── -->
+    <div class="stats">
+      <div class="stat">
+        <div class="n mono"><%= combined.resultCount %></div>
+        <div class="l">Students</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= combined.pooled.count %></div>
+        <div class="l">Test attempts</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= combined.pooled.avg %>%</div>
+        <div class="l">Combined average</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= combined.pooled.max %>%</div>
+        <div class="l">Highest pupil</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= combined.pooled.min %>%</div>
+        <div class="l">Lowest pupil</div>
+      </div>
+      <div class="stat">
+        <div class="n mono"><%= combined.pooled.stddev %></div>
+        <div class="l">Std deviation</div>
+      </div>
+    </div>
+
+    <!-- ── Pooled percentage distribution ─────────────────── -->
+    <% if (combined.distribution && combined.distribution.length) { %>
+      <div class="panel">
+        <div class="panel-head"><h2>Score distribution (%)</h2></div>
+        <div class="chart-body" style="height:280px; padding:16px;">
+          <canvas id="distributionChart"></canvas>
+        </div>
+      </div>
+    <% } %>
+
+    <!-- ── Per-test breakdown ─────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-head"><h2>Per-test breakdown</h2></div>
+      <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Test</th><th>Date</th><th class="num">Out of</th><th class="num">Students</th><th class="num">Avg %</th><th class="num">Min %</th><th class="num">Max %</th></tr>
+        </thead>
+        <tbody>
+          <% combined.perTest.forEach(function(t) { %>
+            <tr>
+              <td><strong><%= t.name %></strong></td>
+              <td><%= new Date(t.date).toLocaleDateString() %></td>
+              <td class="num mono"><%= t.totalMarks %></td>
+              <td class="num mono"><%= t.count %></td>
+              <td class="num mono"><%= t.avg !== null ? t.avg + '%' : '—' %></td>
+              <td class="num mono"><%= t.min !== null ? t.min + '%' : '—' %></td>
+              <td class="num mono"><%= t.max !== null ? t.max + '%' : '—' %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+      </div>
+    </div>
+
+    <!-- ── Combined marks list (one row per pupil, one cell per test) ── -->
+    <% if (combined.marksRows && combined.marksRows.length) { %>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Combined marks list</h2>
+          <span class="muted" style="font-size:13px;"><%= combined.resultCount %> student<%= combined.resultCount !== 1 ? 's' : '' %></span>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto;">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th>Roll #</th><th>Name</th>
+              <% combined.columns.forEach(function(c) { %><th class="num"><%= c.name %></th><% }); %>
+              <th class="num">Overall %</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% combined.marksRows.forEach(function(r) { %>
+              <tr>
+                <td class="mono"><%= r.rollNumber %></td>
+                <td><strong><%= r.name %></strong> <span class="mono" style="color:var(--ink-soft); font-size:12px;"><%= r.studentIdStr %></span></td>
+                <% combined.columns.forEach(function(c) {
+                     var cell = r.cells[c.testId];
+                     var text = '—';
+                     if (cell) { text = cell.absent ? 'A' : (cell.percent !== null ? cell.percent + '%' : '—'); }
+                   %>
+                  <td class="num mono"><%= text %></td>
+                <% }); %>
+                <td class="num mono"><strong><%= r.overallPercent !== null ? r.overallPercent + '%' : '—' %></strong></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    <% } %>
+
+    <!-- ── Chart data island (CSP-safe) ────────────────────── -->
+    <script type="application/json" id="analytics-chart-data">{
+      "distribution": <%- JSON.stringify(combined.distribution) %>,
+      "current": null,
+      "previous": null
+    }</script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="/js/test-analytics-charts.js"></script>
+
   <% } %>
 
 <% } else { %>

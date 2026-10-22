@@ -2,6 +2,17 @@
   const enteredCount = document.getElementById('entered-count');
   const saveBtn = document.getElementById('save-scores-btn');
 
+  // Inline status next to the Save button. Replaces the old blocking
+  // alert()/confirm() flow, which can be a silent no-op inside the installed
+  // PWA (prod HTTPS only) — there a suppressed dialog made "Save scores" look
+  // dead. Status is shown in the page instead, so feedback never disappears.
+  const scoresStatus = document.getElementById('scores-status');
+  function setScoresStatus(text, ok) {
+    if (!scoresStatus) return;
+    scoresStatus.textContent = text || '';
+    scoresStatus.style.color = ok ? 'var(--ok)' : 'var(--error)';
+  }
+
   // ── Editable total marks (must be declared BEFORE any currentMax() use) ──
   // Regression note: calling updatePercentages()/currentMax() before this
   // const binding initializes throws a TDZ ReferenceError at load, silently
@@ -166,67 +177,85 @@
 
   if (saveBtn) {
     saveBtn.addEventListener('click', function () {
-      const records = [];
-      let absentCount = 0;
-      // Re-query rows from the DOM so we pick up the current (possibly sorted)
-      // order. Only real roster rows carry data-student — this skips the
-      // "no match" placeholder row and binds each score to the right pupil.
-      const currentRows = document.querySelectorAll('#roster-body tr[data-student]');
-      const invalid = [];
-      currentRows.forEach(function (row) {
-        const studentId = row.dataset.student;
-        const input = row.querySelector('.score-input');
-        const v = (input.value || '').trim();
-        if (absentToken(v)) {
-          // Blank box or typed "A" → the pupil was ABSENT for this test. Send
-          // null so the server records an absence (shown as "A", excluded from
-          // average) instead of silently dropping the row as "unmarked".
-          absentCount++;
-          records.push({ student: studentId, score: null });
-        } else if (!Number.isFinite(Number(v)) || v === '' || Number(v) < 0) {
-          invalid.push(row.querySelector('td strong') ? row.querySelector('td strong').textContent : studentId);
-        } else {
-          records.push({ student: studentId, score: Number(v) });
-        }
-      });
+      // The whole handler is guarded: a stray throw used to leave the button
+      // disabled and stuck on "Saving…" with nothing submitted — the teacher
+      // perceived this as "click Save and it keeps still". Any failure now
+      // re-arms the button and reports inline instead.
+      try {
+        const records = [];
+        let absentCount = 0;
+        // Re-query rows from the DOM so we pick up the current (possibly sorted)
+        // order. Only real roster rows carry data-student — this skips the
+        // "no match" placeholder row and binds each score to the right pupil.
+        const currentRows = document.querySelectorAll('#roster-body tr[data-student]');
+        const invalid = [];
+        currentRows.forEach(function (row) {
+          const studentId = row.dataset.student;
+          const input = row.querySelector('.score-input');
+          if (!input) return; // no box on this row → nothing to record
+          const v = (input.value || '').trim();
+          if (absentToken(v)) {
+            // Blank box or typed "A" → the pupil was ABSENT for this test. Send
+            // null so the server records an absence (shown as "A", excluded from
+            // average) instead of silently dropping the row as "unmarked".
+            absentCount++;
+            records.push({ student: studentId, score: null });
+          } else if (!Number.isFinite(Number(v)) || v === '' || Number(v) < 0) {
+            invalid.push(row.querySelector('td strong') ? row.querySelector('td strong').textContent : studentId);
+          } else {
+            records.push({ student: studentId, score: Number(v) });
+          }
+        });
 
-      // Text inputs accept anything — catch stray text before it becomes a
-      // NaN/absent surprise on the server (Number('x') is NaN, and JSON would
-      // silently turn it into null = absence).
-      if (invalid.length > 0) {
-        alert('Each box must be a number or "A" (absent). Fix: ' + invalid.slice(0, 5).join(', ') + (invalid.length > 5 ? '…' : ''));
-        return;
-      }
-
-      if (records.length === 0) {
-        alert('No pupils to save — the roster is empty.');
-        return;
-      }
-
-      // Front-end guard so a stale row value above a just-edited total gives a
-      // readable message instead of a round-trip rejection from the API.
-      const max = currentMax();
-      if (max !== null) {
-        const over = records.filter(function (r) { return r.score !== null && r.score > max; });
-        if (over.length > 0) {
-          alert('Scores must be between 0 and ' + max + '. Adjust ' + over.length + ' entered value(s) (or save the new total marks first).');
+        // Text inputs accept anything — catch stray text before it becomes a
+        // NaN/absent surprise on the server (Number('x') is NaN, and JSON would
+        // silently turn it into null = absence). Reported inline, NOT via
+        // alert(): a blocking dialog can be a silent no-op inside the installed
+        // PWA, which would make the Save button appear dead.
+        if (invalid.length > 0) {
+          setScoresStatus('Each box must be a number or "A" (absent). Fix: ' + invalid.slice(0, 5).join(', ') + (invalid.length > 5 ? '…' : ''), false);
           return;
         }
+
+        if (records.length === 0) {
+          setScoresStatus('No pupils to save — the roster is empty.', false);
+          return;
+        }
+
+        // Front-end guard so a stale row value above a just-edited total gives a
+        // readable message instead of a round-trip rejection from the API.
+        const max = currentMax();
+        if (max !== null) {
+          const over = records.filter(function (r) { return r.score !== null && r.score > max; });
+          if (over.length > 0) {
+            setScoresStatus('Scores must be between 0 and ' + max + '. Adjust ' + over.length + ' entered value(s) (or save the new total marks first).', false);
+            return;
+          }
+        }
+
+        // Absences are committed directly — a blank box or "A" saves as Absent
+        // (A). There is deliberately NO blocking confirm() here any more: inside
+        // the installed PWA / an in-app WebView window.confirm can be a silent
+        // no-op that returns false, so gating the save on it meant clicking Save
+        // did nothing. The inline note just informs the teacher of the count.
+        const form = document.getElementById('scores-form');
+        const recordsInput = document.getElementById('records-input');
+        if (!form || !recordsInput) {
+          setScoresStatus('Save failed — the form is missing. Please reload the page.', false);
+          return;
+        }
+
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving…';
+        if (absentCount > 0) setScoresStatus(absentCount + ' pupil(s) will be saved as Absent (A).', true);
+
+        recordsInput.value = JSON.stringify(records);
+        form.submit();
+      } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save scores';
+        setScoresStatus('Could not save the scores. Please reload the page and try again.', false);
       }
-
-      // Make the automatic absence explicit before committing — a blank box or
-      // a typed "A" is saved as Absent (A), so the teacher confirms that's
-      // intended. A typed 0 is NOT here — it saves as a real 0.
-      if (absentCount > 0 &&
-        !confirm(absentCount + ' pupil(s) marked blank/"A" will be saved as Absent (A) and excluded from the class average. Continue?')) {
-        return;
-      }
-
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving…';
-
-      document.getElementById('records-input').value = JSON.stringify(records);
-      document.getElementById('scores-form').submit();
     });
   }
 })();

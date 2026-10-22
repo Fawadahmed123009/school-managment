@@ -82,6 +82,7 @@ function buildHarness({ totalMarks = "25", rows = 3, fetchResponse = { status: "
   const saveSettingsBtn = node();
   const passMarksInput = node({ value: "10" });
   const settingsStatus = node();
+  const scoresStatus = node();
 
   const fetchMock = jest.fn(() =>
     Promise.resolve({ json: () => Promise.resolve(fetchResponse) })
@@ -103,6 +104,7 @@ function buildHarness({ totalMarks = "25", rows = 3, fetchResponse = { status: "
         "save-settings-btn": saveSettingsBtn,
         "pass-marks-input": passMarksInput,
         "settings-status": settingsStatus,
+        "scores-status": scoresStatus,
       })[id] || null,
     querySelector: (sel) =>
       sel === 'meta[name="auth-token"]' ? { content: "fake-token" } : null,
@@ -117,7 +119,7 @@ function buildHarness({ totalMarks = "25", rows = 3, fetchResponse = { status: "
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
-  return { run: () => vm.runInContext(SRC, sandbox, { filename: "test-scores.js" }), fire, scoreInputs, pctCells, enteredCount, saveBtn, recordsInput, scoresForm, totalMarksInput, searchStudent, rosterNoMatch, trs, saveSettingsBtn, passMarksInput, settingsStatus, fetchMock, confirm: sandbox.confirm, alert: sandbox.alert };
+  return { run: () => vm.runInContext(SRC, sandbox, { filename: "test-scores.js" }), fire, scoreInputs, pctCells, enteredCount, saveBtn, recordsInput, scoresForm, totalMarksInput, searchStudent, rosterNoMatch, trs, saveSettingsBtn, passMarksInput, settingsStatus, scoresStatus, fetchMock, confirm: sandbox.confirm, alert: sandbox.alert };
 }
 
 describe("test-scores.js (mark a test — Save scores)", () => {
@@ -207,14 +209,19 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     ]);
   });
 
-  test("cancelling the absence confirmation aborts the save", () => {
+  test("blank/'A' rows save inline — no blocking confirm (PWA-safety regression)", () => {
     const h = buildHarness();
     h.run();
     h.scoreInputs[0].value = "18";
-    h.confirm.mockImplementation(() => false); // teacher declines marking the rest absent
+    // rows 1 & 2 stay blank → absences. Previously a confirm() gated this and a
+    // suppressed dialog aborted the save; now it commits directly with a note.
+    h.confirm.mockImplementation(() => false); // even a "declined" confirm is ignored
 
     h.fire(h.saveBtn, "click");
-    expect(h.scoresForm.submit).not.toHaveBeenCalled();
+
+    expect(h.scoresForm.submit).toHaveBeenCalledTimes(1);
+    expect(h.recordsInput.value).toContain('"score":null');
+    expect(h.scoresStatus.textContent).toMatch(/2 pupil\(s\).*Absent/i);
   });
 
   test("search filters the roster by name, hiding non-matching rows", () => {
@@ -347,14 +354,16 @@ describe("test-scores.js (mark a test — save total/pass marks without reload)"
     expect(h.scoresForm.submit).not.toHaveBeenCalled();
   });
 
-  test("saving scores where a value exceeds the total pops a warning and blocks the save", () => {
+  test("saving scores where a value exceeds the total shows an inline warning and blocks the save", () => {
     const h = buildHarness({ totalMarks: "20" });
     h.run();
 
     h.scoreInputs[0].value = "25"; // above the current total of 20
     h.fire(h.saveBtn, "click");
 
-    expect(h.alert).toHaveBeenCalled();
+    // No blocking alert(): reported inline so a suppressed PWA dialog can't
+    // hide the reason the save was refused.
+    expect(h.scoresStatus.textContent).toMatch(/between 0 and 20/i);
     expect(h.scoresForm.submit).not.toHaveBeenCalled();
   });
 });

@@ -141,6 +141,89 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
       schoolName: res.locals.schoolName,
     });
   }
+  // ── Combined-subject mode ───────────────────────────────────────────────
+  // Analyse EVERY test of one subject in scope at once (the Subject cascade
+  // level left on "All tests"). Pools marks across those tests into combined
+  // avg/min/max (percent-normalised) plus a combined marks list. A grade/
+  // section pick that matches no class fails closed — the service is skipped
+  // and the view shows the empty state instead of an unrestricted query.
+  if (viewMode === "combined") {
+    const params = new URLSearchParams();
+    if (axSubjectId) params.set("subjectId", axSubjectId);
+    if (classLevelParam) params.set("classLevelId", classLevelParam);
+    if (axStudentId) params.set("studentId", axStudentId);
+    if (axSessionId) params.set("sessionId", axSessionId);
+    if (sortBy) params.set("sortBy", sortBy);
+
+    // The cascade needs the full catalogue (subjects + tests) even before a
+    // subject is chosen; the enhanced snapshot with no testId returns exactly
+    // that unfiltered snapshot, so reuse it rather than re-query.
+    const [snapshotRes, combinedRes] = await Promise.all([
+      apiFetch("/tests/analytics/enhanced", req.token),
+      axSubjectId && !gradeSectionEmpty
+        ? apiFetch(`/tests/analytics/combined?${params.toString()}`, req.token)
+        : Promise.resolve(null),
+    ]);
+
+    const snapshot = snapshotRes.status === "success" ? snapshotRes.data : {};
+    const tests = snapshot.tests || [];
+    const subjects = snapshot.subjects || [];
+    const classScope = await buildClassScope(tests);
+
+    const data = combinedRes && combinedRes.status === "success" ? combinedRes.data : {};
+    const loadError = combinedRes
+      ? combinedRes.status === "success" ? null : combinedRes.message
+      : req.query.error || null;
+
+    // Query string the "Download PDF" link carries so the report regenerates the
+    // exact same selection (prefixed names match this route's own reading).
+    const pdfParams = new URLSearchParams();
+    if (axSubjectId) pdfParams.set("axSubjectId", axSubjectId);
+    if (axSessionId) pdfParams.set("axSessionId", axSessionId);
+    if (axGrade) pdfParams.set("axGrade", axGrade);
+    if (axSection) pdfParams.set("axSection", axSection);
+    if (axStudentId) pdfParams.set("axStudentId", axStudentId);
+    if (sortBy) pdfParams.set("sortBy", sortBy);
+
+    return res.render("tests/analytics", {
+      page: "tests-analytics",
+      user: req.user,
+      viewMode: "combined",
+      trendMode: null,
+      trendLines: [],
+      trendTableRows: [],
+      sessions,
+      students,
+      tests,
+      subjects,
+      classScope,
+      filterState,
+      combined: {
+        active: !!axSubjectId && !gradeSectionEmpty,
+        subject: data.subject || null,
+        columns: data.columns || [],
+        perTest: data.perTest || [],
+        pooled: data.pooled || null,
+        distribution: data.distribution || [],
+        marksRows: data.marksRows || [],
+        resultCount: data.resultCount || 0,
+      },
+      pdfQuery: pdfParams.toString(),
+      current: null,
+      previous: null,
+      distribution: [],
+      resultRows: [],
+      resultCount: 0,
+      loadError,
+      filters: {
+        testId: "", classLevelId: gradeSectionEmpty ? "" : classLevelParam,
+        subjectId: axSubjectId || "", studentId: axStudentId || "",
+        viewMode: "combined", mode: "", sortBy: sortBy || "",
+      },
+      hasFilters: false,
+      schoolName: res.locals.schoolName,
+    });
+  }
   // ── Single-test mode (default) ──────────────────────────────────────────
   // Results need a Test; everything above it in the cascade either narrows the
   // result set (grade/section → classLevelId, student → studentId) or only
@@ -193,6 +276,43 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
     hasFilters,
     schoolName: res.locals.schoolName,
   });
+});
+
+router.get("/tests/analytics/pdf", requireAdminOrManager(), async (req, res) => {
+  // Server-side download trigger for the Combined-subject view: rebuilds the
+  // exact on-screen selection and hands it to the combined-analytics PDF API,
+  // then redirects to the opaque UUID URL that serves the file. A GET is used
+  // deliberately — it is CSRF-exempt and idempotent from the user's point of
+  // view (each click just mints a fresh, short-lived PDF). A grade/section pick
+  // that matches no class, or a missing subject, fails closed back to the page.
+  const { axSubjectId, axSessionId, axGrade, axSection, axStudentId, sortBy } = req.query;
+  if (!axSubjectId) {
+    return res.redirect("/tests/analytics?viewMode=combined");
+  }
+  const { ids: classIds, empty } = await resolveGradeSectionClassIds(axGrade, axSection);
+  if (empty) {
+    return res.redirect(
+      "/tests/analytics?viewMode=combined&error=" + encodeURIComponent("No class matches the selected grade/section")
+    );
+  }
+
+  const body = {
+    subjectId: axSubjectId,
+    sessionId: axSessionId || undefined,
+    classLevelId: classIds.join(",") || undefined,
+    studentId: axStudentId || undefined,
+    sortBy: sortBy || undefined,
+  };
+  const result = await apiFetch("/pdf-reports/analytics-combined", req.token, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (result.status !== "success") {
+    return res.redirect(
+      "/tests/analytics?viewMode=combined&error=" + encodeURIComponent(result.message || "PDF generation failed")
+    );
+  }
+  return res.redirect(result.data.pdfUrl);
 });
 
 module.exports = router;

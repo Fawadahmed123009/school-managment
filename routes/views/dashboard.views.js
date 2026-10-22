@@ -190,6 +190,11 @@ router.get("/dashboard", async (req, res) => {
               _classLevel: { $arrayElemAt: ["$_stu.classLevel", 0] },
               _parentRef: { $arrayElemAt: ["$_stu.parent", 0] },
               _fatherName: { $arrayElemAt: ["$_stu.fatherName", 0] },
+              // Parent-facing WhatsApp line for the Top Performers reminder button
+              // — the same Student.whatsappNumber field the At-Risk / fee-reminder
+              // panels target, carried in the pipeline so the row can build a
+              // wa.me deep link with no extra per-row query.
+              _whatsapp: { $arrayElemAt: ["$_stu.whatsappNumber", 0] },
             },
           },
           { $lookup: { from: "classlevels", localField: "_classLevel", foreignField: "_id", as: "_cl" } },
@@ -215,6 +220,7 @@ router.get("/dashboard", async (req, res) => {
               rollNumber: { $first: "$_roll" },
               gradeLevel: { $first: "$_grade" },
               parentName: { $first: "$_parentName" },
+              whatsappNumber: { $first: "$_whatsapp" },
               tests: { $sum: 1 },
               avg: { $avg: "$_pct" },
             },
@@ -279,13 +285,20 @@ router.get("/dashboard", async (req, res) => {
       // At-Risk lists bucketed per grade tab ("" = All grades). The incoming
       // list is already sorted lowest-average-first, so the first 10 seen for
       // a grade ARE that grade's 10 weakest — identical to a per-grade query.
+      // CRITICAL guarantee: every student whose overall average is below
+      // CRITICAL_AVERAGE (20 %) is ALWAYS listed, bypassing the 10-row-per-tab
+      // cap, so a critically low pupil is never hidden just because a tab is full.
       const AR_GRADE_TABS = ["9", "10", "11", "12"];
+      const CRITICAL_AVERAGE = 20;
       const arLists = { "": [] };
       AR_GRADE_TABS.forEach((g) => { arLists[g] = []; });
       ((atRiskResult && atRiskResult.students) || []).forEach((r) => {
-        if (arLists[""].length < 10) arLists[""].push(r);
+        const critical = typeof r.averagePercent === "number" && r.averagePercent < CRITICAL_AVERAGE;
+        if (arLists[""].length < 10 || critical) arLists[""].push(r);
         const bucket = arLists[r.student && r.student.gradeLevel ? String(r.student.gradeLevel) : ""];
-        if (bucket && bucket.length < 10) bucket.push(r);
+        // Only fill a grade bucket when it is a DISTINCT array from the
+        // All-grades list, so a row with no grade is never pushed twice.
+        if (bucket && bucket !== arLists[""] && (bucket.length < 10 || critical)) bucket.push(r);
       });
       atRisk = {
         lists: arLists,
@@ -317,6 +330,10 @@ router.get("/dashboard", async (req, res) => {
           name: r.name,
           rollNumber: r.rollNumber,
           parentName: r.parentName || "",
+          // Parent-facing WhatsApp line for the Top Performers congratulation
+          // button. Kept in the row so the view can build the wa.me deep link
+          // without any extra query.
+          whatsappNumber: r.whatsappNumber || "",
           tests: r.tests,
           average: Math.round(r.avg * 100) / 100,
           attendancePercent: attPctById[String(r._id)] !== undefined ? attPctById[String(r._id)] : null,

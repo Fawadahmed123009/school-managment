@@ -21,6 +21,7 @@ const mockTestFindById = jest.fn();
 const mockStudentFind = jest.fn();
 const mockResultFind = jest.fn();
 const mockResultFindOneAndUpdate = jest.fn();
+const mockResultBulkWrite = jest.fn();
 const mockAssignmentFind = jest.fn();
 
 jest.mock("../models/Academic/test.model", () => ({
@@ -37,6 +38,7 @@ jest.mock("../models/Academic/test.model", () => ({
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
   findOneAndUpdate: (...a) => mockResultFindOneAndUpdate(...a),
+  bulkWrite: (...a) => mockResultBulkWrite(...a),
 }));
 jest.mock("../models/Students/students.model", () => ({
   find: (...a) => mockStudentFind(...a),
@@ -139,6 +141,7 @@ beforeEach(() => {
     lean: jest.fn().mockResolvedValue([]),
   }));
   mockResultFindOneAndUpdate.mockImplementation(async (_q, doc) => doc);
+  mockResultBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0, matchedCount: 0 });
 });
 
 // ── Roster scoping ───────────────────────────────────────────────────────────
@@ -181,7 +184,8 @@ describe("submitTestResultsService — write path enforces section scope", () =>
 
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json.mock.calls[0][0].status).toBe("success");
-    expect(mockResultFindOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(mockResultBulkWrite).toHaveBeenCalledTimes(1);
+    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(2);
   });
 
   test("a score for an out-of-scope (Girls) student is rejected (403) and writes nothing", async () => {
@@ -192,7 +196,7 @@ describe("submitTestResultsService — write path enforces section scope", () =>
     const body = res.json.mock.calls[0][0];
     expect(body.status).toBe("failed");
     expect(body.message).toMatch(/sections you are assigned to/i);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 
   test("a batch mixing in- and out-of-scope students is rejected wholesale (no partial write)", async () => {
@@ -205,6 +209,6 @@ describe("submitTestResultsService — write path enforces section scope", () =>
     );
 
     expect(res.status).toHaveBeenCalledWith(403);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 });

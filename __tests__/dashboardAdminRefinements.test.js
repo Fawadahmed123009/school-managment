@@ -189,6 +189,38 @@ describe("admin dashboard — at-risk grade tabs wiring", () => {
     ]); // overall first 10 in ranked order
     expect(rendered.data.atRisk.total).toBe(14);
   });
+
+  test("students below a 20% overall average bypass the 10-row tab cap", async () => {
+    // A grade already full at 10 non-critical rows (avg 30 %), then two
+    // critically low rows (avg 15 %) arrive AFTER the cap is reached. Without
+    // the guarantee they would be dropped; with it they are always listed.
+    const filled = Array.from({ length: 10 }, (_, i) => ({
+      student: { _id: "ok-" + i, name: "OK" + i, rollNumber: "ok-" + i, className: "C", gradeLevel: "9" },
+      attendancePercent: 80,
+      averagePercent: 30,
+      tests: 1,
+      reasons: [],
+    }));
+    const critical = Array.from({ length: 2 }, (_, i) => ({
+      student: { _id: "crit-" + i, name: "Crit" + i, rollNumber: "crit-" + i, className: "C", gradeLevel: "9" },
+      attendancePercent: 60,
+      averagePercent: 15,
+      tests: 1,
+      reasons: [],
+    }));
+    mockGetAtRiskAdmin.mockResolvedValueOnce({
+      students: [...filled, ...critical],
+      total: 12,
+      hasMore: true,
+    });
+    const rendered = await renderAdminDashboard();
+    expect(mockWarns).toEqual([]);
+    const ids = rendered.data.atRisk.lists["9"].map((r) => r.student._id);
+    // 10 capped rows kept, plus BOTH sub-20% rows appended (12 total in the tab).
+    expect(ids).toEqual([...filled.map((r) => r.student._id), "crit-0", "crit-1"]);
+    // The same guarantee holds for the All-grades list.
+    expect(rendered.data.atRisk.lists[""]).toHaveLength(12);
+  });
 });
 
 describe("admin dashboard — Top Performers Att % column", () => {
@@ -208,5 +240,22 @@ describe("admin dashboard — Top Performers Att % column", () => {
     const row = rendered.data.stats.topPerformers.byGrade["9"][0];
     expect(row._id).toBe("p1");
     expect(rendered.data.stats.topPerformers.byGrade["10"]).toEqual([]);
+  });
+
+  test("the WhatsApp number is carried onto the row for the parent note button", async () => {
+    // Re-mock the top-performer aggregation to include a WhatsApp number, then
+    // assert the route surfaces it on the rendered row (view builds wa.me link).
+    const TestResult = require("../models/Academic/testResult.model");
+    TestResult.aggregate = () =>
+      Promise.resolve([
+        {
+          _id: "p9", name: "Zoe", rollNumber: "9", gradeLevel: "9",
+          parentName: "Ms Z", whatsappNumber: "+92 300 1234567", tests: 3, avg: 88.2,
+        },
+      ]);
+    const rendered = await renderAdminDashboard();
+    expect(mockWarns).toEqual([]);
+    const row = rendered.data.stats.topPerformers.byGrade["9"][0];
+    expect(row.whatsappNumber).toBe("+92 300 1234567");
   });
 });

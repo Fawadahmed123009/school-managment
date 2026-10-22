@@ -50,6 +50,7 @@ const {
   getTestResultSheetController,
   getTestAnalyticsController,
   getEnhancedTestAnalyticsController,
+  getCombinedSubjectAnalyticsController,
   getTestTrendController,
   getTeacherAnalyticsController,
   getSessionReportCardController,
@@ -148,6 +149,9 @@ testRouter.get("/tests/cascade/tests", isLoggedIn, isTeacher, getTeacherScopedTe
 
 testRouter.route("/tests/analytics").get(isLoggedIn, isAdminOrManager, getTestAnalyticsController);
 testRouter.route("/tests/analytics/enhanced").get(isLoggedIn, isAdminOrManager, getEnhancedTestAnalyticsController);
+// Combined subject analytics — pools every test of one subject into combined
+// avg/min/max + a marks list. Admin/manager only (the analytics page is gated).
+testRouter.route("/tests/analytics/combined").get(isLoggedIn, isAdminOrManager, getCombinedSubjectAnalyticsController);
 testRouter.route("/tests/analytics/trend").get(isLoggedIn, isAdminOrManager, getTestTrendController);
 // Admin/manager marks audit — per-test stats + marking timeline.
 testRouter.route("/tests/marks-audit").get(isLoggedIn, isAdminOrManager, getMarksAuditController);

@@ -199,6 +199,36 @@ exports.generateAnalytics = async (req, res) => {
   }
 };
 
+// POST /pdf-reports/analytics-combined — combined subject analysis PDF.
+// Mirrors the interactive "Combined subject" analytics view: pooled avg/min/max
+// for one subject across all its in-scope tests + a combined marks list. The
+// analytics page is admin/manager-only, so this endpoint is gated the same way
+// (no teacher scoping needed). classLevelId arrives as the comma-joined ClassLevel
+// ids the view route resolved from the cascade's grade/section picks.
+exports.generateCombined = async (req, res) => {
+  try {
+    const subjectId = sanitizeIds(req.body.subjectId)[0];
+    if (!subjectId) return responseStatus(res, 400, "failed", "A valid subject is required");
+    const studentId = sanitizeIds(req.body.studentId)[0];
+    const sessionId = sanitizeIds(req.body.sessionId)[0];
+    const classLevelId = sanitizeIds(String(req.body.classLevelId || "").split(",")).join(",");
+    const sortBy = ["rollAsc", "rollDesc"].includes(req.body.sortBy) ? req.body.sortBy : undefined;
+
+    const schoolName = process.env.SCHOOL_NAME || "School Portal";
+    const result = await pdfReportService.generateCombinedSubjectPdf(
+      { subjectId, classLevelId: classLevelId || undefined, studentId, sessionId, sortBy },
+      schoolName
+    );
+
+    return responseStatus(res, 200, "success", {
+      pdfUrl: `/reports/pdf/${result.uuid}`,
+      reportType: "analytics-combined",
+    });
+  } catch (err) {
+    return responseStatus(res, 500, "failed", err.message || "PDF generation failed");
+  }
+};
+
 // POST /pdf-reports/session-report
 exports.generateSessionReport = async (req, res) => {
   try {

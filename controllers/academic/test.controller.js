@@ -21,6 +21,7 @@ const {
   getTestResultSheetService,
   getTestAnalyticsService,
   getEnhancedTestAnalyticsService,
+  getCombinedSubjectAnalyticsService,
   getTestTrendService,
   getTeacherAnalyticsService,
   deleteTestService,
@@ -149,6 +150,15 @@ exports.getTestAnalyticsController = async (req, res) => {
 exports.getEnhancedTestAnalyticsController = async (req, res) => {
   try {
     await getEnhancedTestAnalyticsService(req.query, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+// Combined subject analytics (admin/manager) — pool every test of one subject.
+exports.getCombinedSubjectAnalyticsController = async (req, res) => {
+  try {
+    await getCombinedSubjectAnalyticsService(req.query, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

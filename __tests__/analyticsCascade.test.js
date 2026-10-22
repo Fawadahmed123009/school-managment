@@ -395,10 +395,11 @@ describe("analytics page wiring", () => {
   const root = path.join(__dirname, "..");
   const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 
-  test("analytics.ejs includes the shared partial with the 'ax' prefix in both modes", () => {
+  test("analytics.ejs includes the shared partial with the 'ax' prefix in every mode", () => {
     const src = read("views/tests/analytics.ejs");
     const includes = src.match(/include\('\.\.\/reports\/partials\/filter-cascade', \{ idp: 'ax', namep: 'ax'/g) || [];
-    expect(includes).toHaveLength(2);
+    // Single-test, Trend and Combined-subject modes all reuse the one cascade.
+    expect(includes).toHaveLength(3);
   });
 
   test("typeahead loads before the cascade, cascade before the page init", () => {

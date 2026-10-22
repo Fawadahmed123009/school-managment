@@ -1490,6 +1490,146 @@ exports.generateAnalyticsPDF = async (filters, schoolName, scope) => {
   return result;
 };
 
+// ─── Combined subject analytics PDF ──────────────────────────────────────────
+// Mirrors the on-screen "Combined subject" view: pooled avg/min/max across every
+// test of one subject, a per-test breakdown table, then the combined marks list
+// (one row per pupil, one percent cell per test + an overall %). It reuses the
+// SAME builder the interactive page calls (test.service.buildCombinedSubjectData)
+// so the PDF can never disagree with the cards shown on screen, and the same
+// black-on-white card primitives as every other report.
+function renderCombinedSubjectPdf(data, schoolName) {
+  const doc = new PDFDocument({ size: "A4", margin: 50 });
+  const buffers = [];
+  doc.on("data", (b) => buffers.push(b));
+
+  const subjectLabel = data.subject ? data.subject.displayName || data.subject.name : "Subject";
+  const columns = data.columns || [];
+  const testCount = columns.length;
+  const bottomLimit = () => doc.page.height - 92;
+  const pct = (v) => (v === null || v === undefined ? CARD_DASH : `${v}%`);
+
+  const chrome = createCardChrome(doc, {
+    schoolName,
+    title: "Subject Analytics Report",
+    subtitle: `${subjectLabel} — ${testCount} test${testCount === 1 ? "" : "s"} combined`,
+  });
+
+  const pooled = data.pooled || {};
+
+  // ── Pooled summary (labeled stat cells) ──
+  let y = drawInfoGrid(doc, {
+    y: chrome.y,
+    rows: [
+      [
+        { label: "Students", value: String(data.resultCount || 0) },
+        { label: "Tests", value: String(testCount) },
+        { label: "Average", value: pct(pooled.avg) },
+      ],
+      [
+        { label: "Highest", value: pct(pooled.max) },
+        { label: "Lowest", value: pct(pooled.min) },
+        { label: "Std Dev", value: pct(pooled.stddev) },
+      ],
+    ],
+  }) + 16;
+
+  // ── Per-test breakdown ──
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Per-test breakdown", CARD_TABLE_X, y);
+  y += 18;
+  const bHeaders = ["Test", "Date", "Out of", "Students", "Avg %", "Min %", "Max %"];
+  const bWidths = [150, 80, 45, 50, 55, 55, 60];
+  const bAligns = ["left", "center", "center", "center", "center", "center", "center"];
+  const bRows = (data.perTest || []).map((t) => [
+    t.name,
+    new Date(t.date).toLocaleDateString(),
+    t.totalMarks === null || t.totalMarks === undefined ? CARD_DASH : String(t.totalMarks),
+    String(t.count),
+    pct(t.avg),
+    pct(t.min),
+    pct(t.max),
+  ]);
+  y = drawCardTable(doc, y, {
+    headers: bHeaders,
+    rows: bRows.length ? bRows : [["No tests in scope", "", "", "", "", "", ""]],
+    colWidths: bWidths,
+    aligns: bAligns,
+    chrome,
+  }) + 16;
+
+  // ── Combined marks list ──
+  if (N_safe(testCount)) {
+    if (y + 60 > bottomLimit()) {
+      doc.addPage();
+      y = chrome.y;
+    }
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Combined marks list", CARD_TABLE_X, y);
+    y += 18;
+
+    const nameW = 92, rollW = 34, overallW = 48;
+    const cellW = (CARD_TABLE_W - nameW - rollW - overallW) / testCount;
+    const headers = ["Student", "Roll", ...columns.map((c) => c.name), "Overall %"];
+    const colWidths = [nameW, rollW, ...columns.map(() => cellW), overallW];
+    const aligns = ["left", "center", ...columns.map(() => "center"), "center"];
+    const fontSize = testCount <= 6 ? 8.5 : testCount <= 9 ? 7.5 : testCount <= 12 ? 6.5 : 5.5;
+    const cellText = (cell) => {
+      if (!cell) return CARD_DASH;
+      if (cell.absent) return "A";
+      if (cell.percent === null || cell.percent === undefined) return CARD_DASH;
+      return `${cell.percent}%`;
+    };
+    const rows = (data.marksRows || []).map((r) => [
+      r.name || CARD_DASH,
+      r.rollNumber || CARD_DASH,
+      ...columns.map((c) => cellText(r.cells[c.testId])),
+      pct(r.overallPercent),
+    ]);
+    y = drawCardTable(doc, y, { headers, rows, colWidths, aligns, fontSize, chrome }) + 10;
+  }
+
+  // ── Footnote ──
+  if (y + 44 > bottomLimit()) {
+    doc.addPage();
+    y = chrome.y;
+  }
+  doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK).text(
+    "Every test is normalised to a percentage of its own total before combining, so tests scored out of different marks stay comparable. Average pools every attempt across the listed tests; Highest / Lowest are the best and worst pupil's own average (the Overall % column), not a single test score. A pupil marked absent shows \u201CA\u201D and is excluded from every statistic.",
+    CARD_TABLE_X,
+    y + 6,
+    { width: CARD_TABLE_W }
+  );
+
+  doc.end();
+
+  return new Promise((resolve) => {
+    doc.on("end", () => {
+      const uuid = crypto.randomUUID();
+      const filePath = path.join(PDF_DIR, `${uuid}.pdf`);
+      fs.writeFileSync(filePath, Buffer.concat(buffers));
+      resolve({ uuid, filePath, studentCount: (data.marksRows || []).length });
+    });
+  });
+}
+
+// A marks-list pivot only makes sense with at least one test column; guard the
+// width maths (divide-by-zero) when a subject has no tests in scope.
+function N_safe(testCount) {
+  return testCount > 0;
+}
+
+exports.generateCombinedSubjectPdf = async ({ subjectId, classLevelId, studentId, sessionId, sortBy }, schoolName) => {
+  if (!subjectId) throw new Error("A subject is required for a combined analytics report");
+  // Lazy require avoids a load-time cycle: test.service never requires this file.
+  const { buildCombinedSubjectData } = require("./test.service");
+  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy });
+  const result = await renderCombinedSubjectPdf(data, schoolName);
+  const subjectLabel = data.subject ? data.subject.displayName || data.subject.name : "Subject";
+  writePdfMeta(
+    result.uuid,
+    buildDownloadFilename([subjectLabel, "Combined", "Analytics", isoDate(), "Report"])
+  );
+  return result;
+};
+
 exports.generateSessionReportPDF = async (sessionId, studentId, schoolName, period = {}) => {
   const data = await gatherSessionReport(sessionId, studentId, period);
   if (!data) throw new Error("Session or student not found");

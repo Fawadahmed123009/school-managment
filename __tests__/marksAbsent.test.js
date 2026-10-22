@@ -18,6 +18,7 @@ const mockTestFindById = jest.fn();
 const mockStudentFind = jest.fn();
 const mockResultFind = jest.fn();
 const mockResultFindOneAndUpdate = jest.fn();
+const mockResultBulkWrite = jest.fn();
 const mockAssignmentFind = jest.fn();
 
 jest.mock("../models/Academic/test.model", () => ({
@@ -30,6 +31,7 @@ jest.mock("../models/Academic/test.model", () => ({
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
   findOneAndUpdate: (...a) => mockResultFindOneAndUpdate(...a),
+  bulkWrite: (...a) => mockResultBulkWrite(...a),
 }));
 jest.mock("../models/Students/students.model", () => ({
   find: (...a) => mockStudentFind(...a),
@@ -91,11 +93,19 @@ beforeEach(() => {
   });
 
   mockResultFindOneAndUpdate.mockImplementation(async (_q, doc) => doc);
+  // The write path now persists the whole batch in one ordered bulkWrite.
+  mockResultBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0, matchedCount: 0 });
 });
 
 // ── Write path ───────────────────────────────────────────────────────────────
 describe("submitTestResultsService — blank / A marks become absences; typed 0 stays real", () => {
-  const written = (i) => mockResultFindOneAndUpdate.mock.calls[i][1];
+  // Reconstruct the effective document for op i from the single bulkWrite
+  // payload: identity fields come from the filter/$setOnInsert, the marks from
+  // $set — mirroring what findOneAndUpdate used to write per row.
+  const written = (i) => {
+    const op = mockResultBulkWrite.mock.calls[0][0][i].updateOne;
+    return { ...op.filter, ...op.update.$setOnInsert, ...op.update.$set };
+  };
 
   test("a null (blank) mark is stored as score 0 + absent true", async () => {
     const res = mockRes();
@@ -134,7 +144,8 @@ describe("submitTestResultsService — blank / A marks become absences; typed 0 
       TEACHER,
       res
     );
-    expect(mockResultFindOneAndUpdate).toHaveBeenCalledTimes(3);
+    expect(mockResultBulkWrite).toHaveBeenCalledTimes(1);
+    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(3);
     expect(written(0)).toMatchObject({ student: "b1", score: 0, absent: true });
     expect(written(1)).toMatchObject({ student: "b2", score: 55, absent: false });
     expect(written(2)).toMatchObject({ student: "b3", score: 0, absent: true });
@@ -144,14 +155,14 @@ describe("submitTestResultsService — blank / A marks become absences; typed 0 
     const res = mockRes();
     await submitTestResultsService("test-1", [{ student: "b1", score: 999 }, { student: "b2", score: null }, { student: "b3", score: "A" }], TEACHER, res);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 
   test("stray non-numeric text (not blank, not A) is rejected, never silently absent", async () => {
     const res = mockRes();
     await submitTestResultsService("test-1", [{ student: "b1", score: "xyz" }], TEACHER, res);
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 });
 

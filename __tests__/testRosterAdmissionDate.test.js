@@ -18,6 +18,7 @@ const mockTestFind = jest.fn();
 const mockStudentFind = jest.fn();
 const mockResultFind = jest.fn();
 const mockResultFindOneAndUpdate = jest.fn();
+const mockResultBulkWrite = jest.fn();
 const mockAssignmentFind = jest.fn();
 const mockTeacherFind = jest.fn();
 const mockSessionFind = jest.fn();
@@ -29,6 +30,7 @@ jest.mock("../models/Academic/test.model", () => ({
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
   findOneAndUpdate: (...a) => mockResultFindOneAndUpdate(...a),
+  bulkWrite: (...a) => mockResultBulkWrite(...a),
 }));
 jest.mock("../models/Academic/testSession.model", () => ({
   find: (...a) => mockSessionFind(...a),
@@ -158,6 +160,7 @@ beforeEach(() => {
 
   mockResultFind.mockImplementation(() => chainResolve([]));
   mockResultFindOneAndUpdate.mockImplementation(async (_q, doc) => doc);
+  mockResultBulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 0, matchedCount: 0 });
   mockSessionFind.mockImplementation(() => chainResolve([]));
   mockTeacherFind.mockImplementation(() => chainResolve([]));
 });
@@ -187,7 +190,8 @@ describe("submitTestResultsService — refuses a score for a late admission", ()
     );
 
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(mockResultFindOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(mockResultBulkWrite).toHaveBeenCalledTimes(1);
+    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(2);
   });
 
   test("a batch containing a pupil admitted after the test is rejected and writes nothing", async () => {
@@ -201,7 +205,7 @@ describe("submitTestResultsService — refuses a score for a late admission", ()
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(res.json.mock.calls[0][0].message).toMatch(/admitted after this test's date/i);
-    expect(mockResultFindOneAndUpdate).not.toHaveBeenCalled();
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
   });
 });
 

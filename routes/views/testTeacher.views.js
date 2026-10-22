@@ -41,22 +41,41 @@ router.get(
   }
 );
 
-// Submit marks for a specific test — guarded by assignment check
+// Submit marks for a specific test — guarded by assignment check.
+// The handler is wrapped end-to-end: a malformed/missing `records` body (e.g. a
+// stale cached page posting an empty field) or an unexpected apiFetch rejection
+// must redirect back with a readable message, NOT throw — otherwise the async
+// error boundary turns it into a raw 500 "Internal server error" page.
 router.post(
   "/tests/mark/:testId",
   requireRole("teacher"),
   isAssignedToTestView,
   async (req, res) => {
-    const { records } = req.body;
-    const parsed = JSON.parse(records);
+    const failBack = (message) =>
+      res.redirect(
+        `/tests/mark/${req.params.testId}?error=${encodeURIComponent(
+          message || "Could not save the scores. Please try again."
+        )}`
+      );
+
+    let parsed;
+    try {
+      const { records } = req.body;
+      if (typeof records !== "string" || records.trim() === "") {
+        return failBack("No scores were received. Please reload the page and try again.");
+      }
+      parsed = JSON.parse(records);
+    } catch (err) {
+      return failBack("The scores payload was invalid. Please reload the page and try again.");
+    }
 
     const result = await apiFetch(`/tests/${req.params.testId}/results`, req.token, {
       method: "POST",
       body: JSON.stringify({ records: parsed }),
-    });
+    }).catch((err) => ({ status: "failed", message: err && err.message }));
 
-    if (result.status !== "success") {
-      return res.redirect(`/tests/mark/${req.params.testId}?error=${encodeURIComponent(result.message)}`);
+    if (!result || result.status !== "success") {
+      return failBack(result && result.message);
     }
     res.redirect(`/tests/mark/${req.params.testId}?ok=1`);
   }
