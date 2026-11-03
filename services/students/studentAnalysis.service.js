@@ -210,6 +210,27 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     })
     .sort((a, b) => String(a.label).localeCompare(String(b.label)));
 
+  // ---- Grand totals (pooled obtained / maximum across every recorded test) ----
+  // Same rule as the Session Report Card's "Total" summary row
+  // (computeWeekColumnTotals): absences contribute 0 obtained while their full
+  // total marks stay in the denominator; a test with no totalMarks is skipped
+  // entirely (mirrors the percent-null handling in the aggregations above).
+  let grandObtained = 0;
+  let grandTotalMarks = 0;
+  let grandTestCount = 0;
+  testResults.forEach((r) => {
+    const test = r.test;
+    if (!test || !(Number(test.totalMarks) > 0)) return;
+    const obtained = Number(r.score) || 0; // absent rows store 0 → contribute 0 obtained
+    grandObtained += obtained;
+    grandTotalMarks += Number(test.totalMarks);
+    grandTestCount += 1;
+  });
+  const grandPercent =
+    grandTotalMarks > 0
+      ? Math.round((grandObtained / grandTotalMarks) * 10000) / 100
+      : null;
+
   // ---- Progress series (per-session average %, ordered chronologically) ----
   // The per-session averages above are only surfaced as pills today; expose them
   // as a time-ordered series so the UI can plot a progress trend chart.
@@ -239,6 +260,14 @@ exports.getStudentAnalysisService = async (studentId, res) => {
       studentId: student.studentId,
       classLevel: student.classLevel,
       photoUrl: student.photoUrl,
+      // Profile-details fields surfaced on the View Student page. fatherName is
+      // the exact field the Session Report Card header prints.
+      rollNumber: student.rollNumber || "",
+      fatherName: student.fatherName || "",
+      address: student.address || "",
+      gender: student.gender || "",
+      dateAdmitted: student.dateAdmitted || null,
+      status: student.status || "active",
       // Parent-facing contact number — same field every existing WhatsApp
       // feature targets (fee reminders, at-risk rows, PDF report sharing).
       whatsappNumber: student.whatsappNumber || "",
@@ -257,6 +286,12 @@ exports.getStudentAnalysisService = async (studentId, res) => {
     },
     marks: {
       overallAverage,
+      // Pooled grand totals across every recorded test (UI shows
+      // "<obtained> / <total> (<percent>%)"; nulls render "—").
+      grandObtained,
+      grandTotalMarks,
+      grandPercent,
+      totalTests: grandTestCount,
       bySession: sessionSummaries,
       bySubject,
       subjectGroups,

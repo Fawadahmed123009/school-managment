@@ -213,10 +213,15 @@ exports.generateCombined = async (req, res) => {
     const sessionId = sanitizeIds(req.body.sessionId)[0];
     const classLevelId = sanitizeIds(String(req.body.classLevelId || "").split(",")).join(",");
     const sortBy = ["rollAsc", "rollDesc"].includes(req.body.sortBy) ? req.body.sortBy : undefined;
+    // Optional "weeks to include" picker: absent → every in-scope test; an
+    // array (possibly empty) → combine exactly those. The builder intersects
+    // the ids with the subject's own tests, so a foreign id only ever drops
+    // out — it can never widen the report past this subject/session scope.
+    const testIds = req.body.testIds === undefined ? undefined : sanitizeIds(req.body.testIds);
 
     const schoolName = process.env.SCHOOL_NAME || "School Portal";
     const result = await pdfReportService.generateCombinedSubjectPdf(
-      { subjectId, classLevelId: classLevelId || undefined, studentId, sessionId, sortBy },
+      { subjectId, classLevelId: classLevelId || undefined, studentId, sessionId, sortBy, testIds },
       schoolName
     );
 

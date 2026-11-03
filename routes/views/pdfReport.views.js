@@ -1,7 +1,7 @@
 const express = require("express");
 const fs = require("fs");
 const { apiFetch } = require("../../utils/apiClient");
-const { requireRole } = require("../../middlewares/authView");
+const { requireRole, requireAdminOrManager } = require("../../middlewares/authView");
 const pdfReportService = require("../../services/academic/pdfReport.service");
 const { buildSessionIndex, sortTestsByCategory } = require("../../utils/testCategoryIndex");
 const TestSession = require("../../models/Academic/testSession.model");
@@ -322,6 +322,46 @@ generateRouter.post("/reports/generate", requireRole("admin", "teacher"), async 
     reportType,
     schoolName: res.locals.schoolName,
   });
+});
+
+// POST /reports/session-report-combine
+// "Combine as Single PDF": merge the report cards the bulk flow just generated
+// into ONE multi-page PDF for printing. Purely additive — it stitches together
+// the individual PDFs already on disk (in the order submitted, i.e. the order
+// shown on screen) and never re-renders or alters the separate-PDF + WhatsApp
+// flow. Gated to admin/manager, the same roles allowed to generate the batch.
+generateRouter.post("/reports/session-report-combine", requireAdminOrManager(), async (req, res) => {
+  try {
+    const raw = req.body.uuids;
+    const uuids = (Array.isArray(raw) ? raw : raw ? [raw] : []).map((u) => String(u));
+    if (uuids.length < 2) {
+      return res.redirect(`/reports/generate?error=${encodeURIComponent("Select at least two reports to combine")}`);
+    }
+    if (uuids.length > 300) {
+      return res.redirect(`/reports/generate?error=${encodeURIComponent("Too many reports to combine at once")}`);
+    }
+    // Keep the session name filesystem-safe: strip anything a filesystem
+    // rejects (\w is ASCII-only, so this also removes non-ASCII letters), then
+    // cap the length. The filename itself stays plain ASCII so it can be used
+    // verbatim in the Content-Disposition header.
+    const safeSession = String(req.body.sessionName || "Session").replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "Session";
+    const downloadName = `Report Cards - ${safeSession} (combined).pdf`;
+
+    const result = await pdfReportService.combinePdfs(uuids, downloadName);
+    const buffer = fs.readFileSync(result.filePath);
+    res.setHeader("Content-Type", "application/pdf");
+    // HTTP header values must be latin1 — a stray non-ASCII byte throws. Emit an
+    // ASCII filename plus an RFC 5987 UTF-8 variant so any non-ASCII name still
+    // downloads correctly on browsers that honour filename*, never breaking here.
+    const asciiName = downloadName.replace(/[^\x20-\x7E]/g, "-").replace(/["\\]/g, "");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(downloadName)}`,
+    );
+    return res.send(buffer);
+  } catch (err) {
+    return res.redirect(`/reports/generate?error=${encodeURIComponent(err.message || "Could not combine the reports")}`);
+  }
 });
 
 module.exports = { publicRouter, generateRouter };

@@ -194,6 +194,100 @@ describe("getStudentAnalysisService — subjectGroups (group by subject, order t
   });
 });
 
+describe("getStudentAnalysisService — grand totals (pooled obtained / maximum)", () => {
+  test("sums obtained and maximum marks across tests; percent = obtained ÷ total", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 20, test: { name: "T1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-10" } },
+        { score: 30, test: { name: "T2", subject: { name: "Science" }, session: { name: "S" }, totalMarks: 50, date: "2026-01-20" } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    expect(marks.grandObtained).toBe(50);
+    expect(marks.grandTotalMarks).toBe(85);
+    expect(marks.grandPercent).toBe(58.82); // 50 / 85 — pooled, NOT the mean of per-test %s
+    expect(marks.totalTests).toBe(2);
+  });
+
+  test("absent counts as 0 obtained but its full total marks stay in the denominator (report-card Total-row rule)", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 20, absent: false, test: { name: "T1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-10" } },
+        { score: 0, absent: true, test: { name: "T2", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-20" } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    expect(marks.grandObtained).toBe(20);
+    expect(marks.grandTotalMarks).toBe(70); // absence's 35 still joins the denominator
+    expect(marks.grandPercent).toBe(28.57);
+  });
+
+  test("tests with no totalMarks are skipped entirely", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 10, test: { name: "T1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 20, date: "2026-01-10" } },
+        { score: 5, test: { name: "T2", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 0, date: "2026-01-11" } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    expect(marks.grandObtained).toBe(10);
+    expect(marks.grandTotalMarks).toBe(20);
+    expect(marks.totalTests).toBe(1);
+  });
+
+  test("no results yield zero sums and a null grand percent", async () => {
+    mockTestResultFind.mockReturnValue(withPopulate([]));
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    expect(marks.grandObtained).toBe(0);
+    expect(marks.grandTotalMarks).toBe(0);
+    expect(marks.grandPercent).toBeNull();
+    expect(marks.totalTests).toBe(0);
+  });
+});
+
+describe("getStudentAnalysisService — profile fields surfaced for the View Student page", () => {
+  test("student payload carries fatherName / rollNumber / whatsappNumber / address / gender / dateAdmitted / status", async () => {
+    mockStudentFindById.mockReturnValue(
+      withPopulate({
+        _id: "s1", name: "Kid", studentId: "R-1", classLevel: null, photoUrl: null,
+        rollNumber: "7", fatherName: "Abdul", address: "Street 1",
+        gender: "Male", dateAdmitted: new Date("2025-04-01"), status: "active", whatsappNumber: "03001234567",
+      })
+    );
+    mockTestResultFind.mockReturnValue(withPopulate([]));
+
+    const { student } = await getStudentAnalysisService("s1", {});
+
+    expect(student.rollNumber).toBe("7");
+    expect(student.fatherName).toBe("Abdul"); // same field the Session Report Card header prints
+    expect(student.whatsappNumber).toBe("03001234567");
+    expect(student.address).toBe("Street 1");
+    expect(student.gender).toBe("Male");
+    expect(student.dateAdmitted).toEqual(new Date("2025-04-01"));
+    expect(student.status).toBe("active");
+  });
+
+  test("missing optional fields normalize to empty strings / null instead of undefined", async () => {
+    mockTestResultFind.mockReturnValue(withPopulate([]));
+
+    const { student } = await getStudentAnalysisService("s1", {});
+
+    expect(student.rollNumber).toBe("");
+    expect(student.fatherName).toBe("");
+    expect(student.address).toBe("");
+    expect(student.dateAdmitted).toBeNull();
+    expect(student.status).toBe("active"); // defaulted so the heading stays clean
+  });
+});
+
 describe("getStudentAnalysisService — current-month attendance pie", () => {
   // The service buckets records by LOCAL (Asia/Karachi) calendar month via
   // localDateKey. Build dates in that month so the assertion is timezone-stable:

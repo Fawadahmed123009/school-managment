@@ -133,6 +133,31 @@
             </select>
           </div>
         </div>
+        <% var weeksAll = combined.selectedTestIds === null || combined.selectedTestIds === undefined; %>
+        <% if (combined.active && combined.scopeColumns && combined.scopeColumns.length > 1) { %>
+        <!-- "Weeks to include" picker: combine only the checked week-tests.
+             axWeeksSubject stamps the subject this picker was built for — the
+             view route only applies the selection while it still matches the
+             chosen Subject, so changing the subject never submits stale ids. -->
+        <div class="field" style="margin-bottom:12px;">
+          <label>Weeks to include</label>
+          <input type="hidden" name="axWeeksSubject" value="<%= filters.subjectId %>" />
+          <div id="ax-weeks-picker" style="display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:6px;">
+            <% combined.scopeColumns.forEach(function(c) {
+                 var checked = weeksAll || combined.selectedTestIds.indexOf(c.testId) !== -1; %>
+              <label style="font-weight:400; display:inline-flex; align-items:center; gap:6px;">
+                <input type="checkbox" name="axTestIds" value="<%= c.testId %>" <%= checked ? 'checked' : '' %> />
+                <span><%= c.weekLabel || c.name %></span>
+                <span class="mono" style="color:var(--ink-soft); font-size:12px;"><%= new Date(c.date).toLocaleDateString() %></span>
+              </label>
+            <% }); %>
+          </div>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <button type="button" class="btn btn-ghost" id="ax-weeks-all" style="font-size:12px;">All weeks</button>
+            <button type="button" class="btn btn-ghost" id="ax-weeks-none" style="font-size:12px;">Clear</button>
+          </div>
+        </div>
+        <% } %>
         <button type="submit" class="btn btn-primary">Apply filters</button>
       </form>
     </div>
@@ -227,7 +252,7 @@
           <thead>
             <tr>
               <th>Roll #</th><th>Name</th>
-              <% combined.columns.forEach(function(c) { %><th class="num"><%= c.name %></th><% }); %>
+              <% combined.columns.forEach(function(c) { %><th class="num"><%= c.weekLabel || c.name %></th><% }); %>
               <th class="num">Overall %</th>
             </tr>
           </thead>
@@ -450,5 +475,6 @@
 <script src="/js/student-typeahead.js"></script>
 <script src="/js/report-filter-cascade.js"></script>
 <script src="/js/tests-analytics-cascade.js"></script>
+<script src="/js/tests-analytics-weeks.js"></script>
 
 <%- include('../partials/foot') %>

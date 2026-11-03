@@ -56,6 +56,38 @@
     </div>
   </div>
 
+  <% /* ── Profile details — at-a-glance identity + contact block ──
+         Phone targets Student.whatsappNumber, the only phone field captured on
+         the add/edit forms (same number the WhatsApp features use). Father's
+         Name reuses Student.fatherName — the exact field the Session Report
+         Card header prints. Fields render "—" when blank so the layout stays
+         stable. Non-active status flagged in the heading when set. */ %>
+  <div class="panel">
+    <div class="panel-head"><h2>Profile details<%= analysis.student.status && analysis.student.status !== 'active' ? ' · ' + analysis.student.status : '' %></h2></div>
+    <div class="panel-body" style="display:flex; flex-wrap:wrap; gap:14px 26px;">
+      <% [
+        { label: 'Roll No',        value: analysis.student.rollNumber },
+        { label: 'Student ID',     value: analysis.student.studentId },
+        { label: 'Class',          value: analysis.student.classLevel ? analysis.student.classLevel.name : '' },
+        { label: 'Gender',         value: analysis.student.gender },
+        { label: 'Date Admitted',  value: analysis.student.dateAdmitted ? new Date(analysis.student.dateAdmitted).toLocaleDateString() : '' },
+        { label: "Father's Name",  value: analysis.student.fatherName },
+        { label: 'Phone / WhatsApp', value: analysis.student.whatsappNumber }
+      ].forEach(function (f) { %>
+        <div style="min-width:150px;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft);"><%= f.label %></div>
+          <div style="font-size:14px; font-weight:600; margin-top:2px;"><%= f.value && String(f.value).trim() ? f.value : '—' %></div>
+        </div>
+      <% }); %>
+      <% if (analysis.student.address && String(analysis.student.address).trim()) { %>
+        <div style="min-width:230px; flex:1;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-soft);">Address</div>
+          <div style="font-size:14px; font-weight:600; margin-top:2px;"><%= analysis.student.address %></div>
+        </div>
+      <% } %>
+    </div>
+  </div>
+
   <% /* ── Alert notices (student self-view or admin viewing) ── */ %>
   <% if (typeof alertThresholds !== 'undefined') { %>
     <% var aAlerts = []; %>
@@ -140,7 +172,8 @@
           }, []); %>
   <% if (subjectGroups.length === 0) { %>
     <div class="panel"><div class="empty"><div class="display">No test results yet</div></div></div>
-  <% } else { subjectGroups.forEach(function(group, gi) { %>
+  <% } else { %>
+  <% subjectGroups.forEach(function(group, gi) { %>
     <details class="subject-group"<%= gi === 0 ? ' open' : '' %>>
       <summary>
         <span class="sg-title"><span class="caret">&#9656;</span> <%= group.label %></span>
@@ -163,7 +196,34 @@
       </table>
       </div>
     </details>
-  <% }); } %>
+  <% }); %>
+
+  <% /* ── Grand totals — pooled obtained / maximum across every recorded test ──
+         Shown only when there are results (an empty profile has nothing to sum).
+         Computed server-side in studentAnalysis.service with the Session Report
+         Card's "Total"-row rule: absent → 0 obtained, full total marks kept in
+         the denominator. Distinct from the "Overall test average" stat above,
+         which averages per-test percentages rather than pooling raw marks. */ %>
+    <% var grand = analysis.marks.grandPercent; %>
+    <div class="panel">
+      <div class="panel-head"><h2>Grand total <span class="chart-subtitle"><%= analysis.marks.totalTests %> test<%= analysis.marks.totalTests === 1 ? '' : 's' %> · obtained ÷ maximum, pooled across all subjects</span></h2></div>
+      <div class="stats" style="margin:12px 20px 20px;">
+        <div class="stat">
+          <div class="n mono"><%= analysis.marks.grandObtained %></div>
+          <div class="l">Grand Obtained</div>
+        </div>
+        <div class="stat">
+          <div class="n mono"><%= analysis.marks.grandTotalMarks %></div>
+          <div class="l">Grand Total</div>
+        </div>
+        <div class="stat">
+          <div class="n mono"><%= grand !== null ? grand + '%' : '—' %></div>
+          <div class="l">Grand %</div>
+        </div>
+      </div>
+      <p style="font-size:12px; color:var(--ink-soft); padding:0 20px 14px; margin:0;">Same rule as the Session Report Card's Total row: an absence contributes 0 obtained while its full total marks stay in the denominator.</p>
+    </div>
+  <% } %>
 
   <div class="panel">
     <div class="panel-head"><h2>Fee records</h2></div>

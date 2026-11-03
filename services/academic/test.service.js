@@ -1733,7 +1733,7 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
 // excluded from every statistic, matching the single-test analytics and the
 // analytics PDF convention. The pure builder is shared with the combined PDF so
 // the report and the on-screen cards can never drift apart.
-async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy }) {
+async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy, testIds }) {
   const selectedClasses = await resolveClassTokens(classLevelId);
   const selectedClassIds = selectedClasses.map((c) => String(c._id));
 
@@ -1747,23 +1747,68 @@ async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, se
 
   const tests = await Test.find(testQuery)
     .populate("classLevels", "name")
+    .populate("week", "name")
     .sort({ date: 1 })
     .lean();
 
-  // Pivot columns — one per combined test, in date order. Shared by the view
+  // Pivot columns — one per in-scope test, in date order. Shared by the view
   // (marks-list headers) and the PDF (per-test cells) so both list the same set.
-  const columns = tests.map((t) => ({
+  // The short weekLabel heads each marks-list column instead of the full
+  // auto-generated test code, which split mid-word in the narrow PDF columns.
+  // The same week label can legitimately repeat across the combined set
+  // (parallel classes, or the same week number in two phases), so a colliding
+  // label is disambiguated with the test's first class word ("Week 0 · 9th")
+  // and, only if THAT still collides, a small occurrence number — the PDF cell
+  // is ~24pt wide, so every part must stay short enough to wrap whole.
+  const baseOf = (t) => (t.week && t.week.name) || t.name;
+  const baseCounts = {};
+  tests.forEach((t) => { const l = baseOf(t); baseCounts[l] = (baseCounts[l] || 0) + 1; });
+  let weekLabels = tests.map((t) => {
+    const base = baseOf(t);
+    if (baseCounts[base] === 1) return base;
+    const cls = t.classLevels && t.classLevels[0] && t.classLevels[0].name;
+    const shortCls = cls ? String(cls).trim().split(/\s+/)[0] : null;
+    return shortCls ? `${base} \u00B7 ${shortCls}` : base;
+  });
+  const labelDupes = {};
+  weekLabels.forEach((l) => { labelDupes[l] = (labelDupes[l] || 0) + 1; });
+  const labelSeen = {};
+  weekLabels = weekLabels.map((l) => {
+    if (labelDupes[l] === 1) return l;
+    labelSeen[l] = (labelSeen[l] || 0) + 1;
+    return `${l} (${labelSeen[l]})`;
+  });
+  const scopeColumns = tests.map((t, i) => ({
     testId: String(t._id),
     name: t.name,
+    weekLabel: weekLabels[i],
     date: t.date,
     totalMarks: t.totalMarks,
   }));
+
+  // Optional week picker: combine only the chosen tests (undefined = every
+  // in-scope test; an empty selection = none). Ids are intersected with this
+  // subject's own in-scope tests, so a foreign id can only ever drop out,
+  // never widen the report's scope.
+  let scopedTests = tests;
+  let columns = scopeColumns;
+  if (testIds !== undefined) {
+    const idSet = new Set(
+      (Array.isArray(testIds) ? testIds : String(testIds).split(","))
+        .map((s) => String(s).trim())
+        .filter((s) => /^[a-f0-9]{24}$/i.test(s))
+    );
+    scopedTests = tests.filter((t) => idSet.has(String(t._id)));
+    columns = scopeColumns.filter((c) => idSet.has(c.testId));
+  }
+
   const totalMarksById = {};
-  tests.forEach((t) => { totalMarksById[String(t._id)] = t.totalMarks; });
+  scopedTests.forEach((t) => { totalMarksById[String(t._id)] = t.totalMarks; });
 
   const emptyPayload = {
     subject,
     columns,
+    scopeColumns,
     pooled: emptyPercentStats(),
     perTest: columns.map((c) => ({ ...emptyPercentStats(), absentCount: 0, ...c })),
     distribution: [],
@@ -1771,7 +1816,7 @@ async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, se
     resultCount: 0,
   };
 
-  if (tests.length === 0) return emptyPayload;
+  if (scopedTests.length === 0) return emptyPayload;
 
   // Which pupils appear (class scope from the cascade + an optional single pupil).
   const studentMatch = {};
@@ -1785,7 +1830,7 @@ async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, se
     if (scopedStudentIds.length === 0) return emptyPayload;
   }
 
-  const resultQuery = { test: { $in: tests.map((t) => t._id) } };
+  const resultQuery = { test: { $in: scopedTests.map((t) => t._id) } };
   if (scopedStudentIds) resultQuery.student = { $in: scopedStudentIds };
 
   const results = await TestResult.find(resultQuery)
@@ -1880,6 +1925,7 @@ async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, se
   return {
     subject,
     columns,
+    scopeColumns,
     pooled,
     perTest,
     distribution: buildPercentDistribution(allPercents),
@@ -1891,11 +1937,11 @@ async function buildCombinedSubjectData({ subjectId, classLevelId, studentId, se
 exports.buildCombinedSubjectData = buildCombinedSubjectData;
 
 exports.getCombinedSubjectAnalyticsService = async (filters, res) => {
-  const { subjectId, classLevelId, studentId, sessionId, sortBy } = filters;
+  const { subjectId, classLevelId, studentId, sessionId, sortBy, testIds } = filters;
   if (!subjectId) {
     return responseStatus(res, 400, "failed", "A subject is required for combined analytics");
   }
-  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy });
+  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy, testIds });
   return responseStatus(res, 200, "success", {
     ...data,
     filters: { subjectId, classLevelId, studentId, sessionId, sortBy },

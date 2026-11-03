@@ -155,6 +155,18 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
     if (axSessionId) params.set("sessionId", axSessionId);
     if (sortBy) params.set("sortBy", sortBy);
 
+    // "Weeks to include" picker: repeated axTestIds checkboxes plus the
+    // subject the picker was rendered for (axWeeksSubject). The selection only
+    // applies while that subject is still the chosen one, so changing the
+    // Subject level naturally falls back to "all weeks" instead of submitting
+    // another subject's stale test ids. An applied picker with NO checked ids
+    // means "combine none" (empty report), distinct from "picker absent".
+    const weeksApplied = !!axSubjectId && String(req.query.axWeeksSubject || "") === axSubjectId;
+    const selectedTestIds = weeksApplied
+      ? [].concat(req.query.axTestIds || []).map(String).filter((s) => /^[a-f0-9]{24}$/i.test(s))
+      : [];
+    if (weeksApplied) params.set("testIds", selectedTestIds.join(","));
+
     // The cascade needs the full catalogue (subjects + tests) even before a
     // subject is chosen; the enhanced snapshot with no testId returns exactly
     // that unfiltered snapshot, so reuse it rather than re-query.
@@ -184,6 +196,10 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
     if (axSection) pdfParams.set("axSection", axSection);
     if (axStudentId) pdfParams.set("axStudentId", axStudentId);
     if (sortBy) pdfParams.set("sortBy", sortBy);
+    if (weeksApplied) {
+      pdfParams.set("axWeeksSubject", axSubjectId);
+      selectedTestIds.forEach((id) => pdfParams.append("axTestIds", id));
+    }
 
     return res.render("tests/analytics", {
       page: "tests-analytics",
@@ -202,6 +218,10 @@ router.get("/tests/analytics", requireAdminOrManager(), async (req, res) => {
         active: !!axSubjectId && !gradeSectionEmpty,
         subject: data.subject || null,
         columns: data.columns || [],
+        // Full in-scope test list the week picker renders (never filtered),
+        // plus the applied selection (null = picker not used → all checked).
+        scopeColumns: data.scopeColumns || [],
+        selectedTestIds: weeksApplied ? selectedTestIds : null,
         perTest: data.perTest || [],
         pooled: data.pooled || null,
         distribution: data.distribution || [],
@@ -285,7 +305,7 @@ router.get("/tests/analytics/pdf", requireAdminOrManager(), async (req, res) => 
   // deliberately — it is CSRF-exempt and idempotent from the user's point of
   // view (each click just mints a fresh, short-lived PDF). A grade/section pick
   // that matches no class, or a missing subject, fails closed back to the page.
-  const { axSubjectId, axSessionId, axGrade, axSection, axStudentId, sortBy } = req.query;
+  const { axSubjectId, axSessionId, axGrade, axSection, axStudentId, sortBy, axWeeksSubject, axTestIds } = req.query;
   if (!axSubjectId) {
     return res.redirect("/tests/analytics?viewMode=combined");
   }
@@ -303,6 +323,11 @@ router.get("/tests/analytics/pdf", requireAdminOrManager(), async (req, res) => 
     studentId: axStudentId || undefined,
     sortBy: sortBy || undefined,
   };
+  // Same stale-guard as the page itself: the week selection only carries over
+  // while the picker's subject still matches the requested one.
+  if (String(axWeeksSubject || "") === axSubjectId) {
+    body.testIds = [].concat(axTestIds || []).map(String).filter((s) => /^[a-f0-9]{24}$/i.test(s));
+  }
   const result = await apiFetch("/pdf-reports/analytics-combined", req.token, {
     method: "POST",
     body: JSON.stringify(body),

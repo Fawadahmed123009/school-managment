@@ -24,6 +24,23 @@
   </div>
 </div>
 
+<% if (generatedCount >= 2) { %>
+<div class="panel">
+  <div class="panel-head"><h2>Print all together</h2></div>
+  <div class="panel-body">
+    <p class="hint" style="margin:0 0 12px;">Combine every report card below into a single multi-page PDF for printing — one page per student, in the order shown. This is separate from the individual PDFs and their WhatsApp send buttons above, which stay unchanged.</p>
+    <form method="POST" action="/reports/session-report-combine" target="_blank" rel="noopener">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <input type="hidden" name="sessionName" value="<%= sessionName %>">
+      <% reports.forEach(function (r) { if (r.status === 'generated' && r.uuid) { %>
+        <input type="hidden" name="uuids" value="<%= r.uuid %>">
+      <% } }); %>
+      <button type="submit" class="btn">&#128462; Download All as Single PDF</button>
+    </form>
+  </div>
+</div>
+<% } %>
+
 <div class="panel">
   <div class="panel-head"><h2>Reports</h2></div>
   <div class="panel-body">

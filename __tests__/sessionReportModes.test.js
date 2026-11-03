@@ -4,8 +4,10 @@
  * The card now reshapes itself from the chosen period using the SAME
  * detectAnalyticsMode the analytics PDF uses:
  *   • single-week : one week in scope → flat table, one row per subject;
- *   • multi-week  : 2+ weeks → subject groups, one row per week + per-subject
- *                   Total line;
+ *   • multi-week  : 2+ weeks → ONE consolidated subjects × week-columns table
+ *                   ("obtained/total" per cell + Grand columns + Week Total /
+ *                   Week % summary rows) plus a weekly % trend bar chart, all
+ *                   on one page;
  *   • full-phase  : a phase (no week narrowing) but 2+ weeks of results → the
  *                   classic phase-column matrix, unchanged.
  *
@@ -28,9 +30,11 @@ jest.mock("../models/Academic/testSession.model", () => ({ findById: (...a) => m
 jest.mock("../models/Students/students.model", () => ({ findById: (...a) => mockStudentFindById(...a) }));
 jest.mock("../models/Academic/week.model", () => ({ find: (...a) => mockWeekFind(...a), findById: (...a) => mockWeekFindById(...a) }));
 
+const fs = require("fs");
+
 const pdfReport = require("../services/academic/pdfReport.service");
 const { buildSessionRows, averagePercent, buildPhaseBlocks } = pdfReport._sessionReportInternals;
-const { detectAnalyticsMode, buildSubjectWeekGroups } = pdfReport._analyticsInternals;
+const { detectAnalyticsMode, buildSubjectWeekGroups, buildSessionWeekMatrix, computeWeekColumnTotals } = pdfReport._analyticsInternals;
 
 const SESSION = "507f1f77bcf86cd799439000";
 const PHASE_1 = "507f1f77bcf86cd799439001";
@@ -179,6 +183,115 @@ describe("session card absence handling (absent counts as 0%)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// buildSessionWeekMatrix — the single-page multi-week table's data shape:
+// one row per subject, one "obtained/total" cell per selected week.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("buildSessionWeekMatrix — subjects × weeks pivot", () => {
+  const WEEK_C = "507f1f77bcf86cd799439013";
+  const row = (over = {}) => ({
+    subject: "Math", score: 5, totalMarks: 35,
+    weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01"), ...over,
+  });
+
+  test("week columns are calendar-ordered and positionally labelled Week 1..N", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ weekId: WEEK_C, weekName: "Week C", weekStart: new Date("2026-03-15") }),
+      row({ weekId: WEEK_A, weekName: "Week A", weekStart: new Date("2026-03-01") }),
+      row({ weekId: WEEK_B, weekName: "Week B", weekStart: new Date("2026-03-08") }),
+    ]);
+    expect(matrix.weeks.map((w) => w.label)).toEqual(["Week 1", "Week 2", "Week 3"]);
+    expect(matrix.weeks.map((w) => w.name)).toEqual(["Week A", "Week B", "Week C"]);
+  });
+
+  test("multiple tests in one week sum into a single obtained/total cell", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ score: 5, totalMarks: 35 }),
+      row({ test: "T2", score: 10, totalMarks: 20 }),
+    ]);
+    expect(matrix.subjects[0].cells[0]).toEqual({ score: 15, outOf: 55, absent: false });
+    expect(matrix.subjects[0].totalScore).toBe(15);
+    expect(matrix.subjects[0].totalOutOf).toBe(55);
+  });
+
+  test("a subject with no test in a week gets a null cell (printed as a dash)", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ subject: "Math" }),
+      row({ subject: "Physics", weekId: WEEK_A }),
+      row({ subject: "Physics", weekId: WEEK_B }),
+    ]);
+    const math = matrix.subjects.find((s) => s.subject === "Math");
+    expect(math.cells.map((c) => (c ? "x" : "—"))).toEqual(["x", "—"]);
+  });
+
+  test("absence keeps its total marks in the cell denominator (0% attempt)", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ score: 5, totalMarks: 35 }),
+      row({ test: "T2", score: 0, totalMarks: 20, absent: true }),
+    ]);
+    // 5 obtained / 55 total: the absence adds nothing to the numerator but its
+    // full 20 marks to the out-of, exactly the grouped layout's rule.
+    expect(matrix.subjects[0].cells[0]).toEqual({ score: 5, outOf: 55, absent: false });
+    expect(matrix.subjects[0].totalOutOf).toBe(55);
+  });
+
+  test("a fully-absent week renders as an absent cell; a fully-absent subject flags the grand columns", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ score: 0, totalMarks: 35, absent: true }),
+    ]);
+    expect(matrix.subjects[0].cells[0]).toEqual({ score: 0, outOf: 35, absent: true });
+    expect(matrix.subjects[0].fullyAbsent).toBe(true);
+  });
+
+  test("subject rows sort alphabetically by the internal subject name", () => {
+    const matrix = buildSessionWeekMatrix([
+      row({ subject: "Urdu" }),
+      row({ subject: "Biology" }),
+      row({ subject: "English" }),
+    ]);
+    expect(matrix.subjects.map((s) => s.subject)).toEqual(["Biology", "English", "Urdu"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// computeWeekColumnTotals — the numbers behind the Week Total / Week % /
+// Total summary rows that close the multi-week matrix.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("computeWeekColumnTotals — week column + grand aggregation", () => {
+  test("each week column sums obtained and total marks across every subject", () => {
+    const matrix = buildSessionWeekMatrix([
+      { subject: "Math", score: 20, totalMarks: 35, weekId: "a", weekStart: new Date("2026-03-01") },
+      { subject: "Physics", score: 30, totalMarks: 40, weekId: "a", weekStart: new Date("2026-03-01") },
+      { subject: "Math", score: 10, totalMarks: 25, weekId: "b", weekStart: new Date("2026-03-08") },
+    ]);
+    const { weekTotals, grandObt, grandTot } = computeWeekColumnTotals(matrix);
+    expect(weekTotals[0]).toEqual({ o: 50, t: 75 }); // week a: 20+30 / 35+40
+    expect(weekTotals[1]).toEqual({ o: 10, t: 25 }); // week b: only Math
+    expect(grandObt).toBe(60);
+    expect(grandTot).toBe(100);
+  });
+
+  test("an absent cell adds 0 obtained but its full total marks to the week column", () => {
+    const matrix = buildSessionWeekMatrix([
+      { subject: "Math", score: 20, totalMarks: 35, weekId: "a", weekStart: new Date("2026-03-01") },
+      { subject: "Physics", score: 0, totalMarks: 40, absent: true, weekId: "a", weekStart: new Date("2026-03-01") },
+    ]);
+    const { weekTotals } = computeWeekColumnTotals(matrix);
+    // 20 obtained / 75 total: the absence contributes nothing to the numerator
+    // but its 40 marks still enter the denominator (0%-attempt rule).
+    expect(weekTotals[0]).toEqual({ o: 20, t: 75 });
+  });
+
+  test("a week with no test for any subject yields a zero column (percent N/A)", () => {
+    const matrix = buildSessionWeekMatrix([
+      { subject: "Math", score: 20, totalMarks: 35, weekId: "a", weekStart: new Date("2026-03-01") },
+    ]);
+    const { weekTotals } = computeWeekColumnTotals(matrix);
+    expect(weekTotals).toHaveLength(1);
+    expect(weekTotals[0]).toEqual({ o: 20, t: 35 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Mode wiring: the detection the session card reuses is detectAnalyticsMode.
 // ─────────────────────────────────────────────────────────────────────────────
 describe("session card mode selection (shared with analytics)", () => {
@@ -258,6 +371,39 @@ describe("generateSessionReportPDF — layout mode reaches the renderer per scop
 
     const out = await pdfReport.generateSessionReportPDF(SESSION, "stu1", "Avenir Academy", { weekIds: [WEEK_A, WEEK_B] });
     expect(out.mode).toBe("multi-week");
+  });
+
+  test("multi-week card fits a full timetable (9 subjects × 5 weeks) on ONE page", async () => {
+    // A realistic worst case: every subject tested in every selected week.
+    const WEEKS = [WEEK_A, WEEK_B, "507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014", "507f1f77bcf86cd799439015"];
+    const SUBJECTS = ["Biology", "Chemistry", "English", "Islamiyat", "Math", "Physics", "Tarjama Tul Quran", "Urdu", "Computer"];
+    const tests = [];
+    WEEKS.forEach((week, wi) =>
+      SUBJECTS.forEach((subj, si) =>
+        tests.push({
+          _id: oid(`t${wi}-${si}`),
+          name: `Test ${wi}-${si}`,
+          totalMarks: 35,
+          date: new Date(2026, 2, 1 + wi * 7),
+          subject: { _id: oid(`sub${si}`), name: subj },
+          phase: { _id: oid(PHASE_1) },
+          week: { _id: oid(week), name: `Week ${wi + 1}`, startDate: new Date(2026, 2, 1 + wi * 7) },
+        })
+      )
+    );
+    mockTestFind.mockReturnValue(asQuery(tests));
+    mockTestResultFind.mockReturnValue(asQuery(resultsFor(tests)));
+
+    const out = await pdfReport.generateSessionReportPDF(SESSION, "stu1", "Avenir Academy", { weekIds: WEEKS });
+    expect(out.mode).toBe("multi-week");
+
+    // pdfkit writes page objects uncompressed: every page carries its own
+    // "/Type /Page" line (the catalog's "/Type /Pages" would not match this
+    // exact-token count). The redesigned card must print on a single page.
+    const pdf = fs.readFileSync(out.filePath);
+    const pageCount = (pdf.toString("latin1").match(/\/Type \/Page[^s]/g) || []).length;
+    fs.unlinkSync(out.filePath);
+    expect(pageCount).toBe(1);
   });
 
   test("full-phase scope keeps the classic matrix layout", async () => {

@@ -2,6 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const PDFDocument = require("pdfkit");
+// pdf-lib is used ONLY to merge already-generated report PDFs into one
+// multi-page file (the "Combine as Single PDF" print action). It never touches
+// the per-student rendering above, so the two libraries coexist without overlap.
+const { PDFDocument: MergeDoc } = require("pdf-lib");
 
 const Test = require("../../models/Academic/test.model");
 const TestResult = require("../../models/Academic/testResult.model");
@@ -543,6 +547,82 @@ function buildSubjectWeekGroups(rows, opts = {}) {
       const totalOutOf = lines.reduce((s, l) => s + l.outOf, 0);
       return { subject, lines, totalScore, totalOutOf, absent: lines.length > 0 && lines.every((l) => l.absent), percent: analyticsPercentLabel(totalScore, totalOutOf) };
     });
+}
+
+// Single-page week matrix: reshape the flat week-tagged rows into ONE
+// subjects × selected-weeks table — one row per subject, one column per week
+// carrying that week's summed obtained / maximum marks ("5/35"), absent cells
+// rendered "A", empty slots "—" — plus per-subject Grand Obtained / Grand
+// Total / Grand % and the grand sums behind the Overall line.
+// buildSubjectWeekGroups (whose rows feed this) applies the session card's
+// absentAsZero rule upstream: an absence contributes 0 obtained while its
+// total marks still join the denominator, so the "A" cell lowers the
+// subject's and the card's percentage exactly as before.
+// Week columns sit in calendar order (start date, name as tie-breaker) and
+// are positionally labelled "Week 1", "Week 2", …; subject rows sort by the
+// internal subject name, matching the grouped layout this replaces.
+function buildSessionWeekMatrix(rows = []) {
+  const weekMap = new Map();
+  const subjMap = new Map();
+
+  const weekBucket = (wkey, r) => {
+    if (!weekMap.has(wkey)) {
+      weekMap.set(wkey, {
+        key: wkey,
+        label: "",
+        name: r.weekName || null,
+        start: r.weekStart ? new Date(r.weekStart) : r.date ? new Date(r.date) : null,
+      });
+    }
+    return weekMap.get(wkey);
+  };
+  const subjBucket = (subj) => {
+    if (!subjMap.has(subj)) {
+      subjMap.set(subj, { subject: subj, cells: new Map() });
+    }
+    return subjMap.get(subj);
+  };
+
+  rows.forEach((r) => {
+    const subj = String(r.subject || "Unknown");
+    const wkey = r.weekId ? String(r.weekId) : NO_WEEK_KEY;
+    const w = weekBucket(wkey, r);
+    const s = subjBucket(subj);
+    if (!s.cells.has(wkey)) s.cells.set(wkey, { score: 0, outOf: 0, marked: 0, absentCount: 0 });
+    const cell = s.cells.get(wkey);
+    if (r.absent === true) {
+      cell.absentCount++;
+      // absentAsZero: 0 obtained, but the full total marks join the denominator.
+      cell.outOf += Number(r.totalMarks) || 0;
+    } else {
+      cell.score += Number(r.score) || 0;
+      cell.outOf += Number(r.totalMarks) || 0;
+      cell.marked++;
+    }
+  });
+
+  const weeks = [...weekMap.values()]
+    .sort((a, b) => (a.start && b.start ? a.start - b.start : 0) || String(a.name || "").localeCompare(String(b.name || "")))
+    .map((w, i) => ({ ...w, label: `Week ${i + 1}` }));
+
+  const subjects = [...subjMap.values()]
+    .sort((a, b) => String(a.subject).localeCompare(String(b.subject)))
+    .map((s) => {
+      const buckets = [...s.cells.values()];
+      return {
+        subject: s.subject,
+        cells: weeks.map((w) => {
+          const c = s.cells.get(w.key);
+          if (!c) return null;
+          return { score: c.score, outOf: c.outOf, absent: c.marked === 0 && c.absentCount > 0 };
+        }),
+        totalScore: buckets.reduce((sum, c) => sum + c.score, 0),
+        totalOutOf: buckets.reduce((sum, c) => sum + c.outOf, 0),
+        fullyAbsent: buckets.length > 0 && buckets.every((c) => c.marked === 0 && c.absentCount > 0),
+      };
+    });
+
+  return { weeks, subjects };
 }
 
 // Full-phase shape: exactly one subject (guarded upstream), so no grouping by
@@ -1141,9 +1221,12 @@ function buildSubjectTable(phases = []) {
 // subject's tests in the week summed). buildSubjectWeekGroups already sums per
 // week, so a group's totalScore/totalOutOf/percent are the one-row-per-subject
 // values; a bold Total line closes the table.
-function drawSessionSingleWeekTable(doc, startY, groups, chrome, subjectDisp) {
+function drawSessionSingleWeekTable(doc, startY, groups, chrome, subjectDisp, geo = {}) {
+  const x = geo.x || CARD_TABLE_X;
+  const w = geo.w || CARD_TABLE_W;
+  const bottomLimit = geo.bottomLimit || (() => doc.page.height - 92);
   const headers = ["Subject", "Obtained", "Total Marks", "Percentage"];
-  const colWidths = [225, 80, 90, 100];
+  const colWidths = [w - 270, 80, 90, 100];
   const aligns = ["left", "center", "center", "center"];
   // A subject whose tests are ALL absent shows "A" (dash for the out-of, which
   // is 0 once the absences are excluded) instead of "0"/"0"/"N/A".
@@ -1151,31 +1234,187 @@ function drawSessionSingleWeekTable(doc, startY, groups, chrome, subjectDisp) {
   const grandScore = groups.reduce((s, g) => s + g.totalScore, 0);
   const grandOutOf = groups.reduce((s, g) => s + g.totalOutOf, 0);
   tableRows.push(["Total", String(grandScore), String(grandOutOf), analyticsPercentLabel(grandScore, grandOutOf)]);
-  return drawCardTable(doc, startY, { headers, rows: tableRows, colWidths, aligns, chrome });
+  return drawCardTable(doc, startY, { headers, rows: tableRows, colWidths, aligns, fontSize: 11, chrome, x, w, rowH: 22, bottomLimit });
 }
 
-// Multi-week session card: one bordered block per subject — the subject label,
-// then a table of that subject's weeks (name, obtained, out-of, %) closed by a
-// per-subject Total line. Mirrors the analytics multi-week grouped layout, but
-// for a single pupil's report card.
-function drawSessionMultiWeekGroups(doc, startY, groups, chrome, subjectDisp) {
-  const bottomLimit = () => doc.page.height - 92;
-  const tableShape = { headers: ["Week", "Obtained", "Total Marks", "%"], colWidths: [255, 80, 80, 80], aligns: ["left", "center", "center", "center"] };
-  let y = startY;
-  groups.forEach((g) => {
-    if (y + 56 > bottomLimit()) {
-      doc.addPage();
-      y = chrome.y;
-    }
-    doc.font("Helvetica-Bold").fontSize(9.5).fillColor(CARD_BLACK)
-      .text(clipCardLine(doc, subjectDisp.get(g.subject) || g.subject, CARD_TABLE_W, "Helvetica-Bold", 9.5), CARD_TABLE_X, y);
-    y += 16;
-    const lines = g.lines.map((l) => [l.label, l.absent ? "A" : String(l.score), l.absent ? CARD_DASH : String(l.outOf), l.absent ? "A" : l.percent]);
-    const totalsRow = ["Total", g.absent ? "A" : String(g.totalScore), g.absent ? CARD_DASH : String(g.totalOutOf), g.absent ? "A" : g.percent];
-    y = drawCardTable(doc, y, { ...tableShape, rows: [...lines, totalsRow], chrome });
-    y += 14;
+// Multi-week session card: ONE consolidated table — one row per subject, one
+// column per selected week showing that week's summed "obtained/total" marks,
+// then Grand Obtained / Grand Total / Grand % per subject. Empty subject × week
+// slots print "—"; a fully-absent week prints "A" and (via absentAsZero) keeps
+// its total marks in the denominator, so the absence lowers every percentage.
+// Column widths and font size adapt to the number of week columns so the whole
+// card — header, info grid, table, overall line — stays on a single printed
+// page for realistic class sizes (drawCardTable still paginates as a safety
+// net). Geometry (x/w/bottomLimit) comes from the caller's compact page setup.
+function drawSessionWeekMatrixTable(doc, startY, matrix, chrome, subjectDisp, geo = {}) {
+  const x = geo.x || CARD_TABLE_X;
+  const w = geo.w || CARD_TABLE_W;
+  const bottomLimit = geo.bottomLimit || (() => doc.page.height - 92);
+  const nWeeks = matrix.weeks.length;
+
+  // Comfortably legible body text that still fits one page: the card leaves the
+  // whole lower page blank even for a full timetable, so the ladder starts high
+  // and only steps down as week columns crowd the width. The three grand
+  // columns keep a fixed readable width; the subject column gives ground.
+  const fontSize = nWeeks <= 4 ? 11 : nWeeks <= 6 ? 10.5 : nWeeks <= 8 ? 10 : nWeeks <= 10 ? 9.5 : 9;
+  const grandPctW = 52;
+  const grandTotW = 48;
+  const grandObtW = 56;
+  // The subject column stays wide enough for the longest name yet leaves the
+  // week columns room for the "Week Total" row's larger summed figures
+  // (e.g. "250/315"), which the per-subject cells ("20/35") never reach.
+  const subjW = nWeeks <= 4 ? 130 : nWeeks <= 6 ? 120 : nWeeks <= 8 ? 104 : 92;
+  const weekW = (w - subjW - grandObtW - grandTotW - grandPctW) / Math.max(1, nWeeks);
+
+  const headers = ["Subject", ...matrix.weeks.map((wk) => wk.label), "Grand Obtained", "Grand Total", "Grand %"];
+  const colWidths = [subjW, ...matrix.weeks.map(() => weekW), grandObtW, grandTotW, grandPctW];
+  const aligns = ["left", ...matrix.weeks.map(() => "center"), "center", "center", "center"];
+
+  const cellText = (c) => {
+    if (!c) return CARD_DASH;
+    if (c.absent) return "A";
+    return `${c.score}/${c.outOf}`;
+  };
+  const subjectRows = matrix.subjects.map((s) => [
+    subjectDisp.get(s.subject) || s.subject,
+    ...s.cells.map(cellText),
+    // A subject whose every week is fully absent shows "A" for the grand
+    // obtained and percentage (its out-of still carries the absence marks).
+    s.fullyAbsent ? "A" : String(s.totalScore),
+    s.fullyAbsent ? CARD_DASH : String(s.totalOutOf),
+    s.fullyAbsent ? "A" : analyticsPercentLabel(s.totalScore, s.totalOutOf),
+  ]);
+
+  // Bottom summary rows:
+  //  • "Total"     — the whole-card grand totals (sum of every subject) in the
+  //                  three Grand columns; week cells dashed (the next rows own
+  //                  the per-week view).
+  //  • "Week Total"— each week column shows that week's summed obtained/total
+  //                  across every subject (absent cells add 0 obtained but
+  //                  their full total marks, matching the 0%-attempt rule).
+  //  • "Week %"    — each week column shows that week's obtained ÷ total.
+  // The Grand columns are dashed on the two week rows.
+  const { weekTotals, grandObt, grandTot } = computeWeekColumnTotals(matrix);
+  const summaryRows = [
+    ["Total", ...matrix.weeks.map(() => CARD_DASH), String(grandObt), String(grandTot), analyticsPercentLabel(grandObt, grandTot)],
+    ["Week Total", ...weekTotals.map((wt) => `${wt.o}/${wt.t}`), CARD_DASH, CARD_DASH, CARD_DASH],
+    ["Week %", ...weekTotals.map((wt) => analyticsPercentLabel(wt.o, wt.t)), CARD_DASH, CARD_DASH, CARD_DASH],
+  ];
+  const rows = [...subjectRows, ...summaryRows];
+
+  return drawCardTable(doc, startY, {
+    headers, rows, colWidths, aligns, fontSize, rowH: 20, chrome,
+    x, w, bottomLimit, maxHeaderLines: 3,
   });
-  return y;
+}
+
+// Per-week column totals across every subject, plus the whole-card grand
+// totals — the numbers behind the "Week Total", "Week %" and "Total" summary
+// rows. Absent cells add 0 obtained but their full total marks (the card's
+// 0%-attempt rule), so a week's total denominator includes absences. Pure and
+// exported so the aggregation is unit-testable without a PDF render.
+function computeWeekColumnTotals(matrix) {
+  const weekTotals = matrix.weeks.map((_, j) => {
+    let o = 0;
+    let t = 0;
+    matrix.subjects.forEach((s) => {
+      const c = s.cells[j];
+      if (c) { o += c.score; t += c.outOf; }
+    });
+    return { o, t };
+  });
+  const grandObt = matrix.subjects.reduce((sum, s) => sum + s.totalScore, 0);
+  const grandTot = matrix.subjects.reduce((sum, s) => sum + s.totalOutOf, 0);
+  return { weekTotals, grandObt, grandTot };
+}
+
+// Per-subject, week-by-week percentage trend bar chart — a grouped column
+// chart (one cluster of bars per subject, one bar per selected week) drawn
+// with pdfkit primitives in the empty lower half of the card. Weeks are keyed
+// by grayscale fill with a legend; a subject's absent week plots as 0% (the
+// card's 0%-attempt rule) and a week with no test for that subject is skipped
+// (a gap). Height is clamped to the space left above the footnote, and the
+// chart is skipped entirely when fewer than ~60pt remain, so the card never
+// spills onto a second page.
+function drawSessionWeekTrendChart(doc, startY, matrix, subjectDisp, geo = {}) {
+  const x = geo.x || CARD_TABLE_X;
+  const w = geo.w || CARD_TABLE_W;
+  const bottomLimit = geo.bottomLimit || (() => doc.page.height - 92);
+  const weeks = matrix.weeks;
+  const subjects = matrix.subjects;
+  if (weeks.length < 2 || subjects.length === 0) return startY;
+
+  const footnoteReserve = 50;
+  const titleH = 16;
+  const legendH = 18;
+  const axisLabelH = 24;
+  const plotX = x + 24;
+  const plotW = w - 24;
+  const plotTop = startY + titleH + legendH;
+  const plotBottom = bottomLimit() - footnoteReserve - axisLabelH;
+  const plotH = plotBottom - plotTop;
+  if (plotH < 60) return startY; // not enough room — keep the card on one page
+
+  // A distinct, print-friendly colour per week (Tableau-10 derived), cycled if a
+  // session has more weeks than swatches. The SAME colour is used in the legend
+  // and in every subject cluster, so the key reads at a glance.
+  const PALETTE = ["#4E79A7", "#F28E2B", "#59A14F", "#AF7AA1", "#E15759", "#76B7B2", "#EDC948", "#FF9DA7", "#9C755F", "#BAB0AC"];
+  const colorFor = (i) => PALETTE[i % PALETTE.length];
+
+  // Title.
+  doc.font("Helvetica-Bold").fontSize(10).fillColor(CARD_BLACK)
+    .text("Weekly Percentage Trend by Subject", x, startY, { width: w });
+
+  // Legend: a larger colour swatch + short week label per week, in one row.
+  const legY = startY + titleH;
+  const swatch = 9;
+  let lx = x;
+  doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK);
+  weeks.forEach((wk, i) => {
+    const tag = wk.label.replace("Week ", "W");
+    doc.rect(lx, legY + 1, swatch, swatch).fillAndStroke(colorFor(i), "#333333");
+    doc.text(tag, lx + swatch + 3, legY, { lineBreak: false });
+    lx += swatch + 3 + doc.widthOfString(tag) + 12;
+  });
+
+  // Horizontal gridlines + Y-axis labels at 0 / 25 / 50 / 75 / 100 (%), plus a
+  // left axis line. Bars are capped at 100 so none reaches or crosses the top.
+  doc.lineWidth(0.4);
+  [0, 25, 50, 75, 100].forEach((v) => {
+    const yy = plotBottom - (v / 100) * plotH;
+    doc.strokeColor(v === 0 ? CARD_BLACK : "#d5d5d5").moveTo(plotX, yy).lineTo(plotX + plotW, yy).stroke();
+    doc.font("Helvetica").fontSize(6.5).fillColor(CARD_BLACK).text(String(v), x, yy - 3, { width: plotX - x - 4, align: "right" });
+  });
+  doc.strokeColor(CARD_BLACK).moveTo(plotX, plotTop).lineTo(plotX, plotBottom).stroke();
+
+  // Bars: one cluster per subject, one bar per week. A wide gap between
+  // clusters and a smaller gap between bars inside a cluster keep them from
+  // merging; every bar shares one normalised width.
+  const nS = subjects.length;
+  const nW = weeks.length;
+  const groupW = plotW / nS;
+  const clusterW = groupW * 0.74; // bars occupy 74% of each slot → ~13% gap per side between subjects
+  const clusterPad = (groupW - clusterW) / 2;
+  const barSlot = clusterW / nW;
+  const barW = barSlot * 0.8; // 20% intra-cluster gap
+  doc.lineWidth(0.3);
+  subjects.forEach((s, si) => {
+    const gx = plotX + si * groupW + clusterPad;
+    s.cells.forEach((c, wi) => {
+      if (!c) return;
+      const pct = c.outOf > 0 ? (c.score / c.outOf) * 100 : 0;
+      const bh = (Math.min(100, Math.max(0, pct)) / 100) * plotH;
+      const bx = gx + wi * barSlot + (barSlot - barW) / 2;
+      doc.rect(bx, plotBottom - bh, barW, bh).fillAndStroke(colorFor(wi), "#333333");
+    });
+    // Subject label centred under its cluster, clipped so labels never collide.
+    const label = subjectDisp.get(s.subject) || s.subject;
+    doc.font("Helvetica").fontSize(6.5).fillColor(CARD_BLACK)
+      .text(clipCardLine(doc, label, groupW - 2, "Helvetica", 6.5), plotX + si * groupW, plotBottom + 3, { width: groupW - 2, align: "center" });
+  });
+
+  doc.fillColor(CARD_BLACK).strokeColor(CARD_BLACK);
+  return plotBottom + axisLabelH;
 }
 
 function renderSessionReportPdf(data, schoolName, photoResult) {
@@ -1184,13 +1423,22 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
   // payload without them defaults to the classic full-phase matrix.
   const mode = data.mode || "full-phase";
   const flatRows = data.rows || [];
-  const doc = new PDFDocument({ size: "A4", margin: 50 });
+
+  // Week-scope cards (single/multi week) print on one page with the same
+  // compact geometry the Combined Subject Analytics PDF uses: minimum usable
+  // margin, slim frame, logoLeft header band and a wider content column.
+  // The full-phase matrix keeps the classic chrome untouched.
+  const compact = mode === "single-week" || mode === "multi-week";
+  const doc = new PDFDocument({ size: "A4", margin: compact ? 26 : 50 });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
 
-  const TABLE_X = CARD_TABLE_X;
-  const TABLE_W = CARD_TABLE_W;
-  const bottomLimit = () => doc.page.height - 92; // keep clear of the in-frame footer
+  const CX = 26; // compact content column left edge (frame sits at 16)
+  const CW = doc.page.width - CX * 2;
+  const TABLE_X = compact ? CX : CARD_TABLE_X;
+  const TABLE_W = compact ? CW : CARD_TABLE_W;
+  const footerPad = compact ? 66 : 92;
+  const bottomLimit = () => doc.page.height - footerPad; // keep clear of the in-frame footer
 
   const strokeCardCell = (x, w, yy, h, lw = 0.5) => cardStrokeCell(doc, x, w, yy, h, lw);
   const drawCenteredLines = (lines, x, w, yy, h, opts) => cardCenteredLines(doc, lines, x, w, yy, h, opts);
@@ -1200,6 +1448,9 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
     schoolName,
     title: "Session Report Card",
     subtitle: periodLabel ? `${session.name} — ${periodLabel}` : session.name,
+    ...(compact
+      ? { headerStyle: "logoLeft", frameInset: 16, contentX: CX, logoSize: 48, footerPad }
+      : {}),
   });
 
   // ── Student info block: photo cell + label/value grid (not a paragraph) ──
@@ -1210,17 +1461,18 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
       y: chrome.y,
       withPhoto: true,
       photoResult,
+      rowH: compact ? 26 : 27,
       rows: [
-        [{ label: "Name", value: student.name, size: 11 }],
-        [{ label: "Roll No", value: student.rollNumber }, { label: "Class / Section", value: student.className }],
-        [{ label: "Father's Name", value: student.fatherName }, { label: "Student ID", value: student.studentId }],
+        [{ label: "Name", value: student.name, size: 12 }],
+        [{ label: "Roll No", value: student.rollNumber, size: 11 }, { label: "Class / Section", value: student.className, size: 11 }],
+        [{ label: "Father's Name", value: student.fatherName, size: 11 }, { label: "Student ID", value: student.studentId, size: 11 }],
       ],
-    }) + 16;
+    }) + (compact ? 12 : 16);
 
   // ── Marks area: layout follows the chosen period scope, using the SAME
   // detectAnalyticsMode the analytics PDF uses. A single week renders a flat
-  // per-subject table; 2+ weeks group by subject with one row per week and a
-  // per-subject Total line; a whole phase keeps the classic matrix below.
+  // per-subject table; 2+ weeks render ONE subjects × weeks matrix table; a
+  // whole phase keeps the classic matrix below.
   if (mode === "single-week" || mode === "multi-week") {
     if (flatRows.length === 0) {
       doc.font("Helvetica-Oblique").fontSize(9.5).fillColor(CARD_BLACK)
@@ -1231,10 +1483,11 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
       // Groups key off the internal subject name; labels come from the rows'
       // subjectDisplay (fallback to name).
       const subjectDisp = buildSubjectDisplayMap(flatRows);
+      const matrix = buildSessionWeekMatrix(flatRows);
       y =
         mode === "single-week"
-          ? drawSessionSingleWeekTable(doc, y, groups, chrome, subjectDisp)
-          : drawSessionMultiWeekGroups(doc, y, groups, chrome, subjectDisp);
+          ? drawSessionSingleWeekTable(doc, y, groups, chrome, subjectDisp, { x: TABLE_X, w: TABLE_W, bottomLimit })
+          : drawSessionWeekMatrixTable(doc, y, matrix, chrome, subjectDisp, { x: TABLE_X, w: TABLE_W, bottomLimit });
 
       const grandScore = groups.reduce((s, g) => s + g.totalScore, 0);
       const grandOutOf = groups.reduce((s, g) => s + g.totalOutOf, 0);
@@ -1243,14 +1496,22 @@ function renderSessionReportPdf(data, schoolName, photoResult) {
         y = chrome.y;
       }
       y += 4;
-      doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK)
+      doc.font("Helvetica-Bold").fontSize(compact ? 12.5 : 11).fillColor(CARD_BLACK)
         .text(`Overall Percentage: ${analyticsPercentLabel(grandScore, grandOutOf)}`, TABLE_X, y);
-      y += 15;
+      y += 18;
+
+      // Per-subject weekly % trend chart (multi-week only) fills the blank
+      // lower half; it self-skips when too little room remains, so the card
+      // stays on one page.
+      if (mode === "multi-week") {
+        y = drawSessionWeekTrendChart(doc, y, matrix, subjectDisp, { x: TABLE_X, w: TABLE_W, bottomLimit });
+      }
+
       doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK)
         .text(
           mode === "single-week"
             ? "One row per subject for the selected week. Obtained and Total Marks combine every test recorded for that subject in the week; the percentage is obtained \u00F7 total marks. A pupil marked absent shows \u201CA\u201D but is counted as a 0% attempt, so it lowers the percentage."
-            : "Subjects are grouped with one row per selected week (that week's tests summed) and a per-subject Total line. The percentage is obtained \u00F7 total marks; the Overall line combines every subject. A pupil marked absent shows \u201CA\u201D but is counted as a 0% attempt, so it lowers the percentage.",
+            : "One row per subject, one column per selected week showing that week's \u201Cobtained/total marks\u201D (every test recorded for the subject in the week summed); a dash means the subject has no test in that week. The Grand columns total each subject's weeks; the Total row totals the whole card, and the Week Total / Week % rows aggregate each week across every subject. The chart tracks each subject's percentage week by week. A pupil marked absent shows \u201CA\u201D (plotted as 0%) and is counted as a 0% attempt, so it lowers the percentage.",
           TABLE_X,
           y,
           { width: TABLE_W }
@@ -1498,27 +1759,40 @@ exports.generateAnalyticsPDF = async (filters, schoolName, scope) => {
 // so the PDF can never disagree with the cards shown on screen, and the same
 // black-on-white card primitives as every other report.
 function renderCombinedSubjectPdf(data, schoolName) {
-  const doc = new PDFDocument({ size: "A4", margin: 50 });
+  // Compact geometry (layout/spacing only — same content as before): minimum
+  // usable page margin, slim frame, wider content column, left-aligned header
+  // row and tight table rows, so the report fits on fewer printed pages.
+  const doc = new PDFDocument({ size: "A4", margin: 26 });
   const buffers = [];
   doc.on("data", (b) => buffers.push(b));
 
   const subjectLabel = data.subject ? data.subject.displayName || data.subject.name : "Subject";
   const columns = data.columns || [];
   const testCount = columns.length;
-  const bottomLimit = () => doc.page.height - 92;
+  const CX = 26; // content column left edge (frame sits at 16)
+  const CW = doc.page.width - CX * 2;
+  const bottomLimit = () => doc.page.height - 66; // keep clear of the in-frame footer
   const pct = (v) => (v === null || v === undefined ? CARD_DASH : `${v}%`);
 
   const chrome = createCardChrome(doc, {
     schoolName,
     title: "Subject Analytics Report",
-    subtitle: `${subjectLabel} — ${testCount} test${testCount === 1 ? "" : "s"} combined`,
+    subtitle: subjectLabel,
+    headerStyle: "logoLeft",
+    frameInset: 16,
+    contentX: CX,
+    logoSize: 48,
+    footerPad: 66,
   });
 
   const pooled = data.pooled || {};
 
   // ── Pooled summary (labeled stat cells) ──
   let y = drawInfoGrid(doc, {
+    x: CX,
+    w: CW,
     y: chrome.y,
+    rowH: 24,
     rows: [
       [
         { label: "Students", value: String(data.resultCount || 0) },
@@ -1531,13 +1805,14 @@ function renderCombinedSubjectPdf(data, schoolName) {
         { label: "Std Dev", value: pct(pooled.stddev) },
       ],
     ],
-  }) + 16;
+  }) + 12;
 
   // ── Per-test breakdown ──
-  doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Per-test breakdown", CARD_TABLE_X, y);
-  y += 18;
+  doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Per-test breakdown", CX, y);
+  y += 16;
   const bHeaders = ["Test", "Date", "Out of", "Students", "Avg %", "Min %", "Max %"];
-  const bWidths = [150, 80, 45, 50, 55, 55, 60];
+  const bFixed = [80, 45, 50, 55, 55, 60];
+  const bWidths = [CW - bFixed.reduce((a, b) => a + b, 0), ...bFixed];
   const bAligns = ["left", "center", "center", "center", "center", "center", "center"];
   const bRows = (data.perTest || []).map((t) => [
     t.name,
@@ -1554,20 +1829,28 @@ function renderCombinedSubjectPdf(data, schoolName) {
     colWidths: bWidths,
     aligns: bAligns,
     chrome,
-  }) + 16;
+    x: CX,
+    w: CW,
+    rowH: 13,
+    bottomLimit,
+  }) + 12;
 
   // ── Combined marks list ──
   if (N_safe(testCount)) {
-    if (y + 60 > bottomLimit()) {
+    if (y + 50 > bottomLimit()) {
       doc.addPage();
       y = chrome.y;
     }
-    doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Combined marks list", CARD_TABLE_X, y);
-    y += 18;
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(CARD_BLACK).text("Combined marks list", CX, y);
+    y += 16;
 
-    const nameW = 92, rollW = 34, overallW = 48;
-    const cellW = (CARD_TABLE_W - nameW - rollW - overallW) / testCount;
-    const headers = ["Student", "Roll", ...columns.map((c) => c.name), "Overall %"];
+    const nameW = 110, rollW = 40, overallW = 52;
+    const cellW = (CW - nameW - rollW - overallW) / testCount;
+    // Short week labels ("Week 3") head the columns — the full test codes
+    // split mid-word in these narrow cells; the per-test breakdown table
+    // above still carries every full name and date. Three header lines let a
+    // long label wrap whole ("Week / 0 · / 10th") instead of losing its tail.
+    const headers = ["Student", "Roll", ...columns.map((c) => c.weekLabel || c.name), "Overall %"];
     const colWidths = [nameW, rollW, ...columns.map(() => cellW), overallW];
     const aligns = ["left", "center", ...columns.map(() => "center"), "center"];
     const fontSize = testCount <= 6 ? 8.5 : testCount <= 9 ? 7.5 : testCount <= 12 ? 6.5 : 5.5;
@@ -1583,7 +1866,7 @@ function renderCombinedSubjectPdf(data, schoolName) {
       ...columns.map((c) => cellText(r.cells[c.testId])),
       pct(r.overallPercent),
     ]);
-    y = drawCardTable(doc, y, { headers, rows, colWidths, aligns, fontSize, chrome }) + 10;
+    y = drawCardTable(doc, y, { headers, rows, colWidths, aligns, fontSize, chrome, x: CX, w: CW, rowH: 13, bottomLimit, maxHeaderLines: 3 }) + 8;
   }
 
   // ── Footnote ──
@@ -1593,9 +1876,9 @@ function renderCombinedSubjectPdf(data, schoolName) {
   }
   doc.font("Helvetica").fontSize(7.5).fillColor(CARD_BLACK).text(
     "Every test is normalised to a percentage of its own total before combining, so tests scored out of different marks stay comparable. Average pools every attempt across the listed tests; Highest / Lowest are the best and worst pupil's own average (the Overall % column), not a single test score. A pupil marked absent shows \u201CA\u201D and is excluded from every statistic.",
-    CARD_TABLE_X,
-    y + 6,
-    { width: CARD_TABLE_W }
+    CX,
+    y + 4,
+    { width: CW }
   );
 
   doc.end();
@@ -1616,11 +1899,11 @@ function N_safe(testCount) {
   return testCount > 0;
 }
 
-exports.generateCombinedSubjectPdf = async ({ subjectId, classLevelId, studentId, sessionId, sortBy }, schoolName) => {
+exports.generateCombinedSubjectPdf = async ({ subjectId, classLevelId, studentId, sessionId, sortBy, testIds }, schoolName) => {
   if (!subjectId) throw new Error("A subject is required for a combined analytics report");
   // Lazy require avoids a load-time cycle: test.service never requires this file.
   const { buildCombinedSubjectData } = require("./test.service");
-  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy });
+  const data = await buildCombinedSubjectData({ subjectId, classLevelId, studentId, sessionId, sortBy, testIds });
   const result = await renderCombinedSubjectPdf(data, schoolName);
   const subjectLabel = data.subject ? data.subject.displayName || data.subject.name : "Subject";
   writePdfMeta(
@@ -1703,12 +1986,44 @@ exports._analyticsInternals = {
   analyticsPercentLabel,
   groupRowsByStudent,
   buildSubjectWeekGroups,
+  buildSessionWeekMatrix,
+  computeWeekColumnTotals,
   buildFullPhasePivot,
 };
 
 exports.getPdfPath = (uuid) => {
   const filePath = path.join(PDF_DIR, `${uuid}.pdf`);
   return fs.existsSync(filePath) ? filePath : null;
+};
+
+// Combine several already-generated report PDFs into ONE multi-page PDF, in the
+// order the uuids are given (the on-screen student order). Purely additive: it
+// only reads the files the separate-PDF flow already wrote and stitches their
+// pages together — no report is re-rendered, so the individual cards and their
+// WhatsApp links are untouched. Each uuid is validated against the UUID shape
+// before it reaches getPdfPath, so a malformed value can never traverse paths.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+exports.combinePdfs = async (uuids, downloadName) => {
+  const files = (Array.isArray(uuids) ? uuids : [])
+    .map((u) => String(u))
+    .filter((u) => UUID_RE.test(u))
+    .map((u) => exports.getPdfPath(u))
+    .filter(Boolean);
+  if (files.length === 0) throw new Error("No report PDFs available to combine");
+
+  const merged = await MergeDoc.create();
+  for (const filePath of files) {
+    const src = await MergeDoc.load(fs.readFileSync(filePath));
+    const copied = await merged.copyPages(src, src.getPageIndices());
+    copied.forEach((page) => merged.addPage(page));
+  }
+  const bytes = await merged.save();
+
+  const uuid = crypto.randomUUID();
+  const filePath = path.join(PDF_DIR, `${uuid}.pdf`);
+  fs.writeFileSync(filePath, bytes);
+  if (downloadName) writePdfMeta(uuid, downloadName);
+  return { uuid, filePath, fileCount: files.length, pageTotal: merged.getPageCount() };
 };
 
 // Cleanup PDFs older than 1 hour (called periodically)

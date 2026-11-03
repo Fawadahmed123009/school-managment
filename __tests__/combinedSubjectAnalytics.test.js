@@ -32,11 +32,14 @@ const STUDENT_B = "507f1f77bcf86cd7994390dd";
 const TEST_1 = "507f1f77bcf86cd7994390ee"; // out of 100
 const TEST_2 = "507f1f77bcf86cd7994390ef"; // out of 50
 
-// Two tests of the SAME subject, different total marks.
+// Two tests of the SAME subject, different total marks, on distinct academic
+// weeks (the marks-list headers use these short week labels, not the codes).
 const MOCK_TESTS = [
   { _id: TEST_1, name: "Midterm Math", date: new Date("2026-01-10"), totalMarks: 100,
+    week: { _id: "507f1f77bcf86cd7994390a1", name: "Week 0" },
     classLevels: [{ _id: CLASS_A, name: "9-A" }] },
   { _id: TEST_2, name: "Quiz Math", date: new Date("2026-02-10"), totalMarks: 50,
+    week: { _id: "507f1f77bcf86cd7994390a2", name: "Week 1" },
     classLevels: [{ _id: CLASS_A, name: "9-A" }] },
 ];
 
@@ -149,5 +152,47 @@ describe("getCombinedSubjectAnalyticsService", () => {
     expect(sara.cells[TEST_1]).toMatchObject({ percent: 40 });
     expect(sara.cells[TEST_2]).toMatchObject({ absent: true, percent: null });
     expect(sara.overallPercent).toBe(40);
+  });
+
+  test("columns carry a short week label for the marks-list headers", async () => {
+    const res = mockRes();
+    await getCombinedSubjectAnalyticsService({ subjectId: SUBJECT_ID }, res);
+
+    expect(sent(res).columns.map((c) => c.weekLabel)).toEqual(["Week 0", "Week 1"]);
+  });
+
+  test("testIds narrows the combined set to the selected week-tests", async () => {
+    const res = mockRes();
+    await getCombinedSubjectAnalyticsService({ subjectId: SUBJECT_ID, testIds: [TEST_1] }, res);
+
+    const data = sent(res);
+    expect(data.columns.map((c) => c.testId)).toEqual([TEST_1]);
+    // Only the midterm attempts pool now: 80 and 40 → avg 60 (quiz 90 excluded).
+    expect(data.pooled.avg).toBe(60);
+    // The picker keeps the FULL in-scope list so unselected weeks stay offered.
+    expect(data.scopeColumns.map((c) => c.testId)).toEqual([TEST_1, TEST_2]);
+  });
+
+  test("testIds accepts the comma-joined query form and drops foreign ids", async () => {
+    const res = mockRes();
+    await getCombinedSubjectAnalyticsService(
+      { subjectId: SUBJECT_ID, testIds: `${TEST_2},not-an-id,507f1f77bcf86cd7994390ff` },
+      res
+    );
+
+    const data = sent(res);
+    // Only the quiz survives: its two-class-in-scope attempt is Ali's 90%.
+    expect(data.columns.map((c) => c.testId)).toEqual([TEST_2]);
+    expect(data.pooled.avg).toBe(90);
+  });
+
+  test("an explicitly empty testIds selection combines nothing (picker 'Clear')", async () => {
+    const res = mockRes();
+    await getCombinedSubjectAnalyticsService({ subjectId: SUBJECT_ID, testIds: [] }, res);
+
+    const data = sent(res);
+    expect(data.columns).toEqual([]);
+    expect(data.resultCount).toBe(0);
+    expect(data.scopeColumns).toHaveLength(2);
   });
 });

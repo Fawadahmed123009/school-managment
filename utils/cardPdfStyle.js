@@ -28,63 +28,123 @@ const CARD_TABLE_X = 50;
 const CARD_TABLE_W = 495;
 
 /**
- * Paint the repeating page chrome (frame, centered logo/title block, divider,
- * footer) and re-paint it on every added page.
+ * Paint the repeating page chrome (frame, logo/title block, divider, footer)
+ * and re-paint it on every added page.
  *
  * Returns a mutable `chrome` object: `chrome.y` is the Y where body content
  * should start on the CURRENT page and is refreshed on each `pageAdded`, so
- * callers that paginate must read it after `doc.addPage()`.
+ * callers that paginate must read it after `doc.addPage()`. `chrome.bottomLimit`
+ * is the Y past which content must move to the next page (kept clear of the
+ * in-frame footer).
+ *
+ * Options (all optional — defaults reproduce the classic full-width report
+ * header used by the result sheets and session cards):
+ *   headerStyle  "centered" (logo above centered name/title/subtitle) or
+ *                "logoLeft" — compact header: the logo sits at the LEFT,
+ *                sized to the stacked title block beside it (school name and
+ *                report title, both centered on the page, fitting within the
+ *                logo's height), subtitle centered below the band.
+ *   frameInset   outer border inset from the page edge (default 24).
+ *   contentX     body column left edge ("logoLeft" logo/divider position).
+ *   logoSize     logo edge length in the "logoLeft" band (default 38).
+ *   footerPad    bottom reserve for the footer lines; the branding line sits
+ *                at ph - footerPad + 20 and the timestamp at + 30 (default 92
+ *                → the historical ph-72 / ph-62 positions). Keep ≥ the doc
+ *                bottom margin + ~12 so the footer text never crosses
+ *                doc.page.maxY() (pdfkit would silently add pages / recurse).
  */
-function createCardChrome(doc, { schoolName, title, subtitle }) {
+function createCardChrome(
+  doc,
+  {
+    schoolName,
+    title,
+    subtitle,
+    headerStyle = "centered",
+    frameInset = 24,
+    contentX = CARD_TABLE_X,
+    logoSize = 38,
+    footerPad = 92,
+  } = {}
+) {
   const hasLogo = fs.existsSync(LOGO_PATH);
-  const chrome = { y: 0 };
+  const chrome = { y: 0, bottomLimit: () => doc.page.height - footerPad };
 
   const paint = () => {
     const pw = doc.page.width;
     const ph = doc.page.height;
-    doc.rect(24, 24, pw - 48, ph - 48).lineWidth(1).strokeColor(CARD_BLACK).stroke();
+    doc.rect(frameInset, frameInset, pw - frameInset * 2, ph - frameInset * 2).lineWidth(1).strokeColor(CARD_BLACK).stroke();
 
-    let yy = 46;
-    if (hasLogo) {
-      try {
-        doc.image(LOGO_PATH, (pw - 38) / 2, yy, { width: 38, height: 38 });
-        yy += 44;
-      } catch {
-        // logo corrupt or unsupported — render without it
+    let yy;
+    if (headerStyle === "logoLeft") {
+      // Logo at the left; the two centered title lines stack inside the
+      // logo's height, subtitle centered under the band.
+      const bandTop = frameInset + 8;
+      const bandH = logoSize;
+      if (hasLogo) {
+        try {
+          doc.image(LOGO_PATH, contentX, bandTop, { width: logoSize, height: logoSize });
+        } catch {
+          // logo corrupt or unsupported — render without it
+        }
       }
+      const nameSize = 17;
+      const titleSize = 13;
+      const blockH = nameSize * 1.2 + 2 + titleSize * 1.2;
+      let ty = bandTop + (bandH - blockH) / 2;
+      doc.fillColor(CARD_BLACK).font("Helvetica-Bold").fontSize(nameSize)
+        .text(schoolName || "School Portal", 40, ty, { width: pw - 80, align: "center", lineBreak: false });
+      ty += nameSize * 1.2 + 2;
+      if (title) {
+        doc.fontSize(titleSize).text(title, 40, ty, { width: pw - 80, align: "center", lineBreak: false });
+      }
+      yy = bandTop + bandH;
+      if (subtitle) {
+        doc.font("Helvetica").fontSize(9.5).text(subtitle, 60, yy + 3, { width: pw - 120, align: "center", lineBreak: false });
+        yy += 16;
+      }
+      yy += 4;
+      doc.moveTo(contentX + 6, yy).lineTo(pw - contentX - 6, yy).lineWidth(0.75).strokeColor(CARD_BLACK).stroke();
+      chrome.y = yy + 10;
+    } else {
+      yy = 46;
+      if (hasLogo) {
+        try {
+          doc.image(LOGO_PATH, (pw - 38) / 2, yy, { width: 38, height: 38 });
+          yy += 44;
+        } catch {
+          // logo corrupt or unsupported — render without it
+        }
+      }
+      doc.fillColor(CARD_BLACK).font("Helvetica-Bold").fontSize(15)
+        .text(schoolName || "School Portal", 40, yy, { width: pw - 80, align: "center" });
+      yy += 21;
+      doc.fontSize(12).text(title, 40, yy, { width: pw - 80, align: "center" });
+      yy += 18;
+      if (subtitle) {
+        doc.font("Helvetica").fontSize(9.5).text(subtitle, 60, yy, { width: pw - 120, align: "center" });
+        yy += 14;
+      }
+      doc.moveTo(70, yy).lineTo(pw - 70, yy).lineWidth(0.75).strokeColor(CARD_BLACK).stroke();
+      chrome.y = yy + 14;
     }
-    doc.fillColor(CARD_BLACK).font("Helvetica-Bold").fontSize(15)
-      .text(schoolName || "School Portal", 40, yy, { width: pw - 80, align: "center" });
-    yy += 21;
-    doc.fontSize(12).text(title, 40, yy, { width: pw - 80, align: "center" });
-    yy += 18;
-    if (subtitle) {
-      doc.font("Helvetica").fontSize(9.5).text(subtitle, 60, yy, { width: pw - 120, align: "center" });
-      yy += 14;
-    }
-    doc.moveTo(70, yy).lineTo(pw - 70, yy).lineWidth(0.75).strokeColor(CARD_BLACK).stroke();
 
     // Footer must stay above doc.page.maxY() — text drawn past the bottom
     // margin makes pdfkit silently open a new page and shift the whole body
     // (and, inside this pageAdded paint hook, recurse until the stack
     // overflows). Two compact in-frame lines: company branding on top, the
-    // generation timestamp below. The LOWER line sits at ph-62 — the largest
-    // y still safely inside maxY (A4 height 792, bottom margin 50) — with the
-    // branding line stacked above it at ph-72.
+    // generation timestamp below, stacked inside the footerPad reserve.
     doc.font("Helvetica-Bold").fontSize(7).fillColor(CARD_BLACK).text(
       "SkooTech  \u00B7  0337-6795000",
       40,
-      ph - 72,
+      ph - footerPad + 20,
       { width: pw - 80, align: "center", lineBreak: false }
     );
     doc.font("Helvetica").fontSize(7).fillColor(CARD_BLACK).text(
       `Generated ${new Date().toLocaleString()} \u2014 School Management System`,
       40,
-      ph - 62,
+      ph - footerPad + 30,
       { width: pw - 80, align: "center", lineBreak: false }
     );
-
-    chrome.y = yy + 14;
   };
 
   paint();
@@ -237,12 +297,14 @@ function drawInfoGrid(doc, { x = CARD_TABLE_X, w = CARD_TABLE_W, y, rows, withPh
  *   aligns     per-column "left" | "center" | "right" (default center, col 0 left)
  *   fontSize / rowH
  *   chrome     from createCardChrome — required for pagination positioning
+ *   bottomLimit  row-break threshold (default keeps the historical 92pt reserve)
+ *   maxHeaderLines  header cell wrap depth (default 2; narrow multi-column
+ *                   tables raise it so a wrapped label never loses its tail)
  *
  * Returns the Y just below the last row.
  */
-function drawCardTable(doc, y, { headers, rows, colWidths, aligns, fontSize = 9, rowH = 20, chrome, x = CARD_TABLE_X, w = CARD_TABLE_W }) {
-  const bottomLimit = () => doc.page.height - 92;
-  const headerLines = headers.map((h, i) => wrapCardLabel(doc, h, colWidths[i] - 8, fontSize, 2));
+function drawCardTable(doc, y, { headers, rows, colWidths, aligns, fontSize = 9, rowH = 20, chrome, x = CARD_TABLE_X, w = CARD_TABLE_W, bottomLimit = () => doc.page.height - 92, maxHeaderLines = 2 }) {
+  const headerLines = headers.map((h, i) => wrapCardLabel(doc, h, colWidths[i] - 8, fontSize, maxHeaderLines));
   const hdrH = Math.max(...headerLines.map((l) => l.length)) * (fontSize + 3) + 6;
 
   const colX = (i) => x + colWidths.slice(0, i).reduce((a, b) => a + b, 0);
