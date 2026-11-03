@@ -13,6 +13,7 @@
 
 const mockTestFindById = jest.fn();
 const mockResultFind = jest.fn();
+const mockTestUpdateOne = jest.fn();
 
 jest.mock("../models/Academic/test.model", () => ({
   findById: (...a) => {
@@ -22,6 +23,8 @@ jest.mock("../models/Academic/test.model", () => ({
     promise.select = jest.fn().mockReturnValue(promise);
     return promise;
   },
+  // Used by the concurrent-write rollback in updateTestMarksService.
+  updateOne: (...a) => mockTestUpdateOne(...a),
 }));
 jest.mock("../models/Academic/testResult.model", () => ({
   find: (...a) => mockResultFind(...a),
@@ -72,6 +75,7 @@ function mockExistingScores(scores) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockExistingScores([]);
+  mockTestUpdateOne.mockResolvedValue({ acknowledged: true });
 });
 
 // ── Scale validation ─────────────────────────────────────────────────────────
@@ -105,6 +109,96 @@ describe("updateTestMarksService — validates the new scale", () => {
 
     expect(res.status).toHaveBeenCalledWith(400);
     expect(res.json.mock.calls[0][0].message).toMatch(/cannot exceed/i);
+  });
+
+  // The scale arrives as STRINGS from number inputs, and a field a teacher
+  // cleared (or a client-side NaN that JSON turned into null) used to coerce
+  // with Number("") / Number(null) → 0 and be silently WRITTEN as "0 marks".
+  test("accepts the numeric strings a number input sends", async () => {
+    const doc = mockTestDoc({ totalMarks: 100, passMarks: 40 });
+    mockTestFindById.mockReturnValue(doc);
+
+    const res = mockRes();
+    await updateTestMarksService("test-1", { totalMarks: "50", passMarks: "20" }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(doc.totalMarks).toBe(50);
+    expect(doc.passMarks).toBe(20);
+  });
+
+  test("a missing/blank pass marks value is refused, not written as 0", async () => {
+    const doc = mockTestDoc({ totalMarks: 100, passMarks: 40 });
+    mockTestFindById.mockReturnValue(doc);
+
+    for (const blank of ["", null, undefined, NaN]) {
+      const res = mockRes();
+      await updateTestMarksService("test-1", { totalMarks: 50, passMarks: blank }, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json.mock.calls[0][0].message).toMatch(/Pass marks is required/i);
+    }
+    expect(doc.save).not.toHaveBeenCalled();
+    expect(doc.passMarks).toBe(40); // untouched
+  });
+
+  test("a missing/blank total is refused with a readable message", async () => {
+    const res = mockRes();
+    await updateTestMarksService("test-1", { totalMarks: "", passMarks: 10 }, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json.mock.calls[0][0].message).toMatch(/Total marks is required/i);
+  });
+
+  test("survives an absent body instead of throwing on undefined", async () => {
+    const res = mockRes();
+    await updateTestMarksService("test-1", undefined, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+// ── Concurrent saves (check → write race) ────────────────────────────────────
+describe("updateTestMarksService — a score saved during the edit cannot strand the scale", () => {
+  test("rolls the scale back when a score above the new total lands in between", async () => {
+    const doc = mockTestDoc({ totalMarks: 100, passMarks: 40 });
+    mockTestFindById.mockReturnValue(doc);
+
+    // First lookup (before the write) is clean; the re-check after saving finds a
+    // score that a concurrent request committed above the new total of 20.
+    let calls = 0;
+    mockResultFind.mockImplementation((q) => {
+      calls += 1;
+      const rows =
+        calls === 1
+          ? []
+          : [{ _id: "r1", score: 45, student: { name: "Ali" } }];
+      const promise = Promise.resolve(rows);
+      promise.populate = jest.fn().mockReturnValue(promise);
+      return promise;
+    });
+
+    const res = mockRes();
+    await updateTestMarksService("test-1", { totalMarks: 20, passMarks: 10 }, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json.mock.calls[0][0].message).toMatch(/were not changed/i);
+    // The scale is restored to exactly what it was, so no result sits above it.
+    expect(mockTestUpdateOne).toHaveBeenCalledWith(
+      { _id: "test-1" },
+      { $set: { totalMarks: 100, passMarks: 40 } }
+    );
+  });
+
+  test("a clean shrink keeps the new scale and never writes a rollback", async () => {
+    const doc = mockTestDoc({ totalMarks: 100, passMarks: 40 });
+    mockTestFindById.mockReturnValue(doc);
+    mockExistingScores([15]); // fits both the old and the new total
+
+    const res = mockRes();
+    await updateTestMarksService("test-1", { totalMarks: 50, passMarks: 20 }, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(mockTestUpdateOne).not.toHaveBeenCalled();
   });
 });
 

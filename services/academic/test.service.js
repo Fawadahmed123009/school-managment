@@ -1424,20 +1424,39 @@ exports.getTestMarksService = async (testId, res) => {
  * subject or class scope of the test.
  *
  * Validation:
- *   • totalMarks must be a number ≥ 1, passMarks a number ≥ 0 (same rules as creation)
+ *   • both fields must actually be present and numeric (see toScaleNumber)
+ *   • totalMarks must be ≥ 1, passMarks ≥ 0 (same rules as creation)
  *   • passMarks must not exceed totalMarks
  *   • if the new total is BELOW totalMarks, every already-entered score must
  *     still fit the new scale — otherwise the stored results would be invalid.
  */
+// The scale arrives from a number input, so it is a string — or, when the field
+// was cleared, an empty string, or a client-side NaN that JSON.stringify turns
+// into null. Coercing any of those with a bare Number() made Number("") and
+// Number(null) both 0, so a dropped/blank pass-marks value was silently WRITTEN
+// as "0" instead of refused. Anything that is not a real number becomes NaN so
+// the caller returns a readable 400.
+const toScaleNumber = (v) => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && v.trim() !== "") return Number(v.trim());
+  return NaN;
+};
+
 exports.updateTestMarksService = async (testId, data, res) => {
-  const totalMarks = Number(data.totalMarks);
-  const passMarks = Number(data.passMarks);
+  const body = data || {};
+  const totalMarks = toScaleNumber(body.totalMarks);
+  const passMarks = toScaleNumber(body.passMarks);
 
   if (!Number.isFinite(totalMarks) || totalMarks < 1) {
-    return responseStatus(res, 400, "failed", "Total marks must be a number of at least 1");
+    return responseStatus(res, 400, "failed", "Total marks is required — enter a number of at least 1.");
   }
   if (!Number.isFinite(passMarks) || passMarks < 0) {
-    return responseStatus(res, 400, "failed", "Pass marks must be a number of 0 or more");
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      "Pass marks is required — enter a number of 0 or more (0 when the test has no pass threshold)."
+    );
   }
   if (passMarks > totalMarks) {
     return responseStatus(res, 400, "failed", "Pass marks cannot exceed total marks");
@@ -1446,19 +1465,35 @@ exports.updateTestMarksService = async (testId, data, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  // Shrinking the scale must not orphan scores above the new maximum.
-  if (totalMarks !== test.totalMarks) {
-    const tooHigh = await TestResult.find({ test: testId, score: { $gt: totalMarks } }).populate("student", "name");
+  const previous = { totalMarks: test.totalMarks, passMarks: test.passMarks };
+  // Any change to the ceiling needs the entered scores re-checked against the NEW
+  // value — lowering it can strand existing results, and raising it concurrently
+  // with someone else lowering it would have the same effect.
+  const ceilingChanged = totalMarks !== test.totalMarks;
+
+  // Scores stored against the OLD scale are validated against the OLD ceiling,
+  // so lowering the total can strand results above the new one. Refuse the
+  // change and name the offending scores so the teacher knows what to correct.
+  const scoresAbove = (ceiling) =>
+    TestResult.find({ test: testId, score: { $gt: ceiling } }).populate("student", "name");
+
+  const scoreDetails = (rows) =>
+    rows
+      .slice(0, 5)
+      .map((r) => `${r.score}${r.student?.name ? " (" + r.student.name + ")" : ""}`)
+      .join(", ") + (rows.length > 5 ? ", …" : "");
+
+  const describeScores = (rows) =>
+    `${rows.length} entered score(s) exceed it (${scoreDetails(rows)})`;
+
+  if (ceilingChanged) {
+    const tooHigh = await scoresAbove(totalMarks);
     if (tooHigh.length > 0) {
-      const details = tooHigh
-        .slice(0, 5)
-        .map((r) => `${r.score}${r.student?.name ? " (" + r.student.name + ")" : ""}`)
-        .join(", ");
       return responseStatus(
         res,
         400,
         "failed",
-        `Cannot lower total marks below ${totalMarks} — ${tooHigh.length} entered score(s) exceed it (${details}${tooHigh.length > 5 ? ", …" : ""}). Remove or correct those scores first.`
+        `Cannot lower total marks to ${totalMarks} — ${describeScores(tooHigh)}. Remove or correct those scores first.`
       );
     }
   }
@@ -1466,6 +1501,26 @@ exports.updateTestMarksService = async (testId, data, res) => {
   test.totalMarks = totalMarks;
   test.passMarks = passMarks;
   await test.save();
+
+  // The check above and the write are two round-trips, so a score saved by a
+  // concurrent request in between (another teacher, or the OCR path) can slip
+  // in above the new ceiling. Re-check after the change and roll the scale back
+  // when it did, so a race leaves the test consistent and the teacher with a
+  // clear message instead of stored results that violate their own test's total.
+  if (ceilingChanged) {
+    const raced = await scoresAbove(totalMarks);
+    if (raced.length > 0) {
+      await Test.updateOne({ _id: testId }, { $set: previous });
+      return responseStatus(
+        res,
+        400,
+        "failed",
+        `Total marks were not changed — a score was saved for this test while the scale was being edited, and it is above the new total: ${scoreDetails(
+          raced
+        )}. Correct those scores, then change the total again.`
+      );
+    }
+  }
 
   return responseStatus(res, 200, "success", test);
 };
