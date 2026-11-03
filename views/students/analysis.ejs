@@ -161,15 +161,29 @@
         : (analysis.marks.bySession || []).reduce(function(acc, s) {
             // Fallback for cached/older analysis payloads without subjectGroups:
             // rebuild the grouping from the flat per-session rows so the section
-            // still renders (week columns will be blank).
+            // still renders (week columns will be blank). Grand totals per group
+            // are computed here too, with the same pooled rule the service uses
+            // (rows without totalMarks are skipped).
             s.tests.forEach(function(t) {
               var k = t.subject || 'Unknown';
               var g = acc.filter(function(x){ return x.label === k; })[0];
-              if (!g) { g = { label: k, tests: [], average: null }; acc.push(g); }
+              if (!g) { g = { label: k, tests: [], average: null, grandObtained: 0, grandTotalMarks: 0, grandPercent: null }; acc.push(g); }
               g.tests.push(t);
+              if (Number(t.totalMarks) > 0) {
+                g.grandObtained += Number(t.score) || 0;
+                g.grandTotalMarks += Number(t.totalMarks);
+              }
             });
             return acc;
-          }, []); %>
+          }, []);
+        // Fill grandPercent on fallback groups (service groups already carry it).
+        subjectGroups.forEach(function(g) {
+          if (g.grandPercent === undefined || (g.grandPercent === null && g.grandTotalMarks > 0)) {
+            g.grandPercent = g.grandTotalMarks > 0
+              ? Math.round((g.grandObtained / g.grandTotalMarks) * 10000) / 100
+              : null;
+          }
+        }); %>
   <% if (subjectGroups.length === 0) { %>
     <div class="panel"><div class="empty"><div class="display">No test results yet</div></div></div>
   <% } else { %>
@@ -177,7 +191,14 @@
     <details class="subject-group"<%= gi === 0 ? ' open' : '' %>>
       <summary>
         <span class="sg-title"><span class="caret">&#9656;</span> <%= group.label %></span>
-        <% if (group.average !== null) { %><span class="pill ocr">Average: <%= group.average %>%</span><% } %>
+        <% if (group.grandTotalMarks > 0) { %>
+          <% /* Per-subject pooled grand totals — visible without expanding, so a
+                 collapsed row still answers "how is this subject doing overall". */ %>
+          <span class="pill review" title="Grand Obtained ÷ Grand Total across this subject's tests (absences count as 0 obtained)"><%= group.grandObtained %> / <%= group.grandTotalMarks %></span>
+          <span class="pill ocr"><%= group.grandPercent !== null ? group.grandPercent + '%' : '—' %></span>
+        <% } else if (group.average !== null) { %>
+          <span class="pill ocr">Average: <%= group.average %>%</span>
+        <% } %>
       </summary>
       <div class="table-wrap">
       <table class="ledger">
@@ -193,6 +214,19 @@
             </tr>
           <% }); %>
         </tbody>
+        <% /* Totals footer — per-subject pooled Grand Obtained / Grand Total /
+               Grand %, mirroring the whole-card Grand total panel. Skipped on
+               single-test subjects, where it would just duplicate the only row. */ %>
+        <% if (group.tests.length > 1 && group.grandTotalMarks > 0) { %>
+        <tfoot>
+          <tr>
+            <td colspan="2" style="font-weight:700;">Grand Total</td>
+            <td class="num mono" style="font-weight:700;"><%= group.grandObtained %></td>
+            <td class="num mono" style="font-weight:700;"><%= group.grandTotalMarks %></td>
+            <td style="font-weight:700;"><%= group.grandPercent !== null ? group.grandPercent + '%' : '—' %></td>
+          </tr>
+        </tfoot>
+        <% } %>
       </table>
       </div>
     </details>

@@ -192,6 +192,58 @@ describe("getStudentAnalysisService — subjectGroups (group by subject, order t
     const { marks } = await getStudentAnalysisService("s1", {});
     expect(marks.subjectGroups).toEqual([]);
   });
+
+  test("each group carries pooled grand totals: grandObtained / grandTotalMarks / grandPercent", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 20, test: { name: "T1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-10", week: { name: "W1", startDate: "2026-01-05" } } },
+        { score: 30, test: { name: "T2", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 50, date: "2026-01-20", week: { name: "W2", startDate: "2026-01-19" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+    const math = marks.subjectGroups[0];
+
+    expect(math.grandObtained).toBe(50);
+    expect(math.grandTotalMarks).toBe(85);
+    expect(math.grandPercent).toBe(58.82); // pooled 50/85, not the mean of 57.14 & 60
+  });
+
+  test("group grand totals apply the absent-as-0 rule and skip tests without totalMarks", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 20, absent: false, test: { name: "T1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-10", week: { name: "W1", startDate: "2026-01-05" } } },
+        // Absent: 0 obtained, its 35 still joins the denominator.
+        { score: 0, absent: true, test: { name: "T2", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-20", week: { name: "W2", startDate: "2026-01-19" } } },
+        // No totalMarks → skipped entirely.
+        { score: 9, absent: false, test: { name: "T3", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 0, date: "2026-01-30", week: { name: "W3", startDate: "2026-01-26" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+    const math = marks.subjectGroups[0];
+
+    expect(math.grandObtained).toBe(20);
+    expect(math.grandTotalMarks).toBe(70);
+    expect(math.grandPercent).toBe(28.57);
+  });
+
+  test("per-subject grand sums add up to the whole-card grand totals", async () => {
+    mockTestResultFind.mockReturnValue(
+      withPopulate([
+        { score: 20, test: { name: "M1", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 35, date: "2026-01-10", week: { name: "W1", startDate: "2026-01-05" } } },
+        { score: 40, test: { name: "S1", subject: { name: "Science" }, session: { name: "S" }, totalMarks: 50, date: "2026-01-12", week: { name: "W1", startDate: "2026-01-05" } } },
+        { score: 0, absent: true, test: { name: "M2", subject: { name: "Math" }, session: { name: "S" }, totalMarks: 15, date: "2026-01-20", week: { name: "W2", startDate: "2026-01-19" } } },
+      ])
+    );
+
+    const { marks } = await getStudentAnalysisService("s1", {});
+
+    const obt = marks.subjectGroups.reduce((s, g) => s + g.grandObtained, 0);
+    const tot = marks.subjectGroups.reduce((s, g) => s + g.grandTotalMarks, 0);
+    expect(obt).toBe(marks.grandObtained);
+    expect(tot).toBe(marks.grandTotalMarks);
+  });
 });
 
 describe("getStudentAnalysisService — grand totals (pooled obtained / maximum)", () => {

@@ -206,7 +206,28 @@ exports.getStudentAnalysisService = async (studentId, res) => {
         pcts.length > 0
           ? Math.round((pcts.reduce((s, p) => s + p, 0) / pcts.length) * 100) / 100
           : null;
-      return { subject: key, label: group.label, tests: group.tests, average };
+      // Per-subject grand totals (pooled obtained / maximum) — same rule as the
+      // whole-card grand totals below and the Session Report Card's per-subject
+      // Grand columns: absences contribute 0 obtained with their full total
+      // marks kept in the denominator; tests with no totalMarks are skipped.
+      let subjObtained = 0;
+      let subjTotal = 0;
+      group.tests.forEach((t) => {
+        if (!(Number(t.totalMarks) > 0)) return;
+        subjObtained += Number(t.score) || 0;
+        subjTotal += Number(t.totalMarks);
+      });
+      const subjPercent =
+        subjTotal > 0 ? Math.round((subjObtained / subjTotal) * 10000) / 100 : null;
+      return {
+        subject: key,
+        label: group.label,
+        tests: group.tests,
+        average,
+        grandObtained: subjObtained,
+        grandTotalMarks: subjTotal,
+        grandPercent: subjPercent,
+      };
     })
     .sort((a, b) => String(a.label).localeCompare(String(b.label)));
 
