@@ -1,7 +1,7 @@
 // ── Avenir Academy PWA service worker ────────────────────────────
 // Caching policy (strict):
-//   • Cache-first: static assets ONLY — /css/*, /js/*, /images/*,
-//     /manifest.json, /offline.html.
+//   • NETWORK-FIRST for static assets — /css/*, /js/*, /images/*,
+//     /manifest.json, /offline.html. The cache is the offline FALLBACK only.
 //   • NEVER cached: every HTML page (all navigations), every /api/* route,
 //     every non-GET request (POST/PUT/DELETE), /uploads/* (auth-gated),
 //     and anything under authenticated portal paths. These always hit the
@@ -11,13 +11,24 @@
 //     only, and only when the network itself failed (TypeError) — never
 //     for failed API calls or failed responses (4xx/5xx pass through).
 //
+// Why network-first for scripts: HTML is never cached, so after a deploy the
+// page markup was always current while a cache-first script stayed on the
+// version installed in that browser — indefinitely, since nothing bumps the
+// version per file. A stale page script bound to markup that had changed left
+// controls such as "Save scores" doing nothing at all, on exactly the devices
+// that had the worker installed ("some browsers, inconsistent"). Network-first
+// keeps the asset fresh whenever the user is online and still serves the cached
+// copy when they are not.
+//
 // Bump CACHE_VERSION when static assets change in a way that must invalidate.
 // v2: regenerated /images/icons/* (padded) — drop the stale edge-to-edge copies.
 // v3: redesigned test cascade (shared test-cascade-filters.js) — the old
 //     cache-first copy never fetched /cascade/sessions on load, leaving the
 //     Session dropdown stuck on "Loading sessions..." for real teachers.
 // v4: "All sections" option added to the test cascade.
-const CACHE_VERSION = "v4";
+// v5: mark-entry save flow (test-scores.js) — and the switch to network-first,
+//     which also flushes every cache-first copy already installed.
+const CACHE_VERSION = "v5";
 const STATIC_CACHE = `avenir-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 
@@ -91,17 +102,28 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Static asset: cache-first with background fill on miss.
+  // Static asset: network-first with the cached copy as offline fallback.
+  // A failed fetch (no network) or a non-OK reply falls back to the cache, so a
+  // teacher on a dropped connection still gets the app shell; when the network
+  // is up, the deployed script is the one that runs.
   event.respondWith(
     (async () => {
+      let networkError = null;
+      let fresh = null;
+      try {
+        fresh = await fetch(req);
+      } catch (err) {
+        networkError = err;
+      }
+      if (fresh && fresh.ok && fresh.type === "basic") {
+        const cache = await caches.open(STATIC_CACHE);
+        cache.put(req, fresh.clone());
+        return fresh;
+      }
       const hit = await caches.match(req);
       if (hit) return hit;
-      const res = await fetch(req);
-      if (res.ok && res.type === "basic") {
-        const cache = await caches.open(STATIC_CACHE);
-        cache.put(req, res.clone());
-      }
-      return res;
+      if (fresh) return fresh;
+      throw networkError || new Error("Asset unavailable");
     })()
   );
 });

@@ -1,14 +1,30 @@
 (function () {
   const enteredCount = document.getElementById('entered-count');
   const saveBtn = document.getElementById('save-scores-btn');
+  // Declared up-front with the other elements the status helpers anchor to —
+  // reading them later inside setScoresStatus would put them in their temporal
+  // dead zone for any call made during load (the TDZ class of bug that once
+  // silently killed this whole script and left the Save button dead).
+  const scoresForm = document.getElementById('scores-form');
+  const recordsInput = document.getElementById('records-input');
 
   // Inline status next to the Save button. Replaces the old blocking
   // alert()/confirm() flow, which can be a silent no-op inside the installed
   // PWA (prod HTTPS only) — there a suppressed dialog made "Save scores" look
   // dead. Status is shown in the page instead, so feedback never disappears.
-  const scoresStatus = document.getElementById('scores-status');
+  let scoresStatus = document.getElementById('scores-status');
   function setScoresStatus(text, ok) {
-    if (!scoresStatus) return;
+    if (!scoresStatus) {
+      // An old cached page without the status element would otherwise swallow
+      // every failure message — the save would again look dead. Append one.
+      try {
+        scoresStatus = document.createElement('span');
+        scoresStatus.id = 'scores-status';
+        (scoresForm || document.body).appendChild(scoresStatus);
+      } catch (err) {
+        return; // genuinely nowhere to put it; the save still proceeds
+      }
+    }
     scoresStatus.textContent = text || '';
     scoresStatus.style.color = ok ? 'var(--ok)' : 'var(--error)';
   }
@@ -88,9 +104,17 @@
   const settingsPanel = document.getElementById('test-settings');
   const saveSettingsBtn = document.getElementById('save-settings-btn');
   const passMarksInput = document.getElementById('pass-marks-input');
-  const settingsStatus = document.getElementById('settings-status');
+  let settingsStatus = document.getElementById('settings-status');
   function setSettingsStatus(text, ok) {
-    if (!settingsStatus) return;
+    if (!settingsStatus) {
+      try {
+        settingsStatus = document.createElement('span');
+        settingsStatus.id = 'settings-status';
+        (settingsPanel || document.body).appendChild(settingsStatus);
+      } catch (err) {
+        return;
+      }
+    }
     settingsStatus.textContent = text || '';
     settingsStatus.style.color = ok ? 'var(--ok)' : 'var(--error)';
   }
@@ -98,18 +122,70 @@
     const meta = document.querySelector('meta[name="auth-token"]');
     return meta && meta.content ? { Authorization: 'Bearer ' + meta.content } : {};
   }
+
+  // Read an API response whatever it contains. JSON is the normal case; a
+  // non-JSON body means the request never reached the API (an expired session
+  // redirected to the login page, a proxy error page, an offline mobile
+  // connection). Reporting the HTTP status/shape is what turns a bare
+  // "Save failed." into something the teacher can act on.
+  function readApiResponse(res) {
+    return res.text().then(function (text) {
+      try {
+        return { payload: JSON.parse(text), status: res.status };
+      } catch (err) {
+        return { nonJson: true, status: res.status, redirected: res.redirected, body: text };
+      }
+    });
+  }
+
+  function describeApiResponse(r) {
+    if (r.nonJson) {
+      if (!r.status) return 'No response from the server — check the connection and try again.';
+      if (r.redirected) return 'Your session expired — sign in again, then reload this page.';
+      return 'The server replied with an unexpected page (HTTP ' + r.status + '). Please try again.';
+    }
+    if (r.payload && r.payload.message) return r.payload.message;
+    if (r.status === 401) return 'Your session is no longer valid — sign in again and retry.';
+    if (r.status === 403) return 'You are not allowed to change this test’s marks scale.';
+    if (r.status === 404) return 'This test no longer exists — reload the page.';
+    if (r.status >= 500) return 'Server error (HTTP ' + r.status + ') — please try again in a moment.';
+    return 'Save failed (HTTP ' + r.status + ').';
+  }
+  // A number input hands back an empty string when the teacher clears the box,
+  // and Number('') is 0 — which would silently save "no pass threshold" (or a
+  // 0-mark test) instead of complaining. Blank is read as NaN so the guards below
+  // refuse it exactly like the service does, and nothing is POSTed as null.
+  function readScale(input) {
+    const raw = String((input && input.value) || '').trim();
+    return raw === '' ? NaN : Number(raw);
+  }
+
+  // Errors we phrase for the teacher are marked, so the network catch below can
+  // tell them apart from a raw engine message such as Chrome's "Failed to fetch".
+  function friendlyError(message) {
+    const err = new Error(message);
+    err.friendly = true;
+    return err;
+  }
+
   if (saveSettingsBtn) {
     saveSettingsBtn.addEventListener('click', function () {
       const testId = settingsPanel && settingsPanel.dataset ? settingsPanel.dataset.testId : null;
       if (!testId) return;
-      const total = Number(totalMarksInput && totalMarksInput.value);
-      const pass = Number(passMarksInput && passMarksInput.value);
+      const total = readScale(totalMarksInput);
+      const pass = readScale(passMarksInput);
       // Guard a mistyped scale before the round-trip (server also enforces it).
+      // A cleared field is refused here rather than sent as NaN — JSON would
+      // serialise that to null, which the server reads as "no value".
       if (!Number.isFinite(total) || total < 1) {
-        setSettingsStatus('Total marks must be at least 1.', false);
+        setSettingsStatus('Total marks is required — enter a number of at least 1.', false);
         return;
       }
-      if (Number.isFinite(pass) && pass > total) {
+      if (!Number.isFinite(pass) || pass < 0) {
+        setSettingsStatus('Pass marks is required — enter 0 when there is no pass threshold.', false);
+        return;
+      }
+      if (pass > total) {
         setSettingsStatus('Pass marks cannot exceed total marks.', false);
         return;
       }
@@ -120,17 +196,24 @@
         headers: Object.assign({ 'Content-Type': 'application/json' }, bearerAuth()),
         body: JSON.stringify({ totalMarks: total, passMarks: pass }),
       })
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-          if (data && data.status === 'success') {
-            // New ceiling is live — re-flag any score now above it and refresh %.
-            syncMaxToInputs();
-            setSettingsStatus('Saved.', true);
-          } else {
-            setSettingsStatus((data && data.message) || 'Save failed.', false);
+        .then(readApiResponse)
+        .then(function (r) {
+          if (r.nonJson || !r.payload || r.payload.status !== 'success') {
+            throw friendlyError(describeApiResponse(r));
           }
+          // New ceiling is live — re-flag any score now above it and refresh %.
+          syncMaxToInputs();
+          setSettingsStatus('Saved.', true);
         })
-        .catch(function () { setSettingsStatus('Save failed.', false); })
+        // A rejected fetch = the request never got an answer (offline mobile data,
+        // DNS, a dropped connection). Report it as a connection problem rather than
+        // echoing the engine's terse text, which the teacher cannot act on.
+        .catch(function (err) {
+          const msg = err && err.friendly
+            ? err.message
+            : 'No response from the server — check the connection and try again.';
+          setSettingsStatus(msg, false);
+        })
         .finally(function () { saveSettingsBtn.disabled = false; });
     });
   }
@@ -175,13 +258,69 @@
     searchInput.addEventListener('input', applyStudentSearch);
   }
 
-  if (saveBtn) {
-    saveBtn.addEventListener('click', function () {
-      // The whole handler is guarded: a stray throw used to leave the button
-      // disabled and stuck on "Saving…" with nothing submitted — the teacher
-      // perceived this as "click Save and it keeps still". Any failure now
-      // re-arms the button and reports inline instead.
+  // ── Save scores ────────────────────────────────────────────────────────
+  const SAVE_LABEL = (saveBtn && saveBtn.textContent) || 'Save scores';
+
+  function restoreSaveBtn() {
+    if (!saveBtn) return;
+    saveBtn.disabled = false;
+    saveBtn.textContent = SAVE_LABEL;
+  }
+
+  // A slow or interrupted POST on a phone normally ends with the browser
+  // restoring this page from the back/forward cache. Nothing used to re-arm the
+  // button there: it stayed disabled with the label "Saving…", and a disabled
+  // button fires no click at all — so the teacher's next Save press did nothing
+  // ("the button stopped responding"). bfcache use varies by browser, which is
+  // why only some devices hit it. Restoring state on pageshow closes that gap.
+  if (window.addEventListener) {
+    window.addEventListener('pageshow', function (e) {
+      if (e && e.persisted) {
+        restoreSaveBtn();
+        setScoresStatus('');
+      }
+    });
+  }
+
+  if (scoresForm) {
+    // Enter must not submit this form. An empty box is an ABSENCE by design, so
+    // an implicit submit while moving between boxes would save the whole class
+    // as absent. Enter is consumed; on a score box it advances focus instead,
+    // which is what the teacher was actually trying to do.
+    scoresForm.addEventListener('keydown', function (e) {
+      e = e || {};
+      const key = e.key || (e.keyCode === 13 ? 'Enter' : '');
+      if (key !== 'Enter') return;
+      const tag = ((e.target && e.target.tagName) || '').toUpperCase();
+      if (tag === 'TEXTAREA') return;
+      if (e.preventDefault) e.preventDefault(); else e.returnValue = false;
+      if (tag !== 'INPUT') return;
+      const boxes = Array.prototype.slice.call(document.querySelectorAll('.score-input'));
+      const next = boxes[boxes.indexOf(e.target) + 1];
+      if (next && next.focus) next.focus();
+    });
+
+    // Serialization runs on the FORM's submit event, not on a button click: the
+    // button is a native submit control, so a page whose script never ran still
+    // posts (and the server answers with a readable flash) instead of sitting
+    // dead. Healthy script fills #records-input here, or cancels the submission
+    // with an inline reason.
+    scoresForm.addEventListener('submit', function (e) {
+      e = e || {};
+      const cancel = function () {
+        if (e.preventDefault) e.preventDefault(); else e.returnValue = false;
+        restoreSaveBtn();
+      };
+      // The whole handler is guarded: a stray throw must not leave the button
+      // disabled on "Saving…" with nothing submitted. Any failure re-arms it and
+      // reports inline instead.
       try {
+        if (!recordsInput) {
+          setScoresStatus('Save failed — the form is missing. Please reload the page.', false);
+          cancel();
+          return;
+        }
+
         const records = [];
         let absentCount = 0;
         // Re-query rows from the DOM so we pick up the current (possibly sorted)
@@ -214,11 +353,13 @@
         // PWA, which would make the Save button appear dead.
         if (invalid.length > 0) {
           setScoresStatus('Each box must be a number or "A" (absent). Fix: ' + invalid.slice(0, 5).join(', ') + (invalid.length > 5 ? '…' : ''), false);
+          cancel();
           return;
         }
 
         if (records.length === 0) {
           setScoresStatus('No pupils to save — the roster is empty.', false);
+          cancel();
           return;
         }
 
@@ -229,6 +370,7 @@
           const over = records.filter(function (r) { return r.score !== null && r.score > max; });
           if (over.length > 0) {
             setScoresStatus('Scores must be between 0 and ' + max + '. Adjust ' + over.length + ' entered value(s) (or save the new total marks first).', false);
+            cancel();
             return;
           }
         }
@@ -238,22 +380,14 @@
         // the installed PWA / an in-app WebView window.confirm can be a silent
         // no-op that returns false, so gating the save on it meant clicking Save
         // did nothing. The inline note just informs the teacher of the count.
-        const form = document.getElementById('scores-form');
-        const recordsInput = document.getElementById('records-input');
-        if (!form || !recordsInput) {
-          setScoresStatus('Save failed — the form is missing. Please reload the page.', false);
-          return;
-        }
-
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Saving…';
-        if (absentCount > 0) setScoresStatus(absentCount + ' pupil(s) will be saved as Absent (A).', true);
-
         recordsInput.value = JSON.stringify(records);
-        form.submit();
+        if (absentCount > 0) setScoresStatus(absentCount + ' pupil(s) will be saved as Absent (A).', true);
+        if (saveBtn) saveBtn.textContent = 'Saving…';
+        // No preventDefault and no manual form.submit(): the browser performs the
+        // POST, so the global double-submit lock (js/confirm-submit.js) applies
+        // and its pageshow handler re-enables this button after a bfcache return.
       } catch (err) {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save scores';
+        cancel();
         setScoresStatus('Could not save the scores. Please reload the page and try again.', false);
       }
     });

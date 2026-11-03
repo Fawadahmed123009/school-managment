@@ -41,7 +41,17 @@
   <% if (roster.length === 0) { %>
     <div class="empty"><div class="display">No students in the selected classes yet</div></div>
   <% } else { %>
-    <div class="panel">
+    <!-- The roster panel IS the POST form and Save is a native submit button.
+         It used to be a hidden form driven only by a JS click handler, so any
+         page script that failed to run (stale cached copy, a load-time error)
+         left the button doing absolutely nothing — no request, no message.
+         Now the browser itself performs the POST; test-scores.js fills the
+         scores on the submit event and cancels it when validation fails. Even
+         with no script at all the server answers with a readable flash
+         ("No scores were received…") instead of a silent dead button. -->
+    <form class="panel" id="scores-form" method="POST" action="/tests/mark/<%= testId %>">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <input type="hidden" name="records" id="records-input" />
       <div class="panel-head">
         <h2>Enter scores</h2>
         <span class="pill ocr">Out of <%= test.totalMarks %></span>
@@ -99,16 +109,11 @@
         <div class="total"><span class="l">Entered</span> <span id="entered-count">0</span> / <%= roster.length %></div>
         <div style="display:flex;align-items:center;gap:12px;">
           <span id="scores-status" role="status" style="font-size:13px;color:var(--ink-soft);"></span>
-          <button type="button" class="btn btn-primary" id="save-scores-btn">Save scores</button>
+          <button type="submit" class="btn btn-primary" id="save-scores-btn">Save scores</button>
         </div>
       </div>
-    </div>
+    </form>
   <% } %>
-
-  <form id="scores-form" method="POST" action="/tests/mark/<%= testId %>" style="display:none;">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-    <input type="hidden" name="records" id="records-input" />
-  </form>
 
   <script src="/js/test-scores.js"></script>
 <% } %>

@@ -39,6 +39,42 @@
     if (testSettings) testSettings.style.display = show ? '' : 'none';
   }
 
+  // Read an API response whatever it contains. A non-JSON body means the request
+  // never reached the API (expired session redirected to the login page, a proxy
+  // error page, a dropped mobile connection); the status is then reported instead
+  // of a bare "Save failed", so the teacher knows why nothing was saved.
+  async function readApiResponse(res) {
+    var text = '';
+    try { text = await res.text(); } catch (e) { /* unreadable body */ }
+    try {
+      return { payload: JSON.parse(text), status: res.status };
+    } catch (e) {
+      return { nonJson: true, status: res.status, redirected: res.redirected, body: text };
+    }
+  }
+
+  function describeApiResponse(r) {
+    if (r.nonJson) {
+      if (!r.status) return 'No response from the server — check the connection and try again.';
+      if (r.redirected) return 'Your session expired — sign in again, then reload this page.';
+      return 'The server replied with an unexpected page (HTTP ' + r.status + '). Please try again.';
+    }
+    if (r.payload && r.payload.message) return r.payload.message;
+    if (r.status === 401) return 'Your session is no longer valid — sign in again and retry.';
+    if (r.status === 403) return 'You are not allowed to change this test’s marks scale.';
+    if (r.status === 404) return 'This test no longer exists — pick it again.';
+    if (r.status >= 500) return 'Server error (HTTP ' + r.status + ') — please try again in a moment.';
+    return 'Save failed (HTTP ' + r.status + ').';
+  }
+
+  // A cleared number input reads as an empty string, and Number('') is 0 — which
+  // would save "no pass threshold" instead of refusing. Blank becomes NaN so the
+  // guards below catch it, matching the service-side validation.
+  function readScale(input) {
+    var raw = String((input && input.value) || '').trim();
+    return raw === '' ? NaN : Number(raw);
+  }
+
   async function loadTestMarks(id) {
     if (!totalMarksInput) return;
     setMarksStatus('Loading…', true);
@@ -61,22 +97,38 @@
     saveMarksBtn.addEventListener('click', async function() {
       var id = window.selectedTestId;
       if (!id) return;
+      // Guard the scale before the round-trip, so a cleared field gives a message
+      // here rather than a server rejection of an empty/NaN value.
+      var total = readScale(totalMarksInput);
+      var pass = readScale(passMarksInput);
+      if (!Number.isFinite(total) || total < 1) {
+        setMarksStatus('Total marks is required — enter a number of at least 1.', false);
+        return;
+      }
+      if (!Number.isFinite(pass) || pass < 0) {
+        setMarksStatus('Pass marks is required — enter 0 when there is no pass threshold.', false);
+        return;
+      }
+      if (pass > total) {
+        setMarksStatus('Pass marks cannot exceed total marks.', false);
+        return;
+      }
       saveMarksBtn.disabled = true;
       setMarksStatus('Saving…', true);
       try {
         var res = await fetch('/api/v1/tests/' + id + '/marks', {
           method: 'PATCH',
           headers: getHeaders(),
-          body: JSON.stringify({ totalMarks: totalMarksInput.value, passMarks: passMarksInput.value }),
+          body: JSON.stringify({ totalMarks: total, passMarks: pass }),
         });
-        var data = await res.json();
-        if (data.status === 'success') {
-          setMarksStatus('Saved.', true);
+        var r = await readApiResponse(res);
+        if (r.nonJson || !r.payload || r.payload.status !== 'success') {
+          setMarksStatus(describeApiResponse(r), false);
         } else {
-          setMarksStatus(data.message || 'Save failed', false);
+          setMarksStatus('Saved.', true);
         }
       } catch (err) {
-        setMarksStatus('Save failed', false);
+        setMarksStatus('Could not reach the server — check the connection and try again.', false);
       } finally {
         saveMarksBtn.disabled = false;
       }
