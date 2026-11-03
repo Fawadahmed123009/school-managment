@@ -48,6 +48,19 @@ const errorHandler = (err, req, res, _next) => {
 
 // Status/body mapping for a pending response.
 const sendError = (err, req, res) => {
+  // CORS refusal (utils/corsPolicy.js throws from the origin callback). This is
+  // the policy rejecting a request, not the server failing — and it is exactly
+  // what teachers saw as "Internal Server Error" when the mark-entry page's
+  // same-origin PATCH (total/pass marks) was misjudged as cross-origin. A 403
+  // with a readable reason lets the client surface something actionable.
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({
+      status: "failed",
+      message:
+        "This request came from an address the site does not accept. Open the page again from the school's own address and try once more.",
+    });
+  }
+
   // Mongoose validation error
   if (err.name === "ValidationError") {
     const messages = Object.values(err.errors).map((e) => e.message);
@@ -62,6 +75,26 @@ const sendError = (err, req, res) => {
     return res.status(400).json({
       status: "failed",
       message: `Invalid ${err.path}: ${err.value}`,
+    });
+  }
+
+  // body-parser rejections. Both arrive as plain Errors carrying a numeric
+  // `status` plus a `type`, and both were falling through to the 500 default:
+  //   • entity.parse.failed — the request body was not valid JSON/form data
+  //     (a malformed or truncated payload, e.g. a save interrupted in flight),
+  //     which is a bad request, not a server fault;
+  //   • entity.too.large    — the body crossed the 1mb parse cap (a very long
+  //     roster posted as JSON), so the client's fix is to send less at once.
+  if (err.type === "entity.parse.failed") {
+    return res.status(400).json({
+      status: "failed",
+      message: "The request could not be read. Please reload the page and try again.",
+    });
+  }
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      status: "failed",
+      message: "The request was too large to process. Please enter fewer scores at a time.",
     });
   }
 
@@ -99,12 +132,18 @@ const sendError = (err, req, res) => {
     });
   }
 
-  // Default: 500
-  const statusCode = err.statusCode || 500;
+  // Default: the error's own status when it declares one, else 500.
+  // `statusCode` is this codebase's convention; third-party errors (body-parser,
+  // jsonwebtoken, …) use `status`, and honouring it keeps a client/request fault
+  // from being reported as a server failure.
+  const statusCode = err.statusCode || err.status || 500;
   res.status(statusCode).json({
     status: "failed",
+    // Only a genuine server fault (5xx) is masked in production — a 4xx carries
+    // a client-facing reason that helps the teacher fix the input instead of
+    // guessing at a broken server.
     message:
-      process.env.NODE_ENV === "production"
+      process.env.NODE_ENV === "production" && statusCode >= 500
         ? "Internal server error"
         : err.message,
   });

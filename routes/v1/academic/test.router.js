@@ -8,6 +8,19 @@ const isAssignedToSubject = require("../../../middlewares/isAssignedToSubject");
 const Teacher = require("../../../models/Staff/teachers.model");
 const responseStatus = require("../../../handlers/responseStatus.handler");
 const { denySuspendedApi } = require("../../../handlers/suspendedGate.handler");
+const logger = require("../../../config/logger");
+
+// A guard that cannot complete answers 500, so its cause has to reach the log
+// with the request that triggered it — otherwise a failing mark-entry request
+// (e.g. the total/pass marks PATCH) leaves nothing to diagnose from the logs.
+const logGuardFailure = (req, guard, err) =>
+  logger.error(`${req.method} ${req.originalUrl} — ${guard} failed: ${err.message}`, {
+    method: req.method,
+    url: req.originalUrl,
+    testId: req.params && req.params.testId,
+    userId: req.userAuth && req.userAuth.id,
+    stack: err && err.stack,
+  });
 
 const {
   createTestSessionController,
@@ -74,6 +87,7 @@ const isAdminOrTeacher = async (req, res, next) => {
     if (admin && admin.role === "admin") return next();
     return responseStatus(res, 403, "failed", "Access Denied. Admin or teacher only route.");
   } catch (err) {
+    logGuardFailure(req, "isAdminOrTeacher", err);
     return responseStatus(res, 500, "failed", "Server error verifying access");
   }
 };
@@ -97,6 +111,7 @@ const isTeacherAssignedOrManager = async (req, res, next) => {
     }
     return responseStatus(res, 403, "failed", "Access Denied. Teacher or manager only route.");
   } catch (err) {
+    logGuardFailure(req, "isTeacherAssignedOrManager", err);
     return responseStatus(res, 500, "failed", "Server error verifying access");
   }
 };

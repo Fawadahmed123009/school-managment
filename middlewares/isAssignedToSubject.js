@@ -20,6 +20,7 @@
 
 const responseStatus = require("../handlers/responseStatus.handler");
 const { denySuspendedApi } = require("../handlers/suspendedGate.handler");
+const logger = require("../config/logger");
 const Test = require("../models/Academic/test.model");
 const Assignment = require("../models/Academic/assignment.model");
 
@@ -89,6 +90,16 @@ const isAssignedToSubject = async (req, res, next) => {
     // The controller / service is expected to handle validation.
     next();
   } catch (err) {
+    // Logged, never swallowed: this branch answers 500, so without the stack the
+    // operator has nothing to trace a failed mark-entry request back to — the
+    // total/pass marks PATCH routes through here on every save.
+    logger.error(`${req.method} ${req.originalUrl} — assignment check failed: ${err.message}`, {
+      method: req.method,
+      url: req.originalUrl,
+      testId: req.params.testId,
+      teacherId: req.userAuth && req.userAuth.id,
+      stack: err && err.stack,
+    });
     return responseStatus(res, 500, "failed", "Server error verifying subject assignment");
   }
 };
@@ -147,6 +158,12 @@ const isAssignedToTestView = async (req, res, next) => {
 
     next();
   } catch (err) {
+    logger.error(`${req.method} ${req.originalUrl} — view assignment check failed: ${err.message}`, {
+      method: req.method,
+      url: req.originalUrl,
+      testId: req.params.testId,
+      stack: err && err.stack,
+    });
     return res.status(500).render("error", {
       title: "Server error",
       message: "Could not verify your subject assignment.",
