@@ -116,7 +116,12 @@ router.post("/assignments/create", requireAdminOrManager(), async (req, res) => 
 });
 
 router.post("/assignments/:assignmentId/delete", requireAdminOrManager(), async (req, res) => {
-  await apiFetch(`/assignments/${req.params.assignmentId}`, req.token, { method: "DELETE" });
+  // The delete result must be checked — redirecting ?ok=1 unconditionally
+  // showed "Saved." even when the API rejected the delete (false success).
+  const result = await apiFetch(`/assignments/${req.params.assignmentId}`, req.token, { method: "DELETE" });
+  if (result.status !== "success") {
+    return res.redirect(`/assignments?error=${encodeURIComponent(result.message || "Could not delete the assignment")}`);
+  }
   res.redirect("/assignments?ok=1");
 });
 

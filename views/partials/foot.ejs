@@ -3,6 +3,12 @@
 </div>
 <script src="/js/csrf.js"></script>
 <script src="/js/layout.js"></script>
+<!-- Feedback layer: toasts + themed confirm dialog + shared form helpers.
+     Loaded before confirm-submit.js so every page (and the global delete
+     gate) can use them. Plain external files — CSP script-src 'self'. -->
+<script src="/js/toast.js"></script>
+<script src="/js/confirm-dialog.js"></script>
+<script src="/js/form-feedback.js"></script>
 <script src="/js/confirm-submit.js"></script>
 <script src="/js/pwa.js"></script>
 </body>

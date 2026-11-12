@@ -14,6 +14,8 @@ router.get("/tests/mark", requireRole("teacher"), async (req, res) => {
     page: "tests-mark",
     user: req.user,
     classes,
+    // The OCR review save redirects here with ?ok=1 — surface it.
+    ok: req.query.ok === "1",
     loadError: classesRes.status === "success" ? null : classesRes.message,
     schoolName: res.locals.schoolName,
   });

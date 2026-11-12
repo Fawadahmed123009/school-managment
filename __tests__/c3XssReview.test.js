@@ -82,6 +82,10 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
     const node = {
       id,
       _innerHTML: "",
+      _classes: new Set(),
+      children: [],
+      parentNode: null,
+      attrs: {},
       textContent: jsonElements[id] || "",
       value: "",
       src: "",
@@ -90,19 +94,33 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
       disabled: false,
       style: {},
       dataset: {},
-      classList: { add: () => {}, remove: () => {} },
+      // Real class tracking + child list: the shared feedback modules
+      // (toast.js / form-feedback.js, loaded first like foot.ejs does)
+      // render into this DOM.
+      classList: {
+        add: (...cs) => cs.forEach((c) => node._classes.add(c)),
+        remove: (...cs) => cs.forEach((c) => node._classes.delete(c)),
+        contains: (c) => node._classes.has(c),
+      },
       querySelector: () => node,
       querySelectorAll: () => [],
-      appendChild: () => {},
+      appendChild: (c) => { c.parentNode = node; node.children.push(c); return c; },
+      removeChild: (c) => { const i = node.children.indexOf(c); if (i !== -1) node.children.splice(i, 1); c.parentNode = null; return c; },
+      contains: (n) => n === node || node.children.some((c) => c.contains && c.contains(n)),
       remove: () => {},
+      focus: () => {},
       addEventListener: (ev, fn) => {
         listeners[id] = listeners[id] || {};
         listeners[id][ev] = fn;
       },
       removeEventListener: () => {},
-      setAttribute: () => {},
+      setAttribute: (k, v) => { node.attrs[k] = String(v); },
       click: () => {},
     };
+    Object.defineProperty(node, "className", {
+      get: () => [...node._classes].join(" "),
+      set: (v) => { node._classes = new Set(String(v).split(/\s+/).filter(Boolean)); },
+    });
     Object.defineProperty(node, "innerHTML", {
       get() {
         return node._innerHTML;
@@ -121,6 +139,10 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
     querySelectorAll: () => [],
     querySelector: () => el("__panel"),
     createElement: () => el("__created" + elements.size),
+    body: el("__body"),
+    activeElement: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
   };
 
   const sandbox = {
@@ -134,7 +156,8 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
     fetch: async (url) => {
       const key = Object.keys(routes).find((k) => String(url).includes(k));
       const body = key ? routes[key] : { status: "error", message: "not stubbed" };
-      return { json: async () => body, ok: true, blob: async () => ({}) };
+      // text/status/redirected feed the real FormFeedback.fetchJson reader.
+      return { json: async () => body, text: async () => JSON.stringify(body), status: 200, redirected: false, ok: true, blob: async () => ({}) };
     },
     alert: () => {},
     console,
@@ -147,6 +170,7 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
     Promise,
     encodeURIComponent,
     setTimeout,
+    clearTimeout,
     FormData: class {
       constructor() {
         this.entries = [];
@@ -159,6 +183,18 @@ function buildHarness({ htmlModules, jsonElements, routes }) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
 
+  // foot.ejs loads the shared feedback modules before every page script —
+  // mirror that order so the real FormFeedback/Toast/ConfirmDialog run here.
+  ["toast.js", "confirm-dialog.js", "form-feedback.js"].forEach((m) =>
+    vm.runInContext(fs.readFileSync(path.join(PUBLIC_JS, m), "utf8"), sandbox, {
+      filename: m,
+    })
+  );
+  // In a browser window IS the global, so page scripts use bare Toast /
+  // FormFeedback identifiers — expose them on the sandbox global too.
+  sandbox.Toast = sandbox.window.Toast;
+  sandbox.ConfirmDialog = sandbox.window.ConfirmDialog;
+  sandbox.FormFeedback = sandbox.window.FormFeedback;
   htmlModules.forEach((m) =>
     vm.runInContext(fs.readFileSync(path.join(PUBLIC_JS, m), "utf8"), sandbox, {
       filename: m,

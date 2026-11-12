@@ -7,6 +7,7 @@
   --accent: #c8a84b;
   --accent-hover: #b8963f;
   --paid: #059669;
+  --ok: #059669; /* alias — existing scripts reference var(--ok) */
   --pending: #d97706;
   --partial: #2563eb;
   --review: #d97706;
@@ -641,26 +642,45 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .pill.error { background: rgba(220,38,38,0.08); color: var(--error); }
 
 /* ── Flash messages ──────────────────────── */
+/* Server-rendered PRG banners — same visual language as the JS toasts
+   (white surface, coloured left bar, tinted icon chip) so feedback looks
+   identical whether it arrived via redirect or in-page. Structure/classes
+   are unchanged; this is presentation only. */
 .flash {
-  padding: 12px 18px;
-  border-radius: 8px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
   margin-bottom: 20px;
   font-size: 13px;
   font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--partial);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
 }
-.flash.ok {
-  background: rgba(5,150,105,0.08);
-  color: var(--paid);
-  border: 1px solid rgba(5,150,105,0.15);
+.flash::before {
+  content: "ℹ";
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(37,99,235,0.10);
+  color: var(--partial);
 }
-.flash.error {
-  background: rgba(220,38,38,0.06);
-  color: var(--error);
-  border: 1px solid rgba(220,38,38,0.12);
-}
+.flash.ok { border-left-color: var(--paid); }
+.flash.ok::before { content: "✓"; background: rgba(5,150,105,0.10); color: var(--paid); }
+.flash.error { border-left-color: var(--error); }
+.flash.error::before { content: "✕"; background: rgba(220,38,38,0.08); color: var(--error); }
+.flash.warning { border-left-color: var(--pending); }
+.flash.warning::before { content: "⚠"; background: rgba(217,119,6,0.10); color: var(--pending); }
 
 /* ── Empty state ─────────────────────────── */
 .empty { padding: 48px 20px; text-align: center; color: var(--ink-soft); }
@@ -1727,3 +1747,155 @@ button.page-link { cursor: pointer; }
 .student-typeahead-item.is-active { background: var(--hover-bg, #f5f5f5); }
 .student-typeahead-item span { font-size: 12.5px; color: var(--muted, #888); }
 .student-typeahead-empty { padding: 10px 12px; font-size: 13.5px; color: var(--muted, #888); }
+
+/* ── Toast notifications (public/js/toast.js) ──────────────────────
+   Non-blocking feedback that works inside the installed PWA, where
+   alert()/confirm() can be silently suppressed. Errors are sticky until
+   dismissed; other types auto-dismiss with a hover-pausable progress bar. */
+#toast-stack {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none; /* the stack never blocks the page; toasts re-enable */
+}
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--partial);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  animation: toast-in 0.18s ease-out;
+}
+.toast-icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(37,99,235,0.10);
+  color: var(--partial);
+  margin-top: 1px;
+}
+.toast-body { flex: 1; min-width: 0; }
+.toast-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink); }
+.toast-msg { margin: 2px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; white-space: pre-line; }
+.toast-close {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.toast-close:hover { color: var(--ink); background: var(--paper); }
+.toast-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  width: 100%;
+  background: var(--partial);
+  opacity: 0.55;
+  transform-origin: left;
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast-success { border-left-color: var(--paid); }
+.toast-success .toast-icon { background: rgba(5,150,105,0.10); color: var(--paid); }
+.toast-success .toast-progress { background: var(--paid); }
+.toast-error { border-left-color: var(--error); }
+.toast-error .toast-icon { background: rgba(220,38,38,0.08); color: var(--error); }
+.toast-warning { border-left-color: var(--pending); }
+.toast-warning .toast-icon { background: rgba(217,119,6,0.10); color: var(--pending); }
+.toast-warning .toast-progress { background: var(--pending); }
+.toast-info .toast-progress { background: var(--partial); }
+.toast-out { animation: toast-out 0.2s ease-in forwards; }
+.toast-bump { animation: toast-bump 0.25s ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+@keyframes toast-out { to { opacity: 0; transform: translateX(24px); } }
+@keyframes toast-bump { 0% { transform: scale(1); } 40% { transform: scale(1.02); } 100% { transform: scale(1); } }
+@keyframes toast-progress { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* ── Confirm dialog (public/js/confirm-dialog.js) ──────────────────
+   Promise-based replacement for window.confirm() — always renders in the
+   PWA. Danger asks focus Cancel by default; the scrim/Esc cancel. */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(17,24,39,0.45);
+  animation: confirm-fade 0.15s ease-out;
+}
+.confirm-dialog {
+  width: 100%;
+  max-width: 440px;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px;
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  border-top: 4px solid var(--accent);
+  box-shadow: 0 20px 40px rgba(17,24,39,0.18);
+  animation: confirm-pop 0.16s ease-out;
+}
+.confirm-danger { border-top-color: var(--error); }
+.confirm-title { margin: 0 0 8px; font-family: 'DM Serif Display', Georgia, serif; font-size: 20px; font-weight: 400; color: var(--ink); }
+.confirm-message { font-size: 13.5px; line-height: 1.55; color: var(--ink-soft); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.confirm-message::-webkit-scrollbar { width: 8px; }
+.confirm-message::-webkit-scrollbar-track { background: transparent; }
+.confirm-message::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+.confirm-message::-webkit-scrollbar-thumb:hover { background: var(--ink-soft); }
+.confirm-message p { margin: 0 0 8px; }
+.confirm-message p:last-child { margin-bottom: 0; }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.confirm-out { animation: confirm-fade-out 0.15s ease-in forwards; }
+@keyframes confirm-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes confirm-fade-out { to { opacity: 0; } }
+@keyframes confirm-pop { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+.btn-danger { background: var(--error); color: #fff; }
+.btn-danger:hover { background: #b91c1c; box-shadow: var(--shadow-md); }
+
+/* ── Inline validation feedback (public/js/form-feedback.js) ─────── */
+.field-error { margin: 2px 0 0; font-size: 12px; font-weight: 500; color: var(--error); }
+.input-invalid, .input-invalid:focus { border-color: var(--error); box-shadow: 0 0 0 3px rgba(220,38,38,0.12); }
+.form-status { font-size: 12.5px; font-weight: 500; margin-left: 10px; }
+.form-status.ok { color: var(--paid); }
+.form-status.error { color: var(--error); }
+
+@media (max-width: 640px) {
+  #toast-stack { top: 12px; left: 12px; right: 12px; width: auto; }
+  .confirm-overlay { padding: 12px; }
+  .confirm-dialog { padding: 18px; }
+  .confirm-actions { flex-direction: column-reverse; }
+  .confirm-actions .btn { justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast, .toast-out, .toast-bump, .confirm-overlay, .confirm-dialog, .confirm-out { animation: none; }
+  .toast-progress { display: none; }
+}

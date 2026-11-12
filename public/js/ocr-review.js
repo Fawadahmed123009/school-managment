@@ -32,13 +32,16 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="5">Extracting…</td></tr>';
 
-    const res = await fetch('/fees/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
-    const data = await res.json();
-
-    if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+    // fetchJson never throws and never assumes JSON — a dropped connection
+    // or an HTML error page (expired session) becomes a visible message
+    // instead of an unhandled rejection that left "Extracting…" stuck.
+    const result = await FormFeedback.fetchJson('/fees/ocr/extract', { method: 'POST', body: formData, action: 'Extraction' });
+    if (!result.ok) {
+      rowsBody.innerHTML = `<tr><td colspan="5">Error: ${window.escapeHtml(result.message)}</td></tr>`;
+      Toast.error(result.message, { title: 'Could not extract the sheet' });
       return;
     }
+    const data = result.payload;
 
     pointToArchivedScan(data.archivedUrl);
 
@@ -153,30 +156,34 @@
       const hints = [];
       if (missingStudent > 0) hints.push(`${missingStudent} row(s) have no student selected`);
       if (missingAmount > 0) hints.push(`${missingAmount} row(s) have no amount entered`);
-      alert('No rows are ready to save.\n\n' + (hints.join('\n') || 'Select a student and enter an amount for at least one row.'));
+      Toast.warning('No rows are ready to save.\n\n' + (hints.join('\n') || 'Select a student and enter an amount for at least one row.'), { title: 'Nothing to save' });
       return;
     }
 
-    const res = await fetch('/fees/ocr/confirm', {
+    // busy() restores the button on every exit path and on bfcache pageshow.
+    const restore = FormFeedback.busy(saveBtn, 'Saving…');
+    const result = await FormFeedback.fetchJson('/fees/ocr/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ fees }),
+      action: 'Save',
     });
-    const data = await res.json();
 
-    if (data.status === 'success') {
-      const s = data.data.summary || {};
-      if (data.data.needsReview && data.data.needsReview.length > 0) {
-        showReviewSection(data.data);
+    if (result.ok) {
+      const data = result.payload.data;
+      const s = data.summary || {};
+      if (data.needsReview && data.needsReview.length > 0) {
+        restore(); // stay on the page for the resolve step
+        showReviewSection(data);
       } else {
         const parts = [];
         if (s.created) parts.push(`${s.created} created`);
         if (s.updated) parts.push(`${s.updated} updated to paid`);
-        alert('Done! ' + parts.join(', '));
+        Toast.success(parts.length ? parts.join(', ') : 'Payments saved.', { title: 'Done' });
         window.location.href = '/fees?ok=1';
       }
     } else {
-      alert(data.message || 'Save failed');
+      restore();
+      Toast.error(result.message, { title: 'Save failed' });
     }
   });
 
@@ -229,21 +236,17 @@
     reviewDiv.querySelectorAll('.resolve-btn').forEach(btn => {
       btn.addEventListener('click', async () => {
         const feeId = btn.dataset.feeId;
-        btn.disabled = true;
-        btn.textContent = 'Saving…';
-        const res = await fetch(`/fees/ocr/resolve/${feeId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
-        });
-        const data = await res.json();
-        if (data.status === 'success') {
+        const restore = FormFeedback.busy(btn, 'Saving…');
+        const result = await FormFeedback.fetchJson(`/fees/ocr/resolve/${feeId}`, { method: 'POST', action: 'Update' });
+        // restore() first so the resolved button leaves the bfcache registry
+        // (Back must not re-enable a fee that was already marked paid).
+        restore();
+        if (result.ok) {
           btn.textContent = 'Paid ✓';
           btn.disabled = true;
           btn.style.opacity = '0.6';
         } else {
-          alert(data.message || 'Failed to update');
-          btn.disabled = false;
-          btn.textContent = 'Pick this';
+          Toast.error(result.message, { title: 'Could not mark paid' });
         }
       });
     });

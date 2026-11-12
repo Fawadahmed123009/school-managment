@@ -159,6 +159,10 @@ generateRouter.get("/reports/generate", requireRole("admin", "teacher"), async (
     isTeacher,
     teacherSubjects,
     teacherClasses,
+    // Every POST failure path redirects back with ?error= — the template
+    // reads query.error, so the query must actually reach it (it never did,
+    // which silently dropped ALL generation-failure messages).
+    query: req.query,
     schoolName: res.locals.schoolName,
   });
 });

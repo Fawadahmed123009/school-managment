@@ -9,6 +9,7 @@
   </div>
 </div>
 
+<% if (typeof ok !== 'undefined' && ok) { %><div class="flash ok">Results saved.</div><% } %>
 <% if (loadError) { %><div class="flash error">Couldn't load classes: <%= loadError %></div><% } %>
 
 <div class="panel">

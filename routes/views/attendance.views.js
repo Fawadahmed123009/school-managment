@@ -29,6 +29,10 @@ router.get("/attendance/mark/:classLevelId", requireRole("teacher"), async (req,
     page: "attendance",
     user: req.user,
     ok: req.query.ok === "1",
+    // The POST failure path redirects with ?error= — without passing it
+    // through, the template's error banner never rendered and failed saves
+    // silently vanished.
+    error: req.query.error || null,
     classLevelId: req.params.classLevelId,
     className: classDoc ? classDoc.name : "Class",
     date,
@@ -40,8 +44,16 @@ router.get("/attendance/mark/:classLevelId", requireRole("teacher"), async (req,
 
 router.post("/attendance/mark/:classLevelId", requireRole("teacher"), async (req, res) => {
   const { date, records } = req.body;
-  // records arrives as a JSON string from a hidden input, built client-side
-  const parsed = JSON.parse(records);
+  const back = `/attendance/mark/${req.params.classLevelId}?date=${date}`;
+  // records arrives as a JSON string from a hidden input, built client-side.
+  // A malformed/missing payload must bounce back with a message — an
+  // unguarded parse threw a raw JSON 500 page at the teacher instead.
+  let parsed;
+  try {
+    parsed = JSON.parse(records);
+  } catch (err) {
+    return res.redirect(`${back}&error=${encodeURIComponent("Could not read the attendance entries — reload the page and try again.")}`);
+  }
 
   const result = await apiFetch("/attendance", req.token, {
     method: "POST",
@@ -49,10 +61,10 @@ router.post("/attendance/mark/:classLevelId", requireRole("teacher"), async (req
   });
 
   if (result.status !== "success") {
-    return res.redirect(`/attendance/mark/${req.params.classLevelId}?date=${date}&error=${encodeURIComponent(result.message)}`);
+    return res.redirect(`${back}&error=${encodeURIComponent(result.message || "Could not save attendance")}`);
   }
 
-  res.redirect(`/attendance/mark/${req.params.classLevelId}?date=${date}&ok=1`);
+  res.redirect(`${back}&ok=1`);
 });
 
 module.exports = router;

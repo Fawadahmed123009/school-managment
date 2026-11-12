@@ -30,15 +30,17 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="4">Parsing…</td></tr>';
 
-    const res = await fetch('/students/import/parse', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
-    const data = await res.json();
-
-    if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+    // fetchJson never throws and never assumes JSON: a dropped connection or
+    // an HTML error page (expired session, proxy) becomes a visible message
+    // instead of an unhandled rejection that left "Parsing…" stuck forever.
+    const result = await FormFeedback.fetchJson('/students/import/parse', { method: 'POST', body: formData, action: 'Parse' });
+    if (!result.ok) {
+      rowsBody.innerHTML = `<tr><td colspan="4">Error: ${window.escapeHtml(result.message)}</td></tr>`;
+      Toast.error(result.message, { title: 'Could not parse the file' });
       return;
     }
 
-    currentRows = data.data;
+    currentRows = result.payload.data;
     renderRows();
   });
 
@@ -123,7 +125,9 @@
   saveBtn.addEventListener('click', async () => {
     const dupeRows = findBatchDuplicates();
     if (dupeRows.size > 0) {
-      alert('Two or more rows have the same roll number in the same class. Fix the highlighted rows before importing.');
+      // Toast, not alert() — a blocking dialog can be a silent no-op in the
+      // installed PWA, which made this guard look like a dead Save button.
+      Toast.warning('Two or more rows have the same roll number in the same class. Fix the highlighted rows before importing.', { title: 'Duplicate rows' });
       return;
     }
 
@@ -151,28 +155,26 @@
     });
 
     if (students.length === 0) {
-      alert('Match at least one row to a class with a roll number before importing.');
+      Toast.warning('Match at least one row to a class with a roll number before importing.', { title: 'Nothing to import' });
       return;
     }
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Importing…';
-
-    const res = await fetch('/students/import/confirm', {
+    // busy() restores the label/disabled state on every exit path AND on
+    // bfcache pageshow — Back never lands on a dead "Importing…" button.
+    const restore = FormFeedback.busy(saveBtn, 'Importing…');
+    const result = await FormFeedback.fetchJson('/students/import/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ students }),
+      action: 'Import',
     });
-    const data = await res.json();
+    restore();
 
-    if (data.status !== 'success') {
-      alert(data.message || 'Import failed');
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Import confirmed rows';
+    if (!result.ok) {
+      Toast.error(result.message, { title: 'Import failed' });
       return;
     }
 
-    const { created, skipped } = data.data;
+    const { created, skipped } = result.payload.data;
     reviewStep.style.display = 'none';
     resultsStep.style.display = 'block';
     document.getElementById('results-summary').textContent =
@@ -181,5 +183,6 @@
     document.getElementById('created-body').innerHTML = created.map(s => `
       <tr><td>${window.escapeHtml(s.name)}</td><td>${window.escapeHtml(s.email)}</td><td class="mono">${window.escapeHtml(s.tempPassword)}</td></tr>
     `).join('');
+    Toast.success(`${created.length} student(s) created, ${skipped.length} skipped.`, { title: 'Import complete' });
   });
 })();

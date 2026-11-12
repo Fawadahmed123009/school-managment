@@ -29,6 +29,9 @@ router.get("/students/promote", requireAdminOrManager(), async (req, res) => {
       ok: req.query.ok === "1",
       resultMsg: req.query.msg || "",
       failMsg: req.query.fail || "",
+      // Preview/confirm failures redirect with ?error= — pass it through or
+      // the template's error banner never renders (silent failure).
+      error: req.query.error || null,
       loadError: null,
       schoolName: res.locals.schoolName,
     });
@@ -43,6 +46,7 @@ router.get("/students/promote", requireAdminOrManager(), async (req, res) => {
       ok: false,
       resultMsg: "",
       failMsg: "",
+      error: req.query.error || null,
       loadError: err.message,
       schoolName: res.locals.schoolName,
     });
@@ -60,7 +64,10 @@ router.post("/students/promote/preview", requireAdminOrManager(), async (req, re
       try { promotions = JSON.parse(promotions); } catch (_e) { promotions = []; }
     }
     if (!Array.isArray(promotions) || promotions.length === 0) {
-      return res.redirect("/students/promote?sourceClass=" + encodeURIComponent(sourceClassId || ""));
+      // Bounce back WITH a message — a silent redirect looked like the
+      // Preview button did nothing.
+      return res.redirect("/students/promote?sourceClass=" + encodeURIComponent(sourceClassId || "") +
+        "&error=" + encodeURIComponent("No promotion choices were submitted — assign a target class or Graduate to at least one student."));
     }
 
     // Re-fetch each student server-side to prevent client-side tampering.
@@ -95,7 +102,8 @@ router.post("/students/promote/preview", requireAdminOrManager(), async (req, re
     }
 
     if (changes.length === 0) {
-      return res.redirect("/students/promote?sourceClass=" + encodeURIComponent(sourceClassId || ""));
+      return res.redirect("/students/promote?sourceClass=" + encodeURIComponent(sourceClassId || "") +
+        "&error=" + encodeURIComponent("None of the selected students could be found — reload the page and try again."));
     }
 
     res.render("promotion/preview", {
@@ -122,7 +130,7 @@ router.post("/students/promote/confirm", requireAdminOrManager(), async (req, re
     }
 
     if (!Array.isArray(promotions) || promotions.length === 0) {
-      return res.redirect("/students/promote");
+      return res.redirect("/students/promote?error=" + encodeURIComponent("Nothing to apply — the promotion list was empty. Start again from the class picker."));
     }
 
     const result = await executePromotion(promotions, req.user._id);

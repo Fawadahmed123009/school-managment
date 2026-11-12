@@ -26,7 +26,7 @@
   pickBtn.addEventListener('click', () => {
     // Use window.selectedTestId set by the cascade script in ocr.ejs
     if (!window.selectedTestId) {
-      alert('Select a test first.');
+      Toast.warning('Select a test first.', { title: 'No test selected' });
       return;
     }
     testId = window.selectedTestId;
@@ -42,7 +42,7 @@
     // the chosen test here too — extraction requires one for roster scoping.
     testId = window.selectedTestId || testId;
     if (!testId) {
-      alert('Select a test first.');
+      Toast.warning('Select a test first.', { title: 'No test selected' });
       return;
     }
 
@@ -56,13 +56,16 @@
     reviewStep.style.display = 'block';
     rowsBody.innerHTML = '<tr><td colspan="7">Extracting…</td></tr>';
 
-    const res = await fetch('/marks/ocr/extract', { method: 'POST', headers: { 'X-CSRF-Token': window.CSRF_TOKEN }, body: formData });
-    const data = await res.json();
-
-    if (data.status !== 'success') {
-      rowsBody.innerHTML = `<tr><td colspan="7">Error: ${window.escapeHtml(data.message)}</td></tr>`;
+    // fetchJson never throws and never assumes JSON — a dropped connection
+    // or an HTML error page (expired session) becomes a visible message
+    // instead of an unhandled rejection that left "Extracting…" stuck.
+    const result = await FormFeedback.fetchJson('/marks/ocr/extract', { method: 'POST', body: formData, action: 'Extraction' });
+    if (!result.ok) {
+      rowsBody.innerHTML = `<tr><td colspan="7">Error: ${window.escapeHtml(result.message)}</td></tr>`;
+      Toast.error(result.message, { title: 'Could not extract marks' });
       return;
     }
+    const data = result.payload;
 
     if (data.totalMarks) ocrTotalMarks = Number(data.totalMarks);
 
@@ -187,7 +190,7 @@
   }
 
   function attachRowEvents() {
-    document.querySelectorAll('.score-input').forEach(el => el.addEventListener('input', function () { updateTotal(); updatePercentages(); }));
+    document.querySelectorAll('.score-input').forEach(el => el.addEventListener('input', function () { el.classList.remove('input-invalid'); updateTotal(); updatePercentages(); }));
     // Update roll # and parent columns when user changes the student dropdown
     document.querySelectorAll('.student-select').forEach(sel => {
       sel.addEventListener('change', function () {
@@ -264,6 +267,7 @@
   saveBtn.addEventListener('click', async () => {
     const selects = document.querySelectorAll('.student-select');
     const scores = document.querySelectorAll('.score-input');
+    scores.forEach(el => el.classList.remove('input-invalid'));
     const records = [];
     const invalidScore = [];
     let missingStudent = 0;
@@ -281,7 +285,7 @@
       if (studentId) {
         if (score === '') { blankCount++; }
         else if (score.toLowerCase() === 'a') { absentCount++; records.push({ student: studentId, score: 'A' }); }
-        else if (!Number.isFinite(Number(score)) || Number(score) < 0) { invalidScore.push(score); }
+        else if (!Number.isFinite(Number(score)) || Number(score) < 0) { invalidScore.push(score); scores[i].classList.add('input-invalid'); }
         else { records.push({ student: studentId, score: Number(score) }); }
       } else {
         // No student resolved for this row — it cannot be saved; count it so
@@ -293,16 +297,17 @@
     // Score boxes are free text now (they accept "A" for absent) — catch stray
     // non-numeric values before they become silent NaNs in the payload.
     if (invalidScore.length > 0) {
-      alert(`Each score box must be a number or "A" (absent). Invalid value(s): ${invalidScore.slice(0, 5).join(', ')}${invalidScore.length > 5 ? '…' : ''}`);
+      // Offending boxes are outlined inline; the toast lists the values.
+      Toast.warning(`Each score box must be a number or "A" (absent). Invalid value(s): ${invalidScore.slice(0, 5).join(', ')}${invalidScore.length > 5 ? '…' : ''}`, { title: 'Check the highlighted scores' });
       return;
     }
 
     if (records.length === 0) {
-      alert('No rows are ready to save.\n\n' + (missingStudent > 0
+      Toast.warning('No rows are ready to save.\n\n' + (missingStudent > 0
         ? `${missingStudent} row(s) have no student selected`
         : blankCount > 0
         ? `${blankCount} row(s) have no score typed — blank rows are not saved; type "A" only when the pupil was genuinely absent.`
-        : 'Select a student for at least one row.'));
+        : 'Select a student for at least one row.'), { title: 'Nothing to save' });
       return;
     }
 
@@ -311,35 +316,46 @@
     // empty cell must never overwrite a stored mark. Rows missing a student
     // selection can't be persisted either, so surface them explicitly instead
     // of dropping silently.
-    if (missingStudent > 0 && !confirm(`${missingStudent} row(s) have no student selected and will NOT be saved.\n\nSave the other ${records.length} row(s)?`)) {
-      return;
+    // Themed in-page dialog instead of window.confirm(): inside the installed
+    // PWA a native confirm can be a silent no-op returning false, which
+    // quietly aborted the whole save. ConfirmDialog always renders/resolves.
+    if (missingStudent > 0) {
+      const proceed = await ConfirmDialog.ask({
+        title: 'Some rows have no student',
+        message: `${missingStudent} row(s) have no student selected and will NOT be saved.\n\nSave the other ${records.length} row(s)?`,
+        confirmLabel: `Save ${records.length} row(s)`,
+        cancelLabel: 'Back to review'
+      });
+      if (!proceed) return;
     }
 
-    if (absentCount > 0 && !confirm(`${absentCount} row(s) are marked "A" — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
-      return;
+    if (absentCount > 0) {
+      const proceed = await ConfirmDialog.ask({
+        title: 'Absent rows will be saved',
+        message: `${absentCount} row(s) are marked "A" — they will be saved as Absent (A) and excluded from the class average. Continue?`,
+        confirmLabel: 'Save with absences',
+        cancelLabel: 'Back to review'
+      });
+      if (!proceed) return;
     }
 
     // Blank rows are simply skipped (a safe no-write), so they are NOT gated
-    // behind another confirm(): confirm can be a silent no-op in the installed
-    // PWA and would block the whole save. The row pre-fill title and the
-    // no-rows alert already teach that blank = not saved.
+    // behind another dialog. The row pre-fill title and the no-rows toast
+    // already teach that blank = not saved.
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving…';
-
-    const res = await fetch('/marks/ocr/confirm', {
+    // busy() restores the button on every exit path and on bfcache pageshow.
+    const restore = FormFeedback.busy(saveBtn, 'Saving…');
+    const result = await FormFeedback.fetchJson('/marks/ocr/confirm', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.CSRF_TOKEN },
       body: JSON.stringify({ testId, records }),
+      action: 'Save',
     });
-    const data = await res.json();
 
-    if (data.status === 'success') {
+    if (result.ok) {
       window.location.href = '/tests/mark?ok=1';
     } else {
-      alert(data.message || 'Save failed');
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save all rows';
+      restore();
+      Toast.error(result.message, { title: 'Save failed' });
     }
   });
 })();

@@ -66,6 +66,9 @@ router.get("/families", requireAdminOrManager(), async (req, res) => {
       loadError: null,
       ok: req.query.ok === "1",
       successMsg: req.query.msg || null,
+      // Detail-page failures ("Family not found", load errors) redirect here
+      // with ?error= — pass it through or those messages silently vanish.
+      error: req.query.error || null,
       schoolName: res.locals.schoolName,
     });
   } catch (err) {
@@ -79,6 +82,7 @@ router.get("/families", requireAdminOrManager(), async (req, res) => {
       loadError: err.message,
       ok: false,
       successMsg: null,
+      error: req.query.error || null,
       schoolName: res.locals.schoolName,
     });
   }

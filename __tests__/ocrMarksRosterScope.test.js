@@ -208,6 +208,10 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
     const node = {
       id,
       _innerHTML: "",
+      _classes: new Set(),
+      children: [],
+      parentNode: null,
+      attrs: {},
       textContent: id === "marks-ocr-students" ? studentsJson : "",
       value: "",
       src: "",
@@ -215,19 +219,33 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
       disabled: false,
       style: {},
       dataset: {},
-      classList: { add: () => {}, remove: () => {} },
+      // Real class tracking + child list: the shared feedback modules
+      // (toast.js / form-feedback.js, loaded first like foot.ejs does)
+      // render into this DOM.
+      classList: {
+        add: (...cs) => cs.forEach((c) => node._classes.add(c)),
+        remove: (...cs) => cs.forEach((c) => node._classes.delete(c)),
+        contains: (c) => node._classes.has(c),
+      },
       querySelector: () => node,
       querySelectorAll: () => [],
-      appendChild: () => {},
+      appendChild: (c) => { c.parentNode = node; node.children.push(c); return c; },
+      removeChild: (c) => { const i = node.children.indexOf(c); if (i !== -1) node.children.splice(i, 1); c.parentNode = null; return c; },
+      contains: (n) => n === node || node.children.some((c) => c.contains && c.contains(n)),
       remove: () => {},
+      focus: () => {},
       addEventListener: (ev, fn) => {
         listeners[id] = listeners[id] || {};
         listeners[id][ev] = fn;
       },
       removeEventListener: () => {},
-      setAttribute: () => {},
+      setAttribute: (k, v) => { node.attrs[k] = String(v); },
       click: () => {},
     };
+    Object.defineProperty(node, "className", {
+      get: () => [...node._classes].join(" "),
+      set: (v) => { node._classes = new Set(String(v).split(/\s+/).filter(Boolean)); },
+    });
     Object.defineProperty(node, "innerHTML", {
       get: () => node._innerHTML,
       set(v) {
@@ -260,10 +278,15 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
       querySelectorAll: () => [],
       querySelector: () => el("__q"),
       createElement: () => el("__c" + elements.size),
+      body: el("__body"),
+      activeElement: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
     },
     fetch: async (url, opts) => {
       fetchCalls.push({ url, formData: opts && opts.body });
-      return { json: async () => extractResponse, ok: true, blob: async () => ({}) };
+      // text/status/redirected feed the real FormFeedback.fetchJson reader.
+      return { json: async () => extractResponse, text: async () => JSON.stringify(extractResponse), status: 200, redirected: false, ok: true, blob: async () => ({}) };
     },
     alert: (msg) => alerts.push(msg),
     console,
@@ -276,6 +299,7 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
     Promise,
     encodeURIComponent,
     setTimeout,
+    clearTimeout,
     FormData: CapturingFormData,
     File: class {
       constructor(parts, name) {
@@ -291,6 +315,16 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
+  // foot.ejs loads the shared feedback modules before the page script —
+  // mirror that order so the real FormFeedback/Toast/ConfirmDialog run here.
+  ["toast.js", "confirm-dialog.js", "form-feedback.js"].forEach((m) =>
+    vm.runInContext(realFs.readFileSync(path.join(PUBLIC_JS, m), "utf8"), sandbox, { filename: m })
+  );
+  // In a browser window IS the global, so page scripts use bare Toast /
+  // FormFeedback identifiers — expose them on the sandbox global too.
+  sandbox.Toast = sandbox.window.Toast;
+  sandbox.ConfirmDialog = sandbox.window.ConfirmDialog;
+  sandbox.FormFeedback = sandbox.window.FormFeedback;
   vm.runInContext(realFs.readFileSync(path.join(PUBLIC_JS, "marks-ocr-review.js"), "utf8"), sandbox, {
     filename: "marks-ocr-review.js",
   });
@@ -299,6 +333,17 @@ function buildHarness({ studentsJson, extractResponse, selectedTestId }) {
     innerHtmlWrites,
     fetchCalls,
     alerts,
+    // The no-test warning is a Toast now (alert() can no-op in the PWA);
+    // read it back from the rendered toast stack.
+    toastTexts: () => {
+      const stack = elements.get("toast-stack");
+      if (!stack) return [];
+      return stack.children.map((t) => {
+        const body = t.children.find((c) => c.classList.contains("toast-body"));
+        const msg = body && body.children.find((c) => c.classList.contains("toast-msg"));
+        return msg ? msg.textContent : "";
+      });
+    },
     async fireChange(id) {
       await listeners[id].change();
       await new Promise((r) => setImmediate(r));
@@ -363,6 +408,6 @@ describe("marks OCR review (client): sends testId + renders scoped dropdown", ()
     await h.fireChange("photo-input");
 
     expect(h.fetchCalls).toHaveLength(0);
-    expect(h.alerts.join(" ")).toMatch(/select a test/i);
+    expect(h.toastTexts().join(" ")).toMatch(/select a test/i);
   });
 });
