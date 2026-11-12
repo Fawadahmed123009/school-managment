@@ -5,6 +5,8 @@ const ExpenseEntry = require("../../models/Expenses/expenseEntry.model");
 const { paginate } = require("../../utils/paginate");
 const { round2, parseDayStart } = require("../../utils/teacherSalaryCalc");
 const { dayRangeFilter } = require("../../utils/dateRange");
+const { localDateKey } = require("../../utils/localDateKey");
+const { recordAudit, formatDay, formatMoney } = require("../audit/auditLog.service");
 
 // Inclusive range upper bound comes from the shared local-day helper
 // (utils/dateRange): [from midnight, to midnight + 1 day) — same
@@ -53,6 +55,22 @@ exports.createExpenseEntryService = async (data, adminId, res) => {
     totalAmount,
     notes: payload.notes ? String(payload.notes) : "",
     createdBy: adminId,
+  });
+  // Audit trail (fail-open, fire-and-forget — never blocks the save).
+  recordAudit({
+    userId: adminId,
+    actionType: "create",
+    entityType: "expense_entry",
+    entityId: entry._id,
+    summary: `Recorded expense "${itemName}" under ${head.name} — ${formatMoney(totalAmount)} on ${formatDay(date)}`,
+    afterSnapshot: {
+      expenseHead: head.name,
+      date: localDateKey(date),
+      itemName,
+      quantity,
+      unitRate,
+      totalAmount,
+    },
   });
   return responseStatus(res, 201, "success", entry);
 };

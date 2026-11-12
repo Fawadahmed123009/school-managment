@@ -103,6 +103,11 @@ const authApiRoutes = [
 app.use(authApiRoutes, loginLimiter);
 app.use("/login", loginLimiter);
 
+// ── Audit trail request context (additive) ────────────────────
+// Carries the client IP via AsyncLocalStorage so the fail-open audit logger
+// inside services can record it without threading `req` through call sites.
+app.use(require("../middlewares/requestContext").requestContext);
+
 routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
@@ -111,6 +116,7 @@ routeSync(app, "parents");
 routeSync(app, "expenses");
 routeSync(app, "income");
 routeSync(app, "finance");
+routeSync(app, "audit");
 
 // ---------- Server-rendered portal ───────────────────────────
 const { publicRouter: pdfPublicRouter, generateRouter: pdfGenerateRouter } = require("../routes/views/pdfReport.views");
@@ -224,6 +230,7 @@ app.use(require("../routes/views/teacherSalary.views"));
 app.use(require("../routes/views/expenses.views"));
 app.use(require("../routes/views/income.views"));
 app.use(require("../routes/views/financeReport.views"));
+app.use(require("../routes/views/auditLog.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/teacherMyClasses.views"));
 app.use(require("../routes/views/teacherSettings.views"));

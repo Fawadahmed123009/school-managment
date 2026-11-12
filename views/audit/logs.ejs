@@ -1,0 +1,149 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Administration</p>
+    <h1>Audit Log</h1>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load the audit trail: <%= loadError %></div><% } %>
+
+<!-- ── Filters: inclusive date range + entity type + user ── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/audit-logs" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap; gap:12px;">
+      <div class="field" style="max-width:180px;">
+        <label for="filterFrom">From</label>
+        <input type="date" name="from" id="filterFrom" value="<%= filters.from %>" />
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label for="filterTo">To</label>
+        <input type="date" name="to" id="filterTo" value="<%= filters.to %>" />
+      </div>
+      <div class="field" style="min-width:200px;">
+        <label for="filterEntity">Entity type</label>
+        <select name="entityType" id="filterEntity">
+          <option value="">All entities</option>
+          <% entityTypes.forEach(function(t) { %>
+            <option value="<%= t.value %>" <%= filters.entityType === t.value ? 'selected' : '' %>><%= t.label %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="min-width:200px;">
+        <label for="filterUser">User</label>
+        <select name="userId" id="filterUser">
+          <option value="">All users</option>
+          <% users.forEach(function(u) { %>
+            <option value="<%= u._id %>" <%= filters.userId === String(u._id) ? 'selected' : '' %>><%= u.name %> (<%= u.role %>)</option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="/audit-logs" class="btn btn-ghost">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Chronological trail (newest first) ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Activity</h2>
+    <span class="chart-subtitle"><%= pagination.total %> event<%= pagination.total !== 1 ? 's' : '' %> · newest first</span>
+  </div>
+  <% if (rows.length === 0) { %>
+    <div class="empty">
+      <div class="display">No audit events yet</div>
+      <p>Finance and attendance actions (expenses, income, pay rates, salary runs, attendance corrections, expected times) are recorded here automatically.</p>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger audit-ledger">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>User</th>
+            <th>Action</th>
+            <th>Entity</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.forEach(function(r) { %>
+            <tr>
+              <td class="mono" style="white-space:nowrap;"><%= r.timeFmt %></td>
+              <td>
+                <strong><%= r.userName %></strong>
+                <span class="pill <%= r.userRole === 'admin' ? 'partial' : 'manual' %>" style="margin-left:6px;"><%= r.userRole %></span>
+              </td>
+              <td><span class="pill <%= r.actionPill %>"><%= r.actionLabel %></span></td>
+              <td><%= r.entityLabel %></td>
+              <td class="audit-summary-cell">
+                <div><%= r.summary %></div>
+                <% if (r.detailRows.length > 0) { %>
+                  <details class="audit-detail">
+                    <summary><%= r.hasBefore ? 'View changes' : 'View details' %></summary>
+                    <table class="audit-diff">
+                      <thead>
+                        <tr>
+                          <th>Field</th>
+                          <% if (r.hasBefore) { %><th>Before</th><% } %>
+                          <th><%= r.hasBefore ? 'After' : 'Value' %></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <% r.detailRows.forEach(function(d) { %>
+                          <tr>
+                            <td><%= d.label %></td>
+                            <% if (r.hasBefore) { %><td class="audit-before"><%= d.before %></td><% } %>
+                            <td class="audit-after"><%= d.after %></td>
+                          </tr>
+                        <% }); %>
+                      </tbody>
+                    </table>
+                    <% if (r.ipAddress) { %>
+                      <div class="audit-ip">IP: <span class="mono"><%= r.ipAddress %></span></div>
+                    <% } %>
+                  </details>
+                <% } %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <%
+      var qs = '';
+      if (filters.from) qs += '&from=' + encodeURIComponent(filters.from);
+      if (filters.to) qs += '&to=' + encodeURIComponent(filters.to);
+      if (filters.entityType) qs += '&entityType=' + encodeURIComponent(filters.entityType);
+      if (filters.userId) qs += '&userId=' + encodeURIComponent(filters.userId);
+    %>
+    <div class="panel-body">
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= Math.max(pagination.pages, 1) %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/audit-logs?page=<%= pagination.page - 1 %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+          <% if (pagination.hasNext) { %>
+            <a href="/audit-logs?page=<%= pagination.page + 1 %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

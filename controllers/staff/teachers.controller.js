@@ -131,7 +131,7 @@ exports.toggleAttendanceManagerController = async (req, res) => {
  **/
 exports.adminUpdateCredentialsController = async (req, res) => {
   try {
-    await adminUpdateCredentialsService(req.body, req.params.teacherId, res);
+    await adminUpdateCredentialsService(req.body, req.params.teacherId, res, req.userAuth.id);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

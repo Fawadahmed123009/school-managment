@@ -125,7 +125,7 @@ router.post("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) 
 
   const { res: cap, result } = captureServiceResponse();
   try {
-    await adminUpdateCredentialsService(body, req.params.teacherId, cap);
+    await adminUpdateCredentialsService(body, req.params.teacherId, cap, req.user._id);
   } catch (err) {
     // fall through to the error re-render below
   }

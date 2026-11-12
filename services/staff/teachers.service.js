@@ -13,6 +13,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
 const { isValidTime } = require("../../utils/teacherAttendanceTime");
 const { recordTeacherLoginArrival } = require("./teacherAttendance.service");
+const { recordAudit, changedFields } = require("../audit/auditLog.service");
 const logger = require("../../config/logger");
 
 /**
@@ -72,6 +73,21 @@ exports.createTeacherService = async (data, adminId, res) => {
   // teachers array, so this only applies when the caller is an admin).
   if (admin) {
     await Admin.findByIdAndUpdate(adminId, { $push: { teachers: createTeacher._id } });
+  }
+
+  // Audit trail (fail-open): expected times set at creation count as "set".
+  if (expectedArrivalTime || expectedDepartureTime) {
+    recordAudit({
+      userId: adminId,
+      actionType: "create",
+      entityType: "teacher_expected_times",
+      entityId: createTeacher._id,
+      summary: `Set expected times for new teacher ${createTeacher.name} (arrival ${expectedArrivalTime || "—"}, departure ${expectedDepartureTime || "—"})`,
+      afterSnapshot: {
+        expectedArrivalTime: expectedArrivalTime || "",
+        expectedDepartureTime: expectedDepartureTime || "",
+      },
+    });
   }
 
   return responseStatus(res, 200, "success", createTeacher);
@@ -267,9 +283,10 @@ exports.toggleAttendanceManagerService = async (teacherId, res) => {
 
 /**
  * Admin updates a teacher's name / email / password.
+ * `adminId` is optional (audit trail only) — the acting admin/manager.
  * @route PUT /api/v1/teacher/:teacherId/credentials
  */
-exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
+exports.adminUpdateCredentialsService = async (data, teacherId, res, adminId) => {
   const { name, email, password, whatsappNumber } = data;
 
   const expectedArrivalTime = sanitizeExpectedTime(data.expectedArrivalTime);
@@ -304,6 +321,37 @@ exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
     { $set: updateFields },
     { new: true }
   );
+
+  // Audit trail (fail-open): only when an expected time actually changed —
+  // a credentials edit that leaves the times alone writes no audit row.
+  const timeKeys = ["expectedArrivalTime", "expectedDepartureTime"];
+  const beforeTimes = {
+    expectedArrivalTime: teacher.expectedArrivalTime || "",
+    expectedDepartureTime: teacher.expectedDepartureTime || "",
+  };
+  const afterTimes = {
+    expectedArrivalTime: expectedArrivalTime !== undefined ? expectedArrivalTime : beforeTimes.expectedArrivalTime,
+    expectedDepartureTime: expectedDepartureTime !== undefined ? expectedDepartureTime : beforeTimes.expectedDepartureTime,
+  };
+  const timeDiff = changedFields(beforeTimes, afterTimes, timeKeys);
+  if (timeDiff) {
+    const parts = [];
+    if ("expectedArrivalTime" in timeDiff.before) {
+      parts.push(`arrival ${timeDiff.before.expectedArrivalTime || "—"} → ${timeDiff.after.expectedArrivalTime || "—"}`);
+    }
+    if ("expectedDepartureTime" in timeDiff.before) {
+      parts.push(`departure ${timeDiff.before.expectedDepartureTime || "—"} → ${timeDiff.after.expectedDepartureTime || "—"}`);
+    }
+    recordAudit({
+      userId: adminId,
+      actionType: "update",
+      entityType: "teacher_expected_times",
+      entityId: teacherId,
+      summary: `Updated expected times for ${teacher.name} (${parts.join(", ")})`,
+      beforeSnapshot: timeDiff.before,
+      afterSnapshot: timeDiff.after,
+    });
+  }
 
   const responseTeacher = updatedTeacher.toObject();
   delete responseTeacher.password;

@@ -8,6 +8,8 @@ const TeacherSalaryRun = require("../../models/Staff/teacherSalaryRun.model");
 const TeacherSalarySettings = require("../../models/Staff/teacherSalarySettings.model");
 const { paginate } = require("../../utils/paginate");
 const { parseDayStart, computeSalary } = require("../../utils/teacherSalaryCalc");
+const { localDateKey } = require("../../utils/localDateKey");
+const { recordAudit, changedFields, formatDay, formatMoney } = require("../audit/auditLog.service");
 
 // ── shared helpers ──────────────────────────────────────────────────────────
 
@@ -223,6 +225,22 @@ exports.createTeacherPayConfigService = async (payload, adminId, res) => {
     createdBy: adminId,
   });
 
+  // Audit trail (fail-open). Rate history is INSERT-only — a rate "update"
+  // is a new effective-dated row, so this create hook covers both cases.
+  recordAudit({
+    userId: adminId,
+    actionType: "create",
+    entityType: "pay_config",
+    entityId: created._id,
+    summary: `Set pay rate for ${resolved.teacher.name}: ${formatMoney(created.rateAmount)}/${payType === "per-hour" ? "hour" : "lecture"} effective ${formatDay(effectiveFrom)}`,
+    afterSnapshot: {
+      teacher: resolved.teacher.name,
+      payType,
+      rateAmount: created.rateAmount,
+      effectiveFrom: localDateKey(effectiveFrom),
+    },
+  });
+
   return responseStatus(res, 201, "success", created);
 };
 
@@ -317,6 +335,17 @@ exports.generateTeacherSalaryService = async (payload, adminId, res) => {
 
   const { teacher, payload: calc, overlaps, start, end } = computed;
 
+  // Audit pre-read: capture the draft being replaced (if any) so the trail
+  // can show what changed. Read-only — the upsert below is unchanged.
+  const prevDraft = await TeacherSalaryRun.findOne({
+    teacher: teacher._id,
+    periodStart: start,
+    periodEnd: end,
+    status: "draft",
+  })
+    .select("status grossAmount lateDeductionAmount netAmount totalWorkingDays totalWorkingHours lateDays lectureCount")
+    .lean();
+
   const run = await TeacherSalaryRun.findOneAndUpdate(
     { teacher: teacher._id, periodStart: start, periodEnd: end, status: "draft" },
     {
@@ -331,6 +360,31 @@ exports.generateTeacherSalaryService = async (payload, adminId, res) => {
     },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   ).lean();
+
+  // Audit trail (fail-open, fire-and-forget — never blocks generation).
+  const runKeys = ["status", "grossAmount", "lateDeductionAmount", "netAmount", "totalWorkingDays", "totalWorkingHours", "lateDays", "lectureCount"];
+  const diff = prevDraft ? changedFields(prevDraft, run, runKeys) : null;
+  const afterBase = {
+    periodStart: localDateKey(start),
+    periodEnd: localDateKey(end),
+    status: run.status,
+    grossAmount: run.grossAmount,
+    lateDeductionAmount: run.lateDeductionAmount,
+    netAmount: run.netAmount,
+    totalWorkingDays: run.totalWorkingDays,
+    totalWorkingHours: run.totalWorkingHours,
+    lateDays: run.lateDays,
+    lectureCount: run.lectureCount,
+  };
+  recordAudit({
+    userId: adminId,
+    actionType: "generate",
+    entityType: "salary_run",
+    entityId: run._id,
+    summary: `${prevDraft ? "Regenerated" : "Generated"} salary run for ${teacher.name}, ${formatDay(start)} – ${formatDay(end)} (net ${formatMoney(run.netAmount)})`,
+    beforeSnapshot: diff ? diff.before : null,
+    afterSnapshot: diff ? diff.after : afterBase,
+  });
 
   return responseStatus(res, 201, "success", { run, overlaps });
 };
@@ -386,6 +440,18 @@ exports.finalizeTeacherSalaryRunService = async (id, adminId, res) => {
     if (!existing) return responseStatus(res, 404, "failed", "Salary run not found");
     return responseStatus(res, 400, "failed", "Only draft runs can be finalized");
   }
+  // Audit trail (fail-open). {teacher} is resolved by the audit writer off
+  // the main path, so finalization needs no extra name lookup here.
+  recordAudit({
+    userId: adminId,
+    actionType: "finalize",
+    entityType: "salary_run",
+    entityId: run._id,
+    teacherId: run.teacher,
+    summary: `Finalized salary run for {teacher}, ${formatDay(run.periodStart)} – ${formatDay(run.periodEnd)} (net ${formatMoney(run.netAmount)})`,
+    beforeSnapshot: { status: "draft" },
+    afterSnapshot: { status: "finalized", finalizedAt: run.finalizedAt },
+  });
   return responseStatus(res, 200, "success", run);
 };
 

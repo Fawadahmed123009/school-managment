@@ -149,7 +149,7 @@ router.post("/expense-heads/create", requireRole("admin"), async (req, res) => {
 router.post("/expense-heads/:id/toggle", requireRole("admin"), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
-    await toggleExpenseHeadService(req.params.id, req.body.isActive === "true", cap);
+    await toggleExpenseHeadService(req.params.id, req.body.isActive === "true", cap, req.user._id);
   } catch (err) {
     return res.redirect(`/expense-heads?error=${encodeURIComponent(err.message || "Failed to update expense head")}`);
   }

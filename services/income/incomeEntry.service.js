@@ -5,6 +5,8 @@ const IncomeEntry = require("../../models/Income/incomeEntry.model");
 const { paginate } = require("../../utils/paginate");
 const { round2, parseDayStart } = require("../../utils/teacherSalaryCalc");
 const { dayRangeFilter } = require("../../utils/dateRange");
+const { localDateKey } = require("../../utils/localDateKey");
+const { recordAudit, formatDay, formatMoney } = require("../audit/auditLog.service");
 
 // Inclusive range upper bound comes from the shared local-day helper
 // (utils/dateRange): [from midnight, to midnight + 1 day) — same
@@ -84,6 +86,25 @@ exports.createIncomeEntryService = async (data, adminId, res) => {
   }
 
   const entry = await IncomeEntry.create(doc);
+  // Audit trail (fail-open, fire-and-forget — never blocks the save).
+  const afterSnapshot = {
+    incomeHead: head.name,
+    date: localDateKey(date),
+    description,
+    totalAmount: doc.totalAmount,
+  };
+  if (hasQty && hasRate) {
+    afterSnapshot.quantity = doc.quantity;
+    afterSnapshot.unitRate = doc.unitRate;
+  }
+  recordAudit({
+    userId: adminId,
+    actionType: "create",
+    entityType: "income_entry",
+    entityId: entry._id,
+    summary: `Recorded income "${description}" under ${head.name} — ${formatMoney(doc.totalAmount)} on ${formatDay(date)}`,
+    afterSnapshot,
+  });
   return responseStatus(res, 201, "success", entry);
 };
 

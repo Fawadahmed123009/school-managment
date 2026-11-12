@@ -10,6 +10,7 @@
 
 const mockFindOne = jest.fn();
 const mockCreate = jest.fn();
+const mockFindById = jest.fn();
 const mockFindByIdAndUpdate = jest.fn();
 const mockFind = jest.fn();
 const mockCount = jest.fn();
@@ -17,6 +18,7 @@ const mockCount = jest.fn();
 jest.mock("../models/Income/incomeHead.model", () => ({
   findOne: (...a) => mockFindOne(...a),
   create: (...a) => mockCreate(...a),
+  findById: (...a) => mockFindById(...a),
   findByIdAndUpdate: (...a) => mockFindByIdAndUpdate(...a),
   find: (...a) => mockFind(...a),
   countDocuments: (...a) => mockCount(...a),
@@ -49,6 +51,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockFindOne.mockResolvedValue(null);
   mockCreate.mockImplementation(async (doc) => ({ _id: new mongoose.Types.ObjectId(), isActive: true, ...doc }));
+  // Audit-trail pre-read (toggle): default null → no audit row, update unchanged.
+  mockFindById.mockReturnValue({ select: jest.fn().mockReturnThis(), lean: jest.fn().mockResolvedValue(null) });
   mockFind.mockReturnValue(listChain([]));
   mockCount.mockResolvedValue(0);
 });

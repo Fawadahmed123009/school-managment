@@ -31,7 +31,7 @@ exports.toggleIncomeHeadController = async (req, res) => {
   try {
     const raw = req.body.isActive;
     const isActive = raw === true || raw === "true" || raw === "on" || raw === "1";
-    await toggleIncomeHeadService(req.params.id, isActive, res);
+    await toggleIncomeHeadService(req.params.id, isActive, res, req.userAuth.id);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

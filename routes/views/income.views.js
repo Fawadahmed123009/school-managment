@@ -156,7 +156,7 @@ router.post("/income-heads/create", requireRole("admin"), async (req, res) => {
 router.post("/income-heads/:id/toggle", requireRole("admin"), async (req, res) => {
   const { res: cap, result } = captureServiceResponse();
   try {
-    await toggleIncomeHeadService(req.params.id, req.body.isActive === "true", cap);
+    await toggleIncomeHeadService(req.params.id, req.body.isActive === "true", cap, req.user._id);
   } catch (err) {
     return res.redirect(`/income-heads?error=${encodeURIComponent(err.message || "Failed to update income head")}`);
   }

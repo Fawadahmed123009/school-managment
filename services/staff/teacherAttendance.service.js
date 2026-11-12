@@ -4,6 +4,7 @@ const Teacher = require("../../models/Staff/teachers.model");
 const TeacherAttendance = require("../../models/Staff/teacherAttendance.model");
 const TeacherAttendanceSettings = require("../../models/Staff/teacherAttendanceSettings.model");
 const { paginate } = require("../../utils/paginate");
+const { recordAudit, changedFields, formatDay } = require("../audit/auditLog.service");
 const {
   isValidTime,
   computeWorkingMinutes,
@@ -171,6 +172,49 @@ exports.markTeacherAttendanceService = async (date, records, markedBy, res) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
     results.push(updated);
+
+    // Audit trail (fail-open, fire-and-forget): manual marking/corrections
+    // only — the automatic login/logout capture paths are not audited here.
+    // Legacy rows without a source were manager-marked, so normalize to
+    // "manual" before diffing to avoid a phantom provenance change.
+    const prev = prevById[m.id];
+    const auditKeys = ["arrivalTime", "departureTime", "arrivalSource", "departureSource"];
+    if (!prev) {
+      recordAudit({
+        userId: markedBy,
+        actionType: "create",
+        entityType: "teacher_attendance",
+        entityId: updated._id,
+        teacherId: m.id,
+        summary: `Manually marked attendance for {teacher} on ${formatDay(day)} (arrival ${m.arrivalTime}${m.departureTime ? `, departure ${m.departureTime}` : ""})`,
+        afterSnapshot: {
+          arrivalTime: m.arrivalTime,
+          departureTime: m.departureTime,
+          arrivalSource: m.arrivalSource,
+          departureSource: m.departureSource,
+        },
+      });
+    } else {
+      const prevNorm = {
+        arrivalTime: prev.arrivalTime || "",
+        departureTime: prev.departureTime || "",
+        arrivalSource: prev.arrivalSource || "manual",
+        departureSource: prev.departureSource || "manual",
+      };
+      const diff = changedFields(prevNorm, m, auditKeys);
+      if (diff) {
+        recordAudit({
+          userId: markedBy,
+          actionType: "update",
+          entityType: "teacher_attendance",
+          entityId: updated._id,
+          teacherId: m.id,
+          summary: `Corrected attendance for {teacher} on ${formatDay(day)}`,
+          beforeSnapshot: diff.before,
+          afterSnapshot: diff.after,
+        });
+      }
+    }
   }
 
   return responseStatus(res, 201, "success", results);

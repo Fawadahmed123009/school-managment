@@ -543,6 +543,45 @@ details.subject-group > summary .caret {
 }
 details.subject-group[open] > summary .caret { transform: rotate(90deg); }
 
+/* ── Audit log expandable before/after (admin Audit Log page) ── */
+/* Native <details>/<summary> again — no JS needed (CSP-safe). The diff table
+   shows ONLY changed fields; before values are muted, after values bold. */
+details.audit-detail { margin-top: 6px; }
+details.audit-detail > summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--partial);
+  user-select: none;
+}
+details.audit-detail > summary::-webkit-details-marker { display: none; }
+details.audit-detail > summary::before { content: "▸ "; font-size: 11px; }
+details.audit-detail[open] > summary::before { content: "▾ "; }
+table.audit-diff {
+  margin-top: 8px;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 260px;
+}
+.audit-diff th, .audit-diff td {
+  text-align: left;
+  padding: 5px 12px 5px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.audit-diff th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+.audit-diff .audit-before { color: var(--ink-soft); text-decoration: line-through; text-decoration-color: rgba(220,38,38,0.4); }
+.audit-diff .audit-after { font-weight: 600; }
+.audit-ip { margin-top: 6px; font-size: 11.5px; color: var(--ink-soft); }
+.audit-summary-cell { min-width: 260px; }
+
 /* ── Forms ───────────────────────────────── */
 .field-row { display: flex; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; margin-bottom: 14px; }
