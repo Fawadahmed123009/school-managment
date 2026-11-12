@@ -1,0 +1,183 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Finance</p>
+    <h1><%= title %></h1>
+  </div>
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <% reports.forEach(function(r) { %>
+      <% if (r.mode !== mode) { %>
+        <a href="<%= r.path %>" class="btn btn-ghost"><%= r.title %></a>
+      <% } %>
+    <% }); %>
+  </div>
+</div>
+
+<% if (loadError) { %><div class="flash error">Couldn't load the report: <%= loadError %></div><% } %>
+
+<!-- ── Period picker (GET — read-only report, no CSRF needed) ── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="<%= reports.find(function(r) { return r.mode === mode; }).path %>" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap; gap:12px;">
+      <div class="field" style="max-width:220px;">
+        <label for="periodPicker"><%= pickerLabel %></label>
+        <% if (pickerType === 'number') { %>
+          <input type="number" name="<%= param %>" id="periodPicker" value="<%= value %>" min="1970" max="2100" step="1" required />
+        <% } else { %>
+          <input type="<%= pickerType %>" name="<%= param %>" id="periodPicker" value="<%= value %>" required />
+        <% } %>
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">Show report</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<% if (report) { %>
+
+<!-- ── Headline totals for the selected period ── -->
+<div class="stats" style="margin-bottom:16px;">
+  <div class="stat-card accent-blue">
+    <div class="stat-value mono"><%= fmtRs(report.collections) %></div>
+    <div class="stat-label">Collections (fees) · <%= report.counts.collections %> payment<%= report.counts.collections !== 1 ? 's' : '' %></div>
+  </div>
+  <div class="stat-card accent-green">
+    <div class="stat-value mono"><%= fmtRs(report.income) %></div>
+    <div class="stat-label">Ad-hoc income · <%= report.counts.income %> entr<%= report.counts.income !== 1 ? 'ies' : 'y' %></div>
+  </div>
+  <div class="stat-card accent-red">
+    <div class="stat-value mono"><%= fmtRs(report.expenses) %></div>
+    <div class="stat-label">Expenses · <%= report.counts.expenses %> entr<%= report.counts.expenses !== 1 ? 'ies' : 'y' %></div>
+  </div>
+  <div class="stat-card accent-gold">
+    <div class="stat-value mono"><%= fmtRs(report.salaries) %></div>
+    <div class="stat-label">Salaries paid · <%= report.counts.salaries %> finalized run<%= report.counts.salaries !== 1 ? 's' : '' %></div>
+  </div>
+</div>
+
+<!-- ── Net profit / loss — the headline figure (salaries folded in) ── -->
+<div class="panel" style="border-left:4px solid <%= report.net >= 0 ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)' %>;">
+  <div class="panel-body" style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+    <div>
+      <div class="stat-label" style="margin-bottom:4px;">Net <%= report.net >= 0 ? 'profit' : 'loss' %> · <%= report.from === report.to ? report.from : report.from + ' → ' + report.to %></div>
+      <div class="stat-value mono" style="font-size:2rem; color:<%= report.net >= 0 ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)' %>;"><%= fmtRs(report.net) %></div>
+    </div>
+    <div class="chart-subtitle" style="max-width:420px;">
+      Collections + Income − Expenses − Salaries<br />
+      Before salaries: <span class="mono"><%= fmtRs(report.netBeforeSalaries) %></span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Income by head ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Income by head</h2>
+    <span class="chart-subtitle">Total <span class="mono"><%= fmtRs(report.income) %></span></span>
+  </div>
+  <% if (report.incomeByHead.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No ad-hoc income recorded for this period.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
+        </thead>
+        <tbody>
+          <% report.incomeByHead.forEach(function(h) { %>
+            <tr>
+              <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
+              <td class="num mono"><%= h.count %></td>
+              <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- ── Expenses by head ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Expenses by head</h2>
+    <span class="chart-subtitle">Total <span class="mono"><%= fmtRs(report.expenses) %></span></span>
+  </div>
+  <% if (report.expensesByHead.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No expenses recorded for this period.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
+        </thead>
+        <tbody>
+          <% report.expensesByHead.forEach(function(h) { %>
+            <tr>
+              <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
+              <td class="num mono"><%= h.count %></td>
+              <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<!-- ── Salaries paid (finalized runs whose finalize date falls in the period) ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Salaries paid</h2>
+    <span class="chart-subtitle">Finalized in this period · total <span class="mono"><%= fmtRs(report.salaries) %></span></span>
+  </div>
+  <% if (report.salaryRuns.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No salary runs were finalized in this period. Draft runs are not counted as paid.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Teacher</th><th class="num">Runs</th><th class="num">Total paid</th></tr>
+        </thead>
+        <tbody>
+          <% report.salaryByTeacher.forEach(function(t) { %>
+            <tr>
+              <td><strong><%= t.name %></strong><%= t.staffId ? ' (' + t.staffId + ')' : '' %></td>
+              <td class="num mono"><%= t.runs %></td>
+              <td class="num mono"><strong><%= fmtRs(t.total) %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+    <div class="panel-head">
+      <h2 style="font-size:1rem;">Run detail</h2>
+      <span class="chart-subtitle">Pay period may differ from the finalize date — the report follows the finalize (paid) date</span>
+    </div>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Teacher</th><th>Pay period</th><th>Finalized on</th><th class="num">Net pay</th></tr>
+        </thead>
+        <tbody>
+          <% report.salaryRuns.forEach(function(r) { %>
+            <tr>
+              <td><%= r.teacherName %></td>
+              <td class="mono"><%= localDateKey(r.periodStart) %> → <%= localDateKey(r.periodEnd) %></td>
+              <td class="mono"><%= localDateKey(r.finalizedAt) %></td>
+              <td class="num mono"><strong><%= fmtRs(r.netAmount) %></strong></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<% } %>
+
+<%- include('../partials/foot') %>

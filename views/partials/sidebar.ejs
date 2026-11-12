@@ -109,6 +109,20 @@
         <a href="/teacher-salary/config" class="<%= page === 'teacher-salary-config' ? 'active' : '' %>" data-page="teacher-salary-config">Pay rates &amp; rules</a>
       </div>
     </div>
+
+    <!-- Finance reports (Phase 4 — admin only; daily/monthly/yearly net reports) -->
+    <div class="nav-section" data-section="finance-reports">
+      <button class="nav-section-header" type="button" aria-expanded="false">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+        <span>Finance reports</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-section-body">
+        <a href="/finance/daily-report" class="<%= page === 'finance-daily' ? 'active' : '' %>" data-page="finance-daily">Daily report</a>
+        <a href="/finance/monthly-report" class="<%= page === 'finance-monthly' ? 'active' : '' %>" data-page="finance-monthly">Monthly report</a>
+        <a href="/finance/yearly-report" class="<%= page === 'finance-yearly' ? 'active' : '' %>" data-page="finance-yearly">Yearly report</a>
+      </div>
+    </div>
     <% } %>
 
     <% if (user.role === 'teacher') { %>
