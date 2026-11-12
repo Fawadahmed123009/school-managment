@@ -24,12 +24,12 @@ Return ONLY a JSON array, no other text, no markdown code fences. Each item must
 - "rollNo": the row's roll/serial number as printed, as a string (use null if the sheet has no roll column)
 - "score": the handwritten score as a number (no units, no "/100")
 
-A row whose score space shows the letter "A" or "a" (upper or lower case, any handwriting style) means the pupil was ABSENT — set "score" to null for that row. A real 0 is a genuine mark and must stay the number 0: only "A"/"a" or an empty space counts as absent.
+A row whose score space shows the letter "A" or "a" (upper or lower case, any handwriting style) means the pupil was ABSENT — set "score" to the literal string "A" for that row. A real 0 is a genuine mark and must stay the number 0.
 
-If a handwritten score is genuinely illegible or the space is left blank, set "score" to null (the pupil is treated as Absent). Never return the letter "A" as the score value — always null for an absence.
+If a handwritten score is genuinely illegible, or the space is simply left empty, set "score" to null. An empty/illegible cell is NOT an assertion of absence — it means nothing could be read, and the review screen leaves it for the teacher to fill in. Never return the lowercase "a" or any other text as a score; valid values are a number, the string "A", or null.
 
 Example output:
-[{"name": "John Smith", "rollNo": "12", "score": 78}, {"name": "Jane Doe", "rollNo": null, "score": null}]`;
+[{"name": "John Smith", "rollNo": "12", "score": 78}, {"name": "Jane Doe", "rollNo": null, "score": "A"}, {"name": "Bob Wood", "rollNo": "3", "score": null}]`;
 
   let response;
   try {

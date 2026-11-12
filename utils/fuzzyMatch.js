@@ -67,13 +67,17 @@ function matchStudent(ocrName, students, ocrRoll) {
 
   let best = null;
   let bestDist = Infinity;
+  let runnerUpDist = Infinity;
 
   for (const s of students) {
     const candidate = (s.name || "").toLowerCase().trim();
     const dist = levenshtein(name, candidate);
     if (dist < bestDist) {
+      runnerUpDist = bestDist;
       bestDist = dist;
       best = s;
+    } else if (dist < runnerUpDist) {
+      runnerUpDist = dist;
     }
   }
 
@@ -83,6 +87,16 @@ function matchStudent(ocrName, students, ocrRoll) {
   let confidence = "low";
   if (similarity >= 0.85) confidence = "high";
   else if (similarity >= 0.6) confidence = "medium";
+
+  // Safety guards (marks-disappearing incident): a name-only match must never
+  // silently bind marks to the WRONG pupil. Weak matches (below the medium
+  // floor) and genuine ties (a runner-up at the same edit distance — e.g.
+  // same-name classmates or "Zunair" vs "Zunaira" pools) are returned
+  // UNRESOLVED so the reviewer forces a manual selection. The roll-first path
+  // above is unaffected: a unique roll pins the student regardless of name.
+  if (confidence === "low" || runnerUpDist === bestDist) {
+    return { studentId: null, matchedName: null, confidence: "low", matchedBy: "name" };
+  }
 
   return {
     studentId: best._id,

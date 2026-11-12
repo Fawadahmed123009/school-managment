@@ -93,3 +93,53 @@ describe("matchStudent — roll + name selection", () => {
     expect(m.confidence).toBe("low");
   });
 });
+
+// ── Name-match safety guards (marks-disappearing incident) ─────────────────
+// A misread handwritten name must NEVER silently bind marks to the wrong
+// pupil: weak matches and genuine ties come back UNRESOLVED so the review
+// screen forces a manual selection. The roll-first path is deliberately not
+// weakened — a unique roll still pins the student even against a garbled name.
+describe("matchStudent — name-match confidence floor & ambiguity guard", () => {
+  test("a weak (low-confidence) name match resolves to NO student", () => {
+    // Reproduction of the incident: "Abiha Atif" is closest to "Ayesha Khan"
+    // in this pool but nowhere near enough — the old code bound it anyway.
+    const m = matchStudent("Abiha Atif", POOL, null);
+    expect(m.studentId).toBeNull();
+    expect(m.confidence).toBe("low");
+    expect(m.matchedBy).toBe("name");
+  });
+
+  test("an exact-name tie between two candidates stays unresolved", () => {
+    const pool = [
+      { _id: "t1", name: "Ayesha Khan", rollNumber: "1" },
+      { _id: "t2", name: "Ayesha Khan", rollNumber: "2" },
+    ];
+    const m = matchStudent("Ayesha Khan", pool, null);
+    expect(m.studentId).toBeNull();
+  });
+
+  test("two candidates one edit apart from the OCR name are ambiguous — no pick", () => {
+    const pool = [
+      { _id: "n1", name: "Ali Ton", rollNumber: "8" },
+      { _id: "n2", name: "Ali Toe", rollNumber: "9" },
+    ];
+    const m = matchStudent("Ali Toa", pool, null); // dist 1 to both
+    expect(m.studentId).toBeNull();
+  });
+
+  test("a clear winner (exact vs one-edit runner-up) still matches", () => {
+    const pool = [
+      { _id: "z1", name: "Zunair", rollNumber: "12" },
+      { _id: "z2", name: "Zunaira", rollNumber: "17" },
+    ];
+    const m = matchStudent("Zunair", pool, null);
+    expect(m.studentId).toBe("z1");
+    expect(m.confidence).toBe("high");
+  });
+
+  test("the guards never override a unique roll hit", () => {
+    const m = matchStudent("Totally Different Name", POOL, "7");
+    expect(m.studentId).toBe("s1");
+    expect(m.matchedBy).toBe("roll");
+  });
+});

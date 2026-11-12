@@ -48,12 +48,14 @@
     if (enteredCount) enteredCount.textContent = count;
   }
 
-  // An empty box or a literal "A"/"a" is an ABSENCE marker; anything else must
-  // parse as a number (a typed 0 is a genuine score, shown "0" and counted in
-  // every average — only absences are excluded).
+  // Only a literal "A"/"a" is an ABSENCE marker; anything else must parse as a
+  // number (a typed 0 is a genuine score, shown "0" and counted in every
+  // average — only absences are excluded). A BLANK box is no longer a token:
+  // it means "no value supplied" and is never sent, so a re-save with an empty
+  // box can no longer overwrite a pupil's stored score with an absence.
   function absentToken(v) {
     const t = (v || '').trim();
-    return t === '' || t.toLowerCase() === 'a';
+    return t.toLowerCase() === 'a';
   }
 
   // ── Live percentage (score / current total marks) ────────────────────
@@ -283,10 +285,10 @@
   }
 
   if (scoresForm) {
-    // Enter must not submit this form. An empty box is an ABSENCE by design, so
-    // an implicit submit while moving between boxes would save the whole class
-    // as absent. Enter is consumed; on a score box it advances focus instead,
-    // which is what the teacher was actually trying to do.
+    // Enter must not submit this form: an implicit submit while moving between
+    // boxes would commit half-typed scores. Enter is consumed; on a score box
+    // it advances focus instead, which is what the teacher was actually
+    // trying to do.
     scoresForm.addEventListener('keydown', function (e) {
       e = e || {};
       const key = e.key || (e.keyCode === 13 ? 'Enter' : '');
@@ -333,13 +335,20 @@
           const input = row.querySelector('.score-input');
           if (!input) return; // no box on this row → nothing to record
           const v = (input.value || '').trim();
+          if (v === '') {
+            // Blank box → "no value supplied": the row is NOT sent at all. The
+            // server keeps whatever is stored for that pupil. Sending null here
+            // used to record an absence and silently wipe a real score on any
+            // re-save — the reported marks-disappearing bug. To record a genuine
+            // absence the teacher types "A" (next branch).
+            return;
+          }
           if (absentToken(v)) {
-            // Blank box or typed "A" → the pupil was ABSENT for this test. Send
-            // null so the server records an absence (shown as "A", excluded from
-            // average) instead of silently dropping the row as "unmarked".
+            // Typed "A" → explicit ABSENCE, sent as the literal "A" so the
+            // server stores score 0 + absent (shown "A", excluded from average).
             absentCount++;
-            records.push({ student: studentId, score: null });
-          } else if (!Number.isFinite(Number(v)) || v === '' || Number(v) < 0) {
+            records.push({ student: studentId, score: 'A' });
+          } else if (!Number.isFinite(Number(v)) || Number(v) < 0) {
             invalid.push(row.querySelector('td strong') ? row.querySelector('td strong').textContent : studentId);
           } else {
             records.push({ student: studentId, score: Number(v) });
@@ -358,7 +367,7 @@
         }
 
         if (records.length === 0) {
-          setScoresStatus('No pupils to save — the roster is empty.', false);
+          setScoresStatus('Nothing to save — every score box is blank. Type a number, or "A" for an absent pupil.', false);
           cancel();
           return;
         }
@@ -375,13 +384,15 @@
           }
         }
 
-        // Absences are committed directly — a blank box or "A" saves as Absent
-        // (A). There is deliberately NO blocking confirm() here any more: inside
-        // the installed PWA / an in-app WebView window.confirm can be a silent
-        // no-op that returns false, so gating the save on it meant clicking Save
-        // did nothing. The inline note just informs the teacher of the count.
+        // Explicit absences (typed "A") are committed directly — the server
+        // stores them as Absent (A). Blank boxes were left out above, so a
+        // re-save can never wipe stored scores. There is deliberately NO
+        // blocking confirm() here any more: inside the installed PWA / an
+        // in-app WebView window.confirm can be a silent no-op that returns
+        // false, so gating the save on it meant clicking Save did nothing.
+        // The inline note just informs the teacher of the absence count.
         recordsInput.value = JSON.stringify(records);
-        if (absentCount > 0) setScoresStatus(absentCount + ' pupil(s) will be saved as Absent (A).', true);
+        if (absentCount > 0) setScoresStatus(absentCount + ' pupil(s) will be saved as Absent (A). Blank boxes are left unchanged.', true);
         if (saveBtn) saveBtn.textContent = 'Saving…';
         // No preventDefault and no manual form.submit(): the browser performs the
         // POST, so the global double-submit lock (js/confirm-submit.js) applies

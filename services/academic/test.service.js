@@ -891,22 +891,35 @@ exports.submitTestResultsService = async (testId, records, teacherId, res) => {
   const test = await Test.findById(testId);
   if (!test) return responseStatus(res, 404, "failed", "Test not found");
 
-  // Absence semantics (product rule): an EMPTY mark (null / undefined / "") or
-  // a literal "A"/"a" means the pupil was ABSENT — stored as score 0 + absent
-  // true so the numeric column stays intact, while the flag lets the UI show
-  // "A" and every average/at-risk/pass-rate reader exclude the row. A TYPED 0
-  // is a genuine score (absent false): it counts as 0% against the averages,
-  // can be the class minimum and can flag the pupil at-risk. The string "A"
-  // is also tolerated from the OCR path, where Gemini may echo a handwritten
-  // absent mark instead of null.
-  const normalized = records.map((r) => {
-    const raw = typeof r.score === "string" ? r.score.trim() : r.score;
-    const absentMark =
-      raw === null || raw === undefined || raw === "" ||
-      (typeof raw === "string" && raw.toLowerCase() === "a");
-    const score = absentMark ? 0 : Number(raw);
-    return { student: r.student, score, absent: absentMark };
-  });
+  // Absence semantics (product rule, revised after the marks-disappearing
+  // incident): ONLY a literal "A"/"a" is an assertion of absence — stored as
+  // score 0 + absent true so the numeric column stays intact, while the flag
+  // lets the UI show "A" and every average/at-risk/pass-rate reader exclude the
+  // row. A TYPED 0 is a genuine score (absent false): it counts as 0% against
+  // the averages, can be the class minimum and can flag the pupil at-risk.
+  // An EMPTY value (null / undefined / "") means "no value supplied" and is
+  // NEVER written: previously a blank was stored as an authoritative absence,
+  // so any re-save that left a box empty silently overwrote a pupil's real
+  // score with 0 + absent — the marks "disappeared" days after entry. Blanks
+  // are dropped here so both the manual form and the OCR confirm path (and any
+  // stale cached client that still posts nulls) are protected server-side.
+  const normalized = records
+    .filter((r) => {
+      const raw = typeof r.score === "string" ? r.score.trim() : r.score;
+      return raw !== null && raw !== undefined && raw !== "";
+    })
+    .map((r) => {
+      const raw = typeof r.score === "string" ? r.score.trim() : r.score;
+      const absentMark = typeof raw === "string" && raw.toLowerCase() === "a";
+      const score = absentMark ? 0 : Number(raw);
+      return { student: r.student, score, absent: absentMark };
+    });
+
+  // Nothing supplied except blanks → nothing to write. Success with a zero
+  // count, because an empty ops array would make bulkWrite throw.
+  if (normalized.length === 0) {
+    return responseStatus(res, 201, "success", { total: 0, upserted: 0, modified: 0, matched: 0 });
+  }
 
   // Reject any present score that is negative or exceeds the test's totalMarks.
   const invalidScores = normalized.filter(

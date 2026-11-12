@@ -1,10 +1,14 @@
 /**
  * Absence handling on the mark-entry / submission path.
  *
- * Product rule (OCR + manual, both mark-entry surfaces):
- *   • an EMPTY mark or a literal "A"/"a" means the pupil was ABSENT;
+ * Product rule (OCR + manual, both mark-entry surfaces) — revised after the
+ * marks-disappearing incident:
+ *   • ONLY a literal "A"/"a" means the pupil was ABSENT;
  *   • the server stores the row as score 0 + absent:true (the flag is the
  *     single source of truth — the legacy "0 means absent" rule is retired);
+ *   • an EMPTY mark (null / undefined / "") means "no value supplied": it is
+ *     NEVER written, so a re-save with a blank box cannot overwrite a stored
+ *     score (the old blank→absence rule silently wiped marks days after entry);
  *   • a TYPED 0 is a genuine score: stored score 0 + absent:false, shown "0",
  *     counted in every average / min / max / pass stat like any other mark;
  *   • a typed positive score is stored as a present result (absent:false);
@@ -98,7 +102,7 @@ beforeEach(() => {
 });
 
 // ── Write path ───────────────────────────────────────────────────────────────
-describe("submitTestResultsService — blank / A marks become absences; typed 0 stays real", () => {
+describe("submitTestResultsService — only 'A' marks an absence; blanks are never written", () => {
   // Reconstruct the effective document for op i from the single bulkWrite
   // payload: identity fields come from the filter/$setOnInsert, the marks from
   // $set — mirroring what findOneAndUpdate used to write per row.
@@ -107,12 +111,22 @@ describe("submitTestResultsService — blank / A marks become absences; typed 0 
     return { ...op.filter, ...op.update.$setOnInsert, ...op.update.$set };
   };
 
-  test("a null (blank) mark is stored as score 0 + absent true", async () => {
+  test("a null (blank) mark is NOT written at all — re-save cannot wipe a stored score", async () => {
     const res = mockRes();
     await submitTestResultsService("test-1", [{ student: "b1", score: null }], TEACHER, res);
 
+    // Marks-disappearing regression: a blank used to be stored as score 0 +
+    // absent:true, overwriting any real score for that {test, student} pair.
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(201);
-    expect(written(0)).toMatchObject({ student: "b1", score: 0, absent: true });
+    expect(res.json.mock.calls[0][0].data.total).toBe(0);
+  });
+
+  test('an empty-string mark is NOT written either ("")', async () => {
+    const res = mockRes();
+    await submitTestResultsService("test-1", [{ student: "b1", score: "" }], TEACHER, res);
+    expect(mockResultBulkWrite).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 
   test("a typed 0 is stored as a GENUINE score (absent false) — the semantic split", async () => {
@@ -136,7 +150,7 @@ describe("submitTestResultsService — blank / A marks become absences; typed 0 
     expect(written(0)).toMatchObject({ score: 72, absent: false });
   });
 
-  test("a mixed batch keeps absences and real marks distinct, all written", async () => {
+  test("a mixed batch writes only the supplied values — blanks are dropped", async () => {
     const res = mockRes();
     await submitTestResultsService(
       "test-1",
@@ -145,10 +159,8 @@ describe("submitTestResultsService — blank / A marks become absences; typed 0 
       res
     );
     expect(mockResultBulkWrite).toHaveBeenCalledTimes(1);
-    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(3);
-    expect(written(0)).toMatchObject({ student: "b1", score: 0, absent: true });
-    expect(written(1)).toMatchObject({ student: "b2", score: 55, absent: false });
-    expect(written(2)).toMatchObject({ student: "b3", score: 0, absent: true });
+    expect(mockResultBulkWrite.mock.calls[0][0]).toHaveLength(1);
+    expect(written(0)).toMatchObject({ student: "b2", score: 55, absent: false });
   });
 
   test("an out-of-range present score is still rejected; blanks and 'A' never trip it", async () => {

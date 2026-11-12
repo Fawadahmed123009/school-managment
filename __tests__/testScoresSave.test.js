@@ -229,7 +229,9 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     h.run();
 
     h.scoreInputs[0].value = "18";
-    // row 1 stays blank → absence (null, server stores as A / excluded from avg)
+    // row 1 stays blank → NO value supplied: the row is not sent at all, so a
+    // stored score for that pupil can never be overwritten by a re-save
+    // (marks-disappearing fix). Only an explicit "A" records an absence.
     h.scoreInputs[2].value = "0"; // a typed zero is a GENUINE score, not an absence
 
     const e = h.submitEvent();
@@ -240,12 +242,11 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     const records = JSON.parse(h.recordsInput.value);
     expect(records).toEqual([
       { student: "stu-0", score: 18 },
-      { student: "stu-1", score: null },
       { student: "stu-2", score: 0 },
     ]);
   });
 
-  test('typing "A"/"a" marks the pupil absent — sent as null, exactly like a blank box', () => {
+  test('typing "A"/"a" marks the pupil absent — sent as the literal "A" (blanks are never sent)', () => {
     const h = buildHarness();
     h.run();
 
@@ -259,8 +260,8 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     expect(e.defaultPrevented).toBe(false);
     const records = JSON.parse(h.recordsInput.value);
     expect(records).toEqual([
-      { student: "stu-0", score: null },
-      { student: "stu-1", score: null },
+      { student: "stu-0", score: "A" },
+      { student: "stu-1", score: "A" },
       { student: "stu-2", score: 12 },
     ]);
   });
@@ -296,36 +297,39 @@ describe("test-scores.js (mark a test — Save scores)", () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  test("with no scores entered every pupil is still saved as Absent (blank → A)", () => {
+  test("with no scores entered the save is blocked — blanks are never sent as absences", () => {
     const h = buildHarness();
     h.run();
     const e = h.submitEvent();
     h.fire(h.scoresForm, "submit", e);
 
-    // Blanks are an explicit absence, not a silent skip — the form submits.
-    expect(e.defaultPrevented).toBe(false);
-    const records = JSON.parse(h.recordsInput.value);
-    expect(records).toEqual([
-      { student: "stu-0", score: null },
-      { student: "stu-1", score: null },
-      { student: "stu-2", score: null },
-    ]);
+    // Marks-disappearing regression: an all-blank roster must NOT post nulls
+    // (the old blank→absence rule wiped stored scores on a stray re-save).
+    expect(e.defaultPrevented).toBe(true);
+    expect(h.scoresStatus.textContent).toMatch(/nothing to save/i);
+    expect(h.recordsInput.value).toBe("");
   });
 
-  test("blank/'A' rows save inline — no blocking confirm (PWA-safety regression)", () => {
+  test("typed-'A' rows save inline — no blocking confirm (PWA-safety regression)", () => {
     const h = buildHarness();
     h.run();
     h.scoreInputs[0].value = "18";
-    // rows 1 & 2 stay blank → absences. Previously a confirm() gated this and a
-    // suppressed dialog aborted the save; now it commits directly with a note.
+    h.scoreInputs[1].value = "A";
+    // row 2 stays blank → not sent at all. Previously a confirm() gated
+    // absences and a suppressed dialog aborted the save; now they commit
+    // directly with an inline note.
     h.confirm.mockImplementation(() => false); // even a "declined" confirm is ignored
 
     const e = h.submitEvent();
     h.fire(h.scoresForm, "submit", e);
 
     expect(e.defaultPrevented).toBe(false);
-    expect(h.recordsInput.value).toContain('"score":null');
-    expect(h.scoresStatus.textContent).toMatch(/2 pupil\(s\).*Absent/i);
+    const records = JSON.parse(h.recordsInput.value);
+    expect(records).toEqual([
+      { student: "stu-0", score: 18 },
+      { student: "stu-1", score: "A" },
+    ]);
+    expect(h.scoresStatus.textContent).toMatch(/1 pupil\(s\).*Absent/i);
   });
 
   // ── The dead-button regressions ───────────────────────────────────────────

@@ -153,7 +153,7 @@
           </td>
           <td><span class="mono roll-cell" style="color:var(--ink-soft);font-size:12px;">${rollDisplay ? '#' + esc(rollDisplay) : ''}</span></td>
           <td><span class="mono sheet-roll-cell" data-roll="${esc(sheetRoll)}" style="font-size:12px;${rollMismatch ? 'color:var(--error);font-weight:600;' : 'color:var(--ink-soft);'}" title="${rollMismatch ? 'Roll on the sheet does not match the selected student' : 'Roll read from the sheet'}">${sheetRoll ? esc(sheetRoll) : ''}</span></td>
-          <td class="num"><input type="text" class="score-input" maxlength="6" autocomplete="off" data-row="${i}" value="${esc(row.score === null || row.score === undefined ? 'A' : row.score)}" placeholder="Absent (A)" title="Score, or A for absent" /></td>
+          <td class="num"><input type="text" class="score-input" maxlength="6" autocomplete="off" data-row="${i}" value="${esc(row.score == null ? '' : row.score)}" placeholder="Blank = not saved" title="Score, or A for absent — a blank row is NOT saved" /></td>
           <td class="num"><span class="pct-cell mono" style="color:var(--ink-soft);font-size:12px;"></span></td>
           <td><button type="button" class="btn btn-ghost skip-btn" data-row="${i}">Skip</button></td>
         </tr>
@@ -268,16 +268,19 @@
     const invalidScore = [];
     let missingStudent = 0;
     let absentCount = 0;
+    let blankCount = 0;
 
     selects.forEach((sel, i) => {
       const studentId = sel.value;
       const score = String(scores[i].value || '').trim();
-      // A confirmed student with no readable score counts as ABSENT — saved
-      // as Absent (A) instead of being dropped (blank was previously skipped
-      // silently). Typing "A"/"a" marks the same absence explicitly; a typed
-      // 0 is a genuine score and goes through as a real mark.
+      // A BLANK score box is "nothing readable" — the row is NOT saved. It
+      // used to be sent as null (absence), so an OCR re-scan or a partial save
+      // silently overwrote stored scores with 0 + absent (marks-disappearing
+      // bug). Only an explicit "A" records an absence now; a typed 0 is a
+      // genuine mark.
       if (studentId) {
-        if (score === '' || score.toLowerCase() === 'a') { absentCount++; records.push({ student: studentId, score: null }); }
+        if (score === '') { blankCount++; }
+        else if (score.toLowerCase() === 'a') { absentCount++; records.push({ student: studentId, score: 'A' }); }
         else if (!Number.isFinite(Number(score)) || Number(score) < 0) { invalidScore.push(score); }
         else { records.push({ student: studentId, score: Number(score) }); }
       } else {
@@ -296,21 +299,30 @@
 
     if (records.length === 0) {
       alert('No rows are ready to save.\n\n' + (missingStudent > 0
-        ? `${missingStudent} row(s) have a score but no student selected`
+        ? `${missingStudent} row(s) have no student selected`
+        : blankCount > 0
+        ? `${blankCount} row(s) have no score typed — blank rows are not saved; type "A" only when the pupil was genuinely absent.`
         : 'Select a student for at least one row.'));
       return;
     }
 
-    // "Save all" saves EVERY row with a student — high, medium and low
-    // confidence alike. Rows still missing a student selection can't be
-    // persisted, so surface them explicitly instead of dropping silently.
+    // "Save all" saves EVERY row that has a student AND a score (or an
+    // explicit "A"). Blank rows are deliberately NOT saved — an unreadable or
+    // empty cell must never overwrite a stored mark. Rows missing a student
+    // selection can't be persisted either, so surface them explicitly instead
+    // of dropping silently.
     if (missingStudent > 0 && !confirm(`${missingStudent} row(s) have no student selected and will NOT be saved.\n\nSave the other ${records.length} row(s)?`)) {
       return;
     }
 
-    if (absentCount > 0 && !confirm(`${absentCount} row(s) are blank/"A" — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
+    if (absentCount > 0 && !confirm(`${absentCount} row(s) are marked "A" — they will be saved as Absent (A) and excluded from the class average. Continue?`)) {
       return;
     }
+
+    // Blank rows are simply skipped (a safe no-write), so they are NOT gated
+    // behind another confirm(): confirm can be a silent no-op in the installed
+    // PWA and would block the whole save. The row pre-fill title and the
+    // no-rows alert already teach that blank = not saved.
 
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving…';
