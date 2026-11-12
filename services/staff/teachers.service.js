@@ -11,9 +11,35 @@ const Attendance = require("../../models/Academic/attendance.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
+const { isValidTime } = require("../../utils/teacherAttendanceTime");
+const { recordTeacherLoginArrival } = require("./teacherAttendance.service");
+const logger = require("../../config/logger");
+
+/**
+ * Expected working hours (staff profile) share one strict blank contract:
+ *   undefined → field not in this request → leave whatever is stored alone
+ *   ""        → explicit clear (the form shows the stored value, so a blank
+ *               submit is intentional)
+ *   "HH:MM"   → set
+ *   anything else → null → caller rejects with 400 BEFORE any write.
+ */
+function sanitizeExpectedTime(value) {
+  if (value === undefined || value === null) return undefined;
+  const s = String(value).trim();
+  if (s === "") return "";
+  return isValidTime(s) ? s : null;
+}
 
 exports.createTeacherService = async (data, adminId, res) => {
   const { name, email, password, whatsappNumber } = data;
+
+  // Expected times are optional at creation — validated up front, before any
+  // side effect, so a malformed value can never half-create an account.
+  const expectedArrivalTime = sanitizeExpectedTime(data.expectedArrivalTime);
+  const expectedDepartureTime = sanitizeExpectedTime(data.expectedDepartureTime);
+  if (expectedArrivalTime === null || expectedDepartureTime === null) {
+    return responseStatus(res, 400, "failed", "Expected times must be HH:MM (24-hour) times");
+  }
 
   const existTeacher = await Teacher.findOne({ email });
   if (existTeacher)
@@ -36,6 +62,9 @@ exports.createTeacherService = async (data, adminId, res) => {
     email,
     password: hashedPassword,
     whatsappNumber: whatsappNumber ? String(whatsappNumber).trim() : "",
+    // "" when not supplied → late detection stays skipped until set.
+    expectedArrivalTime: expectedArrivalTime || "",
+    expectedDepartureTime: expectedDepartureTime || "",
     createdBy: admin ? admin._id : adminId,
   });
 
@@ -61,6 +90,17 @@ exports.teacherLoginService = async (data, res) => {
 
   const responseTeacher = teacherFound.toObject();
   delete responseTeacher.password;
+
+  // Staff attendance (Phase 1): the first login of the day IS the arrival
+  // record. Best-effort — a capture hiccup must never break or delay the
+  // login itself, so failures are logged and swallowed here.
+  if (!teacherFound.isWithdrawn) {
+    try {
+      await recordTeacherLoginArrival(teacherFound._id);
+    } catch (e) {
+      logger.warn(`teacher-attendance login capture failed: ${e.message}`);
+    }
+  }
 
   const response = {
     teacher: responseTeacher,
@@ -232,6 +272,12 @@ exports.toggleAttendanceManagerService = async (teacherId, res) => {
 exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
   const { name, email, password, whatsappNumber } = data;
 
+  const expectedArrivalTime = sanitizeExpectedTime(data.expectedArrivalTime);
+  const expectedDepartureTime = sanitizeExpectedTime(data.expectedDepartureTime);
+  if (expectedArrivalTime === null || expectedDepartureTime === null) {
+    return responseStatus(res, 400, "failed", "Expected times must be HH:MM (24-hour) times");
+  }
+
   const teacher = await Teacher.findById(teacherId);
   if (!teacher) return responseStatus(res, 404, "failed", "Teacher not found");
 
@@ -248,6 +294,10 @@ exports.adminUpdateCredentialsService = async (data, teacherId, res) => {
   // provided string (including "") rather than only truthy values.
   if (whatsappNumber !== undefined) updateFields.whatsappNumber = String(whatsappNumber).trim();
   if (password) updateFields.password = await hashPassword(password);
+  // Expected times: only written when the request carries them (Admin/Manager
+  // staff forms always do; other callers must not touch these).
+  if (expectedArrivalTime !== undefined) updateFields.expectedArrivalTime = expectedArrivalTime;
+  if (expectedDepartureTime !== undefined) updateFields.expectedDepartureTime = expectedDepartureTime;
 
   const updatedTeacher = await Teacher.findByIdAndUpdate(
     teacherId,

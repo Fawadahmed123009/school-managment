@@ -33,6 +33,20 @@
         <label for="password">Temporary password</label>
         <input type="text" id="password" name="password" required placeholder="Min 6 characters" />
       </div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap;">
+        <div class="field" style="max-width:220px;">
+          <label for="expectedArrivalTime">Expected arrival time <span style="color:var(--ink-soft); font-size:12px;">(optional)</span></label>
+          <input type="time" id="expectedArrivalTime" name="expectedArrivalTime" />
+        </div>
+        <div class="field" style="max-width:220px;">
+          <label for="expectedDepartureTime">Expected departure time <span style="color:var(--ink-soft); font-size:12px;">(optional)</span></label>
+          <input type="time" id="expectedDepartureTime" name="expectedDepartureTime" />
+        </div>
+      </div>
+      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 12px;">
+        Expected times drive staff-attendance late detection (arrival + grace period). A teacher without an
+        expected arrival time is <strong>never flagged late</strong> until it is set here or via Staff → Edit.
+      </p>
       <div style="margin-top: 8px;">
         <button type="submit" class="btn btn-primary">Create teacher</button>
       </div>

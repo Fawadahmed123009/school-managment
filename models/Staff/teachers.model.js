@@ -73,6 +73,32 @@ const teacherSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Expected working hours (staff profile), "HH:MM" 24-hour. The teacher
+    // attendance late-check compares a login-captured arrival against
+    // expectedArrivalTime + the admin grace period. OPTIONAL by design: ""
+    // means not set yet → late detection is SKIPPED for this teacher (no
+    // false positives) until an Admin/Manager fills it in. Blank existing
+    // docs are unaffected — the field simply defaults to "" on read/write.
+    expectedArrivalTime: {
+      type: String,
+      trim: true,
+      default: "",
+      validate: {
+        validator: (v) => v === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
+        message: "Expected arrival time must be a HH:MM (24-hour) time",
+      },
+    },
+    // Recorded for the schedule picture (and future early-departure / salary
+    // phases); Phase 1 lateness only uses the arrival side.
+    expectedDepartureTime: {
+      type: String,
+      trim: true,
+      default: "",
+      validate: {
+        validator: (v) => v === "" || /^([01]\d|2[0-3]):[0-5]\d$/.test(v),
+        message: "Expected departure time must be a HH:MM (24-hour) time",
+      },
+    },
 
     program: {
       type: String,

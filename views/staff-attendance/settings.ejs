@@ -1,0 +1,67 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Staff Attendance</p>
+    <h1>Late-arrival rule</h1>
+  </div>
+  <a href="/teacher-attendance" class="btn btn-ghost">← Teacher attendance</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Late-arrival rule saved. Existing records were re-checked against the new rule.</div><% } %>
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load settings: <%= loadError %></div><% } %>
+
+<div class="panel" style="max-width:640px;">
+  <div class="panel-head">
+    <h2>Teacher late-arrival detection</h2>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/teacher-attendance/settings">
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+          <input type="checkbox" name="lateDetectionEnabled" style="width:auto;" <%= settings.lateDetectionEnabled ? 'checked' : '' %> />
+          <span>Enable late-arrival detection</span>
+        </label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 0;">
+          Off by default. While disabled, no attendance record is flagged late.
+        </p>
+      </div>
+
+      <div class="field" style="max-width:220px;">
+        <label for="startTime">School start time <span style="color:var(--ink-soft); font-size:12px;">(reference)</span></label>
+        <input type="time" name="startTime" id="startTime" value="<%= settings.startTime %>" required />
+      </div>
+
+      <div class="field" style="max-width:220px;">
+        <label for="graceMinutes">Grace period (minutes)</label>
+        <input type="number" name="graceMinutes" id="graceMinutes" min="0" max="240" step="1" value="<%= settings.graceMinutes %>" required />
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 0;">
+          An arrival counts as late when it is later than the teacher's <strong>expected arrival time</strong>
+          (set on their staff profile) plus this grace period.
+          Standing default: <strong>5 minutes</strong> — change it at any time.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-accent">Save rule</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel" style="max-width:640px;">
+  <div class="panel-body" style="font-size:13px; color:var(--ink-soft);">
+    <strong>Notes</strong>
+    <ul style="margin:8px 0 0; padding-left:18px;">
+      <li>Lateness is judged against <strong>each teacher's own expected arrival time</strong> (Dashboard → Staff → Edit), plus the grace period below. The school start time above is kept for reference only.</li>
+      <li>A teacher with <strong>no expected arrival time is never flagged late</strong> — fill it in on their profile to include them. The staff list shows who still needs one.</li>
+      <li>Entry times are captured from teacher logins; the flag compares the captured (or manager-corrected) arrival against this rule.</li>
+      <li>Managers and admins see the late flag on marking and history pages.</li>
+      <li>Saving re-derives the flag on all existing teacher attendance records so they match the current rule and each teacher's profile times.</li>
+      <li>This rule only flags lateness — any pay/deduction effect belongs to the upcoming Salary phase.</li>
+    </ul>
+  </div>
+</div>
+
+<%- include('../partials/foot') %>

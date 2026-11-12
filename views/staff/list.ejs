@@ -55,6 +55,7 @@
           <th>Email</th>
           <th>Employed</th>
           <th>Status</th>
+          <th>Expected arrival</th>
           <th>Attendance manager</th>
           <th style="text-align:right;">Actions</th>
         </tr>
@@ -70,6 +71,11 @@
               <% if (t.isSuspended) { %><span class="pill review">Suspended</span>
               <% } else if (t.isWithdrawn) { %><span class="pill error">Withdrawn</span>
               <% } else { %><span class="pill ocr">Active</span><% } %>
+            </td>
+            <td>
+              <% if (t.isWithdrawn) { %><span class="muted">—</span>
+              <% } else if (t.expectedArrivalTime) { %><span class="mono"><%= t.expectedArrivalTime %></span>
+              <% } else { %><span class="pill review" title="Late detection is skipped for this teacher until an expected arrival time is set in their profile">Not set — late check skipped</span><% } %>
             </td>
             <td>
               <form method="POST" action="/staff/<%= t._id %>/toggle-attendance-manager" style="display:inline;">

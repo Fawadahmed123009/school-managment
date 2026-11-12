@@ -3,6 +3,9 @@ const router = express.Router();
 const { body, validationResult } = require("express-validator");
 const { apiFetch } = require("../../utils/apiClient");
 const { buildSessionUser } = require("../../utils/sessionCookie");
+const verifyToken = require("../../utils/verifyToken");
+const { recordTeacherLogoutDeparture } = require("../../services/staff/teacherAttendance.service");
+const logger = require("../../config/logger");
 
 // ── Cookie security options ───────────────
 // NOTE: `secure` follows NODE_ENV — production MUST set NODE_ENV=production for
@@ -119,7 +122,26 @@ router.post(
 );
 
 // ── Logout ────────────────────────────────
-router.get("/logout", (req, res) => {
+router.get("/logout", async (req, res) => {
+  // Staff attendance (Phase 1): an explicit logout is the departure signal —
+  // the only session-end the app can observe (JWTs are stateless, so tab
+  // closes and cookie expiry are invisible server-side). This router is
+  // mounted BEFORE authView, so identity is resolved here the same way
+  // authView does it: verified token id only, never cookie claims. The
+  // capture is best-effort and can never block or delay the logout itself.
+  try {
+    const raw = req.signedCookies && req.signedCookies.session;
+    if (raw) {
+      const session = JSON.parse(raw);
+      const verified = verifyToken(session.token);
+      if (verified && verified.id) {
+        await recordTeacherLogoutDeparture(verified.id);
+      }
+    }
+  } catch (e) {
+    logger.warn(`teacher-attendance logout capture failed: ${e.message}`);
+  }
+
   // Clear with attributes matching how the cookie was set, so the browser
   // reliably removes it (and it carries Secure/SameSite in production).
   res.clearCookie("session", { httpOnly: true, sameSite: "lax", secure: isProduction, path: "/" });

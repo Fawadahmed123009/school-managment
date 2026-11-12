@@ -65,7 +65,16 @@ router.post("/staff/create", requireAdminOrManager(), async (req, res) => {
   }
   const { res: cap, result } = captureServiceResponse();
   try {
-    await createTeacherService({ name, email, password, whatsappNumber }, req.user._id, cap);
+    await createTeacherService(
+      {
+        name, email, password, whatsappNumber,
+        // Optional expected working hours — "" means "not set yet".
+        expectedArrivalTime: req.body.expectedArrivalTime || "",
+        expectedDepartureTime: req.body.expectedDepartureTime || "",
+      },
+      req.user._id,
+      cap
+    );
   } catch (err) {
     return res.render("staff/new", {
       page: "staff",
@@ -109,6 +118,10 @@ router.post("/staff/:teacherId/edit", requireAdminOrManager(), async (req, res) 
   if (password) body.password = password;
   // Always forward the phone field so it can also be cleared.
   body.whatsappNumber = whatsappNumber || "";
+  // Same for the expected times: the form pre-fills them, so a blank submit
+  // is an intentional clear (attendance then skips late detection).
+  body.expectedArrivalTime = req.body.expectedArrivalTime || "";
+  body.expectedDepartureTime = req.body.expectedDepartureTime || "";
 
   const { res: cap, result } = captureServiceResponse();
   try {
