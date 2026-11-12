@@ -12,6 +12,7 @@ const {
   financeReportFilename,
 } = require("../../services/finance/financeExport.service");
 const { sendExport } = require("../../utils/exportFile");
+const { getMonthlyTrend, getDailyTrend } = require("../../services/finance/financeTrend.service");
 
 // Phase 4 financial reports — Daily / Monthly / Yearly. ADMIN ONLY on every
 // route (requireRole resolves the role from the DB via authView): managers
@@ -24,6 +25,17 @@ const { sendExport } = require("../../utils/exportFile");
 
 // Money display follows the fees/salary/expense/income views ("Rs", 2 decimals).
 const fmtRs = (n) => "Rs " + Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+// Compact money for tight chart spaces (donut centers) — display only, the
+// full-precision figure stays in the table/tooltip next to it.
+const fmtRsCompact = (n) => {
+  const v = Number(n || 0);
+  const abs = Math.abs(v);
+  if (abs >= 1e7) return "Rs " + (v / 1e7).toFixed(abs >= 1e8 ? 0 : 1) + "Cr";
+  if (abs >= 1e5) return "Rs " + (v / 1e5).toFixed(abs >= 1e6 ? 0 : 1) + "L";
+  if (abs >= 1e3) return "Rs " + (v / 1e3).toFixed(abs >= 1e4 ? 0 : 1) + "k";
+  return "Rs " + v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+};
 
 // One config per report mode — the three pages differ ONLY in picker + range.
 const REPORTS = [
@@ -77,6 +89,30 @@ function reportView(cfg) {
       loadError = err.message;
     }
 
+    // ── Trend charts (pure visual layer) ─────────────────────────────────
+    // Yearly page: 12 monthly-report points; Monthly page: day-by-day net.
+    // Composed from the SAME report service (financeTrend.service) — never a
+    // second calculation path. Fail-soft: a trend failure must not break the
+    // tabular report, so it degrades to a notice above the charts.
+    let trend = null;
+    let dailyTrend = null;
+    let trendError = null;
+    if (report) {
+      try {
+        if (cfg.mode === "yearly") {
+          const t = await getMonthlyTrend(value);
+          if (t.error) trendError = t.error;
+          else trend = t;
+        } else if (cfg.mode === "monthly") {
+          const t = await getDailyTrend(value);
+          if (t.error) trendError = t.error;
+          else dailyTrend = t;
+        }
+      } catch (err) {
+        trendError = err.message || "Trend data could not be loaded";
+      }
+    }
+
     res.render("finance/report", {
       page: cfg.page,
       user: req.user,
@@ -88,8 +124,12 @@ function reportView(cfg) {
       value,
       report,
       loadError,
+      trend,
+      dailyTrend,
+      trendError,
       reports: REPORTS.map((r) => ({ path: r.path, title: r.title, mode: r.mode })),
       fmtRs,
+      fmtRsCompact,
       localDateKey,
       schoolName: res.locals.schoolName,
     });

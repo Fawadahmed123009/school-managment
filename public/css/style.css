@@ -1938,3 +1938,67 @@ button.page-link { cursor: pointer; }
   .toast, .toast-out, .toast-bump, .confirm-overlay, .confirm-dialog, .confirm-out { animation: none; }
   .toast-progress { display: none; }
 }
+
+/* ── Finance trend charts (Phase 4 visual layer — web view only) ─────────
+   Reuses .panel / .chart-panel / .chart-body; these rules add the series
+   toggle chips, the donut+table breakdown grid and the compact daily chart.
+   Charts never replace the tabular report — on print they drop out entirely
+   so the printed page stays the clean ledger it has always been. */
+.fin-trend-head { flex-wrap: wrap; gap: 10px; }
+.fin-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fin-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; min-height: 30px;
+  font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600;
+  color: var(--ink); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 999px;
+  cursor: pointer; user-select: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+.fin-chip:hover { border-color: var(--ink-soft); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.fin-chip:focus-visible { outline: 2px solid var(--partial); outline-offset: 2px; }
+.fin-chip--off { opacity: 0.55; border-style: dashed; color: var(--ink-soft); }
+.fin-chip--off .fin-dot { opacity: 0.4; }
+.fin-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.fin-dot--net { background: linear-gradient(135deg, var(--paid) 50%, var(--error) 50%); }
+.fin-trend-body { height: 320px; }
+.chart-body--daily { height: 170px; padding: 10px 16px 12px; }
+.fin-trend-note { padding: 0 16px 12px; font-size: 12px; color: var(--pending); }
+
+/* Donut + ledger side by side — the table IS the chart's legend, so slice
+   colors are dotted into the head cells (public/js/finance-charts.js). */
+.fin-breakdown {
+  display: grid; grid-template-columns: 250px minmax(0, 1fr);
+  gap: 8px 16px; align-items: center;
+  padding: 12px 16px 16px;
+}
+.fin-breakdown--solo { grid-template-columns: minmax(0, 1fr); }
+.fin-donut-wrap { position: relative; height: 220px; max-width: 250px; width: 100%; margin: 0 auto; }
+.fin-donut-center {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  pointer-events: none; text-align: center; padding: 0 34px;
+}
+.fin-donut-center span { font-size: 15px; font-weight: 700; color: var(--ink); }
+.fin-donut-center small {
+  margin-top: 2px; font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft);
+}
+.fin-head-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  margin-right: 7px; vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 900px) {
+  .fin-breakdown { grid-template-columns: minmax(0, 1fr); }
+  .fin-donut-wrap { height: 200px; max-width: 220px; }
+  .fin-trend-body { height: 260px; }
+  .fin-trend-head { flex-direction: column; align-items: flex-start; }
+}
+
+/* Print: the tabular report only — charts are a web-dashboard affordance. */
+@media print {
+  .fin-chart-panel, .fin-chips { display: none !important; }
+  .fin-breakdown { grid-template-columns: minmax(0, 1fr); padding: 0; }
+}

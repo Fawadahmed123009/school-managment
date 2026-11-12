@@ -22,6 +22,7 @@
 </div>
 
 <% if (loadError) { %><div class="flash error">Couldn't load the report: <%= loadError %></div><% } %>
+<% if (report && trendError) { %><div class="flash error">Charts couldn't be loaded (<%= trendError %>) — the tables below are unaffected.</div><% } %>
 
 <!-- ── Period picker (GET — read-only report, no CSRF needed) ── -->
 <div class="panel">
@@ -78,6 +79,42 @@
   </div>
 </div>
 
+<% if (mode === 'yearly' && trend) { %>
+<!-- ── Monthly trend — visual summary ABOVE the tables (never replaces them).
+     Every point is the existing monthly report for that month; chips toggle
+     the comparison series. Bars = net (green profit / red loss). ── -->
+<div class="panel chart-panel fin-chart-panel">
+  <div class="panel-head fin-trend-head">
+    <h2>Monthly trend <span class="chart-subtitle">Net profit/loss by month · <%= value %></span></h2>
+    <div class="fin-chips" id="finTrendChips" role="group" aria-label="Toggle chart series">
+      <button type="button" class="fin-chip" data-series="net" aria-pressed="true"><span class="fin-dot fin-dot--net"></span>Net</button>
+      <button type="button" class="fin-chip" data-series="collections" aria-pressed="true"><span class="fin-dot" style="background:var(--partial);"></span>Collections</button>
+      <button type="button" class="fin-chip" data-series="income" aria-pressed="true"><span class="fin-dot" style="background:var(--paid);"></span>Income</button>
+      <button type="button" class="fin-chip" data-series="expenses" aria-pressed="true"><span class="fin-dot" style="background:var(--error);"></span>Expenses</button>
+      <button type="button" class="fin-chip" data-series="salaries" aria-pressed="false"><span class="fin-dot" style="background:var(--accent);"></span>Salaries</button>
+    </div>
+  </div>
+  <div class="panel-body chart-body fin-trend-body">
+    <canvas id="finTrendChart" role="img" aria-label="Bar and line chart of net profit or loss by month for <%= value %>, with collections, income and expenses comparison lines"></canvas>
+    <div class="chart-empty" id="finTrendEmpty" style="display:none;"></div>
+  </div>
+</div>
+<% } %>
+
+<% if (mode === 'monthly' && dailyTrend) { %>
+<!-- ── Daily net sparkline — the month's daily reports, one bar per day.
+     Future days are gaps (never queried). ── -->
+<div class="panel chart-panel fin-chart-panel">
+  <div class="panel-head">
+    <h2>Daily net <span class="chart-subtitle">Collections + Income − Expenses − Salaries · per day</span></h2>
+  </div>
+  <div class="panel-body chart-body chart-body--daily">
+    <canvas id="finDailyChart" role="img" aria-label="Bar chart of daily net profit or loss across the selected month"></canvas>
+    <div class="chart-empty" id="finDailyEmpty" style="display:none;"></div>
+  </div>
+</div>
+<% } %>
+
 <!-- ── Income by head ── -->
 <div class="panel">
   <div class="panel-head">
@@ -87,21 +124,27 @@
   <% if (report.incomeByHead.length === 0) { %>
     <div class="panel-body" style="color:var(--ink-soft);">No ad-hoc income recorded for this period.</div>
   <% } else { %>
-    <div class="table-wrap">
-      <table class="ledger">
-        <thead>
-          <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
-        </thead>
-        <tbody>
-          <% report.incomeByHead.forEach(function(h) { %>
-            <tr>
-              <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
-              <td class="num mono"><%= h.count %></td>
-              <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
-            </tr>
-          <% }); %>
-        </tbody>
-      </table>
+    <div class="fin-breakdown">
+      <div class="fin-donut-wrap fin-chart-panel">
+        <canvas id="finIncomeDonut" role="img" aria-label="Donut chart of income by head for this period"></canvas>
+        <div class="fin-donut-center"><span class="mono"><%= fmtRsCompact(report.income) %></span><small>total income</small></div>
+      </div>
+      <div class="table-wrap">
+        <table class="ledger" data-fin-heads="income">
+          <thead>
+            <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody>
+            <% report.incomeByHead.forEach(function(h) { %>
+              <tr>
+                <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
+                <td class="num mono"><%= h.count %></td>
+                <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
     </div>
   <% } %>
 </div>
@@ -115,21 +158,27 @@
   <% if (report.expensesByHead.length === 0) { %>
     <div class="panel-body" style="color:var(--ink-soft);">No expenses recorded for this period.</div>
   <% } else { %>
-    <div class="table-wrap">
-      <table class="ledger">
-        <thead>
-          <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
-        </thead>
-        <tbody>
-          <% report.expensesByHead.forEach(function(h) { %>
-            <tr>
-              <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
-              <td class="num mono"><%= h.count %></td>
-              <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
-            </tr>
-          <% }); %>
-        </tbody>
-      </table>
+    <div class="fin-breakdown">
+      <div class="fin-donut-wrap fin-chart-panel">
+        <canvas id="finExpenseDonut" role="img" aria-label="Donut chart of expenses by head for this period"></canvas>
+        <div class="fin-donut-center"><span class="mono"><%= fmtRsCompact(report.expenses) %></span><small>total expenses</small></div>
+      </div>
+      <div class="table-wrap">
+        <table class="ledger" data-fin-heads="expense">
+          <thead>
+            <tr><th>Head</th><th class="num">Entries</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody>
+            <% report.expensesByHead.forEach(function(h) { %>
+              <tr>
+                <td><strong><%= h.name %></strong><%= h.isActive ? '' : ' (inactive)' %></td>
+                <td class="num mono"><%= h.count %></td>
+                <td class="num mono"><strong><%= fmtRs(h.total) %></strong></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
     </div>
   <% } %>
 </div>
@@ -183,6 +232,23 @@
   <% } %>
 </div>
 
+<% } %>
+
+<% if (report) { %>
+<!-- Chart data island — CSP-safe (external JS only). Same figures the tables
+     show: by-head rows come straight from the report; trend points are the
+     existing monthly/daily reports composed server-side. -->
+<script type="application/json" id="finance-chart-data"><%- JSON.stringify({
+  mode: mode,
+  value: value,
+  totals: { collections: report.collections, income: report.income, expenses: report.expenses, salaries: report.salaries, net: report.net },
+  incomeByHead: report.incomeByHead.map(function(h) { return { name: h.name, total: h.total, count: h.count, isActive: h.isActive }; }),
+  expensesByHead: report.expensesByHead.map(function(h) { return { name: h.name, total: h.total, count: h.count, isActive: h.isActive }; }),
+  trend: trend,
+  dailyTrend: dailyTrend
+}).replace(/</g, '\\u003c') %></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="/js/finance-charts.js"></script>
 <% } %>
 
 <%- include('../partials/foot') %>
