@@ -1,0 +1,184 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Salary</p>
+    <h1>Teacher salary runs</h1>
+  </div>
+  <a href="/teacher-salary/config" class="btn btn-ghost">Pay rates &amp; rules</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Done.</div><% } %>
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load salary data: <%= loadError %></div><% } %>
+
+<!-- ── Generate a salary run (custom date range, preview first) ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Generate salary</h2>
+    <span class="chart-subtitle">Any custom range — both dates inclusive</span>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/teacher-salary/generate" id="salaryGenerateForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row" style="align-items:flex-end; flex-wrap:wrap; gap:12px;">
+        <div class="field" style="min-width:240px;">
+          <label for="genTeacher">Teacher</label>
+          <select name="teacherId" id="genTeacher" required>
+            <option value="">Select a teacher…</option>
+            <% configs.forEach(function(c) { %>
+              <option value="<%= c.teacher %>"
+                data-hasconfig="<%= c.hasConfig ? '1' : '0' %>"
+                data-paytype="<%= c.current ? c.current.payType : '' %>"
+                data-effectivenow="<%= c.effectiveNow ? '1' : '0' %>">
+                <%= c.name %><%= c.hasConfig ? '' : ' — pay rate not set' %>
+              </option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" style="max-width:180px;">
+          <label for="genStart">From</label>
+          <input type="date" name="startDate" id="genStart" value="<%= defaultStart %>" required />
+        </div>
+        <div class="field" style="max-width:180px;">
+          <label for="genEnd">To</label>
+          <input type="date" name="endDate" id="genEnd" value="<%= defaultEnd %>" required />
+        </div>
+        <div class="field" style="max-width:180px; display:none;" id="lectureOverrideField">
+          <label for="genLectures">Lecture count <span style="color:var(--ink-soft); font-size:12px;">(optional override)</span></label>
+          <input type="number" name="lectureCount" id="genLectures" min="0" step="1" placeholder="Defaults to attended days" />
+        </div>
+      </div>
+
+      <p id="teacherStatus" style="font-size:13px; margin:4px 0 12px; color:var(--ink-soft);">
+        Select a teacher to see their pay configuration.
+      </p>
+
+      <p style="font-size:13px; color:var(--ink-soft); margin:0 0 12px;">
+        Late deduction:
+        <% if (settings.lateDeductionEnabled && phase1.lateDetectionEnabled) { %>
+          <strong>on</strong> —
+          <% if (settings.deductionType === 'percent') { %>
+            <%= settings.percentValue %>% of the late-day share of gross.
+          <% } else { %>
+            <%= fmtRs(settings.flatAmount) %> per late day.
+          <% } %>
+        <% } else if (settings.lateDeductionEnabled && !phase1.lateDetectionEnabled) { %>
+          configured but <strong>not applied</strong> — Phase 1 late detection is off, so no day is flagged late.
+        <% } else { %>
+          <strong>off</strong> — lateness does not affect pay. <a href="/teacher-salary/config">Configure</a>.
+        <% } %>
+      </p>
+
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" id="previewBtn">Preview (dry run)</button>
+        <button type="submit" class="btn btn-accent" id="generateBtn">Save as draft</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Preview result (filled client-side; never trusted for the save) ── -->
+<div class="panel" id="previewPanel" style="display:none;">
+  <div class="panel-head">
+    <h2>Preview</h2>
+    <span class="chart-subtitle" id="previewRange"></span>
+  </div>
+  <div class="panel-body" id="previewBody"></div>
+</div>
+
+<!-- ── Run history filters ── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/teacher-salary" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap; gap:12px;">
+      <div class="field" style="min-width:220px;">
+        <label for="filterTeacher">Teacher</label>
+        <select name="teacherId" id="filterTeacher">
+          <option value="">All teachers</option>
+          <% configs.forEach(function(c) { %>
+            <option value="<%= c.teacher %>" <%= teacherId === String(c.teacher) ? 'selected' : '' %>><%= c.name %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label for="filterStatus">Status</label>
+        <select name="status" id="filterStatus">
+          <option value="">All</option>
+          <option value="draft" <%= status === 'draft' ? 'selected' : '' %>>Draft</option>
+          <option value="finalized" <%= status === 'finalized' ? 'selected' : '' %>>Finalized</option>
+        </select>
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">Filter</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Generated runs ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Salary runs</h2>
+    <span class="chart-subtitle"><%= pagination.total %> run<%= pagination.total !== 1 ? 's' : '' %></span>
+  </div>
+  <% if (runs.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No salary runs yet. Configure a pay rate, then preview and generate above.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Teacher</th><th>Period</th><th>Days</th><th>Hours</th><th>Gross</th><th>Deduction</th><th>Net</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <% runs.forEach(function(r) { %>
+            <tr>
+              <td><strong><%= r.teacherName %></strong></td>
+              <td class="mono"><%= r.startKey %> → <%= r.endKey %></td>
+              <td class="mono"><%= r.totalWorkingDays %></td>
+              <td class="mono"><%= r.totalWorkingHours %></td>
+              <td class="num mono"><%= r.gross %></td>
+              <td class="num mono"><%= r.lateDeductionAmount > 0 ? r.deduction : '—' %></td>
+              <td class="num mono"><strong><%= r.net %></strong></td>
+              <td>
+                <% if (r.status === 'finalized') { %><span class="pill paid">Finalized</span>
+                <% } else { %><span class="pill review">Draft</span><% } %>
+              </td>
+              <td><a href="/teacher-salary/runs/<%= r._id %>" class="btn btn-ghost" style="padding:4px 10px;">View</a></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <%
+      var qs = '';
+      if (teacherId) qs += '&teacherId=' + encodeURIComponent(teacherId);
+      if (status) qs += '&status=' + encodeURIComponent(status);
+    %>
+    <div class="panel-body">
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= Math.max(pagination.pages, 1) %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/teacher-salary?page=<%= pagination.page - 1 %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+          <% if (pagination.hasNext) { %>
+            <a href="/teacher-salary?page=<%= pagination.page + 1 %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<script src="/js/escape-html.js"></script>
+<script src="/js/teacher-salary.js"></script>
+<%- include('../partials/foot') %>

@@ -1,0 +1,170 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Salary</p>
+    <h1>Salary run — <%= run.teacherName %></h1>
+  </div>
+  <a href="/teacher-salary" class="btn btn-ghost">← All salary runs</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+
+<!-- ── Totals ── -->
+<div class="stats">
+  <div class="stat-card accent-green">
+    <div class="stat-value mono"><%= run.net %></div>
+    <div class="stat-label">Net pay</div>
+  </div>
+  <div class="stat-card accent-blue">
+    <div class="stat-value mono"><%= run.gross %></div>
+    <div class="stat-label">Gross</div>
+  </div>
+  <div class="stat-card accent-gold">
+    <div class="stat-value mono"><%= run.lateDeductionAmount > 0 ? run.deduction : '—' %></div>
+    <div class="stat-label">Late deduction (<%= run.lateDays %> late day<%= run.lateDays !== 1 ? 's' : '' %>)</div>
+  </div>
+  <div class="stat-card accent-purple">
+    <div class="stat-value mono"><%= run.totalWorkingDays %> d · <%= run.totalWorkingHours %> h</div>
+    <div class="stat-label">Working days / hours</div>
+  </div>
+</div>
+
+<% if (run.incompleteDays > 0) { %>
+  <div class="flash error">
+    <%= run.incompleteDays %> day<%= run.incompleteDays !== 1 ? 's' : '' %> in this period have an arrival but no departure —
+    they count as working days with 0 hours. Correct the attendance and regenerate if needed.
+  </div>
+<% } %>
+
+<!-- ── Run meta / snapshot ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Run details</h2>
+    <% if (run.status === 'finalized') { %><span class="pill paid">Finalized</span>
+    <% } else { %><span class="pill review">Draft</span><% } %>
+  </div>
+  <div class="panel-body">
+    <div class="table-wrap">
+      <table class="ledger">
+        <tbody>
+          <tr><td>Teacher</td><td><strong><%= run.teacherName %></strong><% if (run.teacherCode) { %> <span style="color:var(--ink-soft); font-size:12px;">(<%= run.teacherCode %>)</span><% } %></td></tr>
+          <tr><td>Period</td><td class="mono"><%= run.startKey %> → <%= run.endKey %> (both inclusive)</td></tr>
+          <tr><td>Pay type</td><td><%= run.payType === 'per-hour' ? 'Per hour' : 'Per lecture' %></td></tr>
+          <% if (run.payType === 'per-lecture') { %>
+            <tr>
+              <td>Lectures</td>
+              <td class="mono">
+                <%= run.lectureCount %>
+                <% if (run.lectureOverridden) { %>
+                  <span class="pill review">Admin override</span>
+                  <span style="color:var(--ink-soft); font-size:12px;">(default from attendance: <%= run.lectureCountDefault %>)</span>
+                <% } else { %>
+                  <span style="color:var(--ink-soft); font-size:12px;">(= attended days)</span>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+          <tr>
+            <td>Deduction rule applied</td>
+            <td>
+              <% if (run.deductionRule && run.deductionRule.enabled && run.lateDeductionAmount > 0) { %>
+                <% if (run.deductionRule.type === 'percent') { %>
+                  <%= run.deductionRule.value %>% of the late-day share of gross
+                <% } else { %>
+                  <%= fmtRs(run.deductionRule.value) %> per late day
+                <% } %>
+              <% } else { %>
+                None — no deduction applied to this run
+              <% } %>
+            </td>
+          </tr>
+          <tr><td>Generated</td><td class="mono"><%= run.generatedAt ? new Date(run.generatedAt).toLocaleString() : '—' %></td></tr>
+          <% if (run.status === 'finalized') { %>
+            <tr><td>Finalized</td><td class="mono"><%= run.finalizedAt ? new Date(run.finalizedAt).toLocaleString() : '—' %></td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+
+    <% if (run.status === 'draft') { %>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+        <form method="POST" action="/teacher-salary/runs/<%= run._id %>/finalize" data-confirm="Finalize this salary run? Finalized runs are locked and can no longer be changed or deleted.">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <button type="submit" class="btn btn-accent">Finalize run</button>
+        </form>
+        <form method="POST" action="/teacher-salary/runs/<%= run._id %>/delete" data-confirm="Delete this draft salary run? This cannot be undone.">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+          <button type="submit" class="btn btn-ghost">Delete draft</button>
+        </form>
+      </div>
+    <% } else { %>
+      <p style="font-size:13px; color:var(--ink-soft); margin:12px 0 0;">
+        Finalized runs are a permanent pay record — they cannot be edited or deleted.
+        To correct a finalized period, generate a new run (the overlap is flagged for review).
+      </p>
+    <% } %>
+  </div>
+</div>
+
+<!-- ── Rate segments actually applied ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Rate segments</h2>
+    <span class="chart-subtitle">Rates effective during the period — later rate changes never rewrite this run</span>
+  </div>
+  <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr><th>Effective from</th><th>Rate</th><th>Days</th><th>Hours</th><% if (run.payType === 'per-lecture') { %><th>Lectures</th><% } %><th>Amount</th></tr>
+      </thead>
+      <tbody>
+        <% run.segments.forEach(function(s) { %>
+          <tr>
+            <td class="mono"><%= s.effectiveKey %></td>
+            <td class="mono"><%= s.rateFmt %><%= run.payType === 'per-hour' ? ' / h' : ' / lecture' %></td>
+            <td class="mono"><%= s.days %></td>
+            <td class="mono"><%= s.hours %></td>
+            <% if (run.payType === 'per-lecture') { %><td class="mono"><%= s.lectures %></td><% } %>
+            <td class="num mono"><%= s.amountFmt %></td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Day-wise attendance the calculation consumed ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Attendance in this period</h2>
+    <span class="chart-subtitle"><%= run.days.length %> day<%= run.days.length !== 1 ? 's' : '' %></span>
+  </div>
+  <% if (run.days.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No attendance records fell inside this exact range.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Date</th><th>Arrival</th><th>Departure</th><th>Working hours</th><th>Late</th></tr>
+        </thead>
+        <tbody>
+          <% run.days.forEach(function(d) { %>
+            <tr>
+              <td class="mono"><%= d.dateKey %></td>
+              <td class="mono"><%= d.arrivalTime %></td>
+              <td class="mono"><%= d.departureTime || '—' %></td>
+              <td class="mono"><%= d.duration %></td>
+              <td><% if (d.isLate) { %><span class="pill review">Late</span><% } else { %><span class="pill paid">On time</span><% } %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

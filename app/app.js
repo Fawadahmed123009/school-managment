@@ -217,6 +217,7 @@ app.use(require("../routes/views/attendance.views"));
 app.use(require("../routes/views/attendanceRollup.views"));
 app.use(require("../routes/views/teacherAttendance.views"));
 app.use(require("../routes/views/staffAttendance.views"));
+app.use(require("../routes/views/teacherSalary.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/teacherMyClasses.views"));
 app.use(require("../routes/views/teacherSettings.views"));

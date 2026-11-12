@@ -96,6 +96,19 @@
         <a href="/fees/ocr" class="<%= page === 'fees-ocr' ? 'active' : '' %>" data-page="fees-ocr">Scan &amp; enter <span class="tag">New</span></a>
       </div>
     </div>
+
+    <!-- Salary (Phase 2 — admin only; managers never see pay) -->
+    <div class="nav-section" data-section="salary">
+      <button class="nav-section-header" type="button" aria-expanded="false">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/></svg>
+        <span>Salary</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-section-body">
+        <a href="/teacher-salary" class="<%= page === 'teacher-salary' ? 'active' : '' %>" data-page="teacher-salary">Salary runs</a>
+        <a href="/teacher-salary/config" class="<%= page === 'teacher-salary-config' ? 'active' : '' %>" data-page="teacher-salary-config">Pay rates &amp; rules</a>
+      </div>
+    </div>
     <% } %>
 
     <% if (user.role === 'teacher') { %>

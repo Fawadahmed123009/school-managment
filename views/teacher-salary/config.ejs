@@ -1,0 +1,160 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Salary</p>
+    <h1>Pay rates &amp; rules</h1>
+  </div>
+  <a href="/teacher-salary" class="btn btn-ghost">← Salary runs</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load pay configuration: <%= loadError %></div><% } %>
+
+<!-- ── Set / change a rate (insert-only history) ── -->
+<div class="panel" style="max-width:760px;">
+  <div class="panel-head">
+    <h2>Set a pay rate</h2>
+    <span class="chart-subtitle">Changes insert a new rate row — history is never overwritten</span>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/teacher-salary/config/rate">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row" style="align-items:flex-end; flex-wrap:wrap; gap:12px;">
+        <div class="field" style="min-width:220px;">
+          <label for="rateTeacher">Teacher</label>
+          <select name="teacher" id="rateTeacher" required>
+            <option value="">Select a teacher…</option>
+            <% configs.forEach(function(c) { %>
+              <option value="<%= c.teacher %>"><%= c.name %><%= c.hasConfig ? '' : ' — not set' %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" style="max-width:170px;">
+          <label for="ratePayType">Pay type</label>
+          <select name="payType" id="ratePayType" required>
+            <option value="per-hour">Per hour</option>
+            <option value="per-lecture">Per lecture</option>
+          </select>
+        </div>
+        <div class="field" style="max-width:160px;">
+          <label for="rateAmount">Rate (Rs)</label>
+          <input type="number" name="rateAmount" id="rateAmount" min="0.01" step="0.01" required />
+        </div>
+        <div class="field" style="max-width:180px;">
+          <label for="rateEffective">Effective from</label>
+          <input type="date" name="effectiveFrom" id="rateEffective" value="<%= todayISO %>" required />
+        </div>
+      </div>
+      <p style="font-size:13px; color:var(--ink-soft); margin:4px 0 12px;">
+        The rate applies from this date forward. Past salary runs keep the rate that was effective during their period.
+        A pay-type change mid-period requires separate runs on each side of the change.
+      </p>
+      <button type="submit" class="btn btn-accent">Save rate</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Late-deduction rule (Phase 2 — separate from the Phase 1 late rule) ── -->
+<div class="panel" style="max-width:760px;">
+  <div class="panel-head">
+    <h2>Late-arrival deduction</h2>
+  </div>
+  <div class="panel-body">
+    <form method="POST" action="/teacher-salary/config/settings">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+          <input type="checkbox" name="lateDeductionEnabled" style="width:auto;" <%= settings.lateDeductionEnabled ? 'checked' : '' %> />
+          <span>Deduct pay for late arrivals</span>
+        </label>
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 0;">
+          Off by default. Applies only while <strong>Phase 1 late detection is also on</strong>
+          (currently <strong><%= phase1.lateDetectionEnabled ? 'on' : 'off' %></strong> —
+          <a href="/teacher-attendance/settings">late-arrival rule</a>).
+        </p>
+      </div>
+
+      <div class="field" style="max-width:260px;">
+        <label for="deductionType">Deduction type</label>
+        <select name="deductionType" id="deductionType">
+          <option value="flat" <%= settings.deductionType === 'flat' ? 'selected' : '' %>>Flat amount per late day</option>
+          <option value="percent" <%= settings.deductionType === 'percent' ? 'selected' : '' %>>% of the late-day share of gross</option>
+        </select>
+      </div>
+
+      <div class="field" style="max-width:220px;" id="flatField">
+        <label for="flatAmount">Flat amount per late day (Rs)</label>
+        <input type="number" name="flatAmount" id="flatAmount" min="0" step="0.01" value="<%= settings.flatAmount %>" />
+      </div>
+
+      <div class="field" style="max-width:220px; display:none;" id="percentField">
+        <label for="percentValue">Percent (%)</label>
+        <input type="number" name="percentValue" id="percentValue" min="0" max="100" step="0.01" value="<%= settings.percentValue %>" />
+        <p style="font-size:13px; color:var(--ink-soft); margin:6px 0 0;">
+          Deducts this % of the gross attributable to late days (gross × late days ÷ working days), never more than the gross.
+        </p>
+      </div>
+
+      <button type="submit" class="btn btn-accent">Save deduction rule</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Per-teacher rates + history ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Teacher pay rates</h2>
+    <span class="chart-subtitle"><%= configs.filter(function(c){ return !c.hasConfig; }).length %> without a rate</span>
+  </div>
+  <% if (configs.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No active teachers found.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Teacher</th><th>Pay type</th><th>Current rate</th><th>Effective from</th><th>Rate history</th></tr>
+        </thead>
+        <tbody>
+          <% configs.forEach(function(c) { %>
+            <tr>
+              <td><strong><%= c.name %></strong><% if (c.teacherId) { %> <span style="font-size:12px; color:var(--ink-soft);">(<%= c.teacherId %>)</span><% } %></td>
+              <% if (!c.hasConfig) { %>
+                <td colspan="4">
+                  <span class="pill review" title="Salary generation is blocked for this teacher until a pay rate is configured">Pay rate not set</span>
+                </td>
+              <% } else { %>
+                <td><%= c.current.payType === 'per-hour' ? 'Per hour' : 'Per lecture' %></td>
+                <td class="mono"><%= c.current.rateFmt %></td>
+                <td class="mono">
+                  <%= c.current.effectiveKey %>
+                  <% if (!c.effectiveNow) { %><span class="pill review">Scheduled</span><% } %>
+                </td>
+                <td>
+                  <% if (c.history.length > 1) { %>
+                    <details>
+                      <summary style="cursor:pointer; font-size:13px;"><%= c.history.length %> rates</summary>
+                      <ul style="margin:6px 0 0; padding-left:18px; font-size:13px;">
+                        <% c.history.forEach(function(h) { %>
+                          <li class="mono"><%= h.effectiveKey %> — <%= h.rateFmt %> (<%= h.payType === 'per-hour' ? 'per hour' : 'per lecture' %>)</li>
+                        <% }); %>
+                      </ul>
+                    </details>
+                  <% } else { %>
+                    <span style="color:var(--ink-soft); font-size:13px;">First rate</span>
+                  <% } %>
+                </td>
+              <% } %>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<script src="/js/teacher-salary-config.js"></script>
+<%- include('../partials/foot') %>
