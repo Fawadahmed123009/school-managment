@@ -3,6 +3,7 @@ const FeeHead = require("../../models/Fees/feeHead.model");
 const Fees = require("../../models/Fees/fees.model");
 const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
+const { dayRangeFilter, singleDayFilter, todayKey } = require("../../utils/dateRange");
 
 // ---- Fee Head CRUD ----
 
@@ -75,22 +76,21 @@ exports.deleteFeeHeadService = async (feeHeadId, res) => {
 exports.getDailyCollectionData = async (query) => {
   const { date, from, to } = query;
 
-  // Build date range filter
-  let dateFilter = {};
+  // Build date range filter — inclusive LOCAL-calendar days, the same
+  // convention as the expense history (utils/dateRange). datePaid holds real
+  // payment instants, so UTC bounds used to drop the final day's payments and
+  // early-local-day payments that fall before UTC midnight (00:00–05:00 PKT).
+  let dateFilter;
   if (date) {
-    const day = new Date(date);
-    day.setUTCHours(0, 0, 0, 0);
-    const nextDay = new Date(day);
-    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-    dateFilter = { datePaid: { $gte: day, $lt: nextDay } };
+    const bounds = singleDayFilter(date);
+    if (!bounds) throw new Error("Invalid date — expected YYYY-MM-DD");
+    dateFilter = { datePaid: bounds };
   } else if (from && to) {
-    dateFilter = { datePaid: { $gte: new Date(from), $lte: new Date(to) } };
+    const bounds = dayRangeFilter(from, to);
+    if (!bounds) throw new Error("Invalid from/to date — expected YYYY-MM-DD");
+    dateFilter = { datePaid: bounds };
   } else {
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-    dateFilter = { datePaid: { $gte: today, $lt: tomorrow } };
+    dateFilter = { datePaid: singleDayFilter(todayKey()) };
   }
 
   // Read-only report feed: the rows below are only property-read and folded
@@ -140,7 +140,7 @@ exports.getDailyCollectionData = async (query) => {
     byHead[headName].total += f.amount;
   });
 
-  const reportDate = date || from || to || new Date().toISOString().slice(0, 10);
+  const reportDate = date || from || to || todayKey();
 
   return {
     date: reportDate,

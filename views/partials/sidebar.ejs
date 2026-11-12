@@ -110,6 +110,32 @@
       </div>
     </div>
 
+    <!-- Expenses (Phase 3 — admin only; managers never see expenses) -->
+    <div class="nav-section" data-section="expenses">
+      <button class="nav-section-header" type="button" aria-expanded="false">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg>
+        <span>Expenses</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-section-body">
+        <a href="/expenses" class="<%= page === 'expenses' ? 'active' : '' %>" data-page="expenses">Expenses</a>
+        <a href="/expense-heads" class="<%= page === 'expense-heads' ? 'active' : '' %>" data-page="expense-heads">Expense heads</a>
+      </div>
+    </div>
+
+    <!-- Income (ad-hoc income — admin only; managers never see income) -->
+    <div class="nav-section" data-section="income">
+      <button class="nav-section-header" type="button" aria-expanded="false">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        <span>Income</span>
+        <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      <div class="nav-section-body">
+        <a href="/income" class="<%= page === 'income' ? 'active' : '' %>" data-page="income">Income</a>
+        <a href="/income-heads" class="<%= page === 'income-heads' ? 'active' : '' %>" data-page="income-heads">Income heads</a>
+      </div>
+    </div>
+
     <!-- Finance reports (Phase 4 — admin only; daily/monthly/yearly net reports) -->
     <div class="nav-section" data-section="finance-reports">
       <button class="nav-section-header" type="button" aria-expanded="false">

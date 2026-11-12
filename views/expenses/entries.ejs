@@ -1,0 +1,172 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Finance</p>
+    <h1>Expenses</h1>
+  </div>
+  <a href="/expense-heads" class="btn btn-ghost">Expense heads</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Expense recorded.</div><% } %>
+<% if (error) { %><div class="flash error"><%= error %></div><% } %>
+<% if (loadError) { %><div class="flash error">Couldn't load expense data: <%= loadError %></div><% } %>
+
+<!-- ── Record an expense (total auto-calculates; never entered manually) ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Record an expense</h2>
+    <span class="chart-subtitle">Total = quantity × unit rate (auto)</span>
+  </div>
+  <div class="panel-body">
+    <% if (activeHeads.length === 0) { %>
+      <div class="flash error">No active expense heads. <a href="/expense-heads">Create one</a> before recording an expense.</div>
+    <% } %>
+    <form method="POST" action="/expenses/create" id="expenseEntryForm">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field-row" style="align-items:flex-end; flex-wrap:wrap; gap:12px;">
+        <div class="field" style="min-width:220px;">
+          <label for="expenseHead">Expense head</label>
+          <select name="expenseHead" id="expenseHead" required>
+            <option value="">Select a head…</option>
+            <% activeHeads.forEach(function(h) { %>
+              <option value="<%= h._id %>"><%= h.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="field" style="max-width:180px;">
+          <label for="date">Date</label>
+          <input type="date" name="date" id="date" value="<%= defaultDate %>" required />
+        </div>
+        <div class="field" style="min-width:220px;">
+          <label for="itemName">Item name</label>
+          <input type="text" name="itemName" id="itemName" required placeholder="e.g. A4 paper ream, printer labor" />
+        </div>
+      </div>
+      <div class="field-row" style="align-items:flex-end; flex-wrap:wrap; gap:12px;">
+        <div class="field" style="max-width:160px;">
+          <label for="quantity">Quantity</label>
+          <input type="number" name="quantity" id="quantity" step="any" min="0" required placeholder="e.g. 2.5" />
+        </div>
+        <div class="field" style="max-width:160px;">
+          <label for="unitRate">Unit rate (Rs)</label>
+          <input type="number" name="unitRate" id="unitRate" step="0.01" min="0" required placeholder="e.g. 45.50" />
+        </div>
+        <div class="field" style="max-width:200px;">
+          <label for="totalDisplay">Total amount (Rs)</label>
+          <input type="text" id="totalDisplay" value="0.00" readonly tabindex="-1" />
+        </div>
+      </div>
+      <div class="field">
+        <label for="notes">Notes (optional)</label>
+        <input type="text" name="notes" id="notes" placeholder="Any extra detail" />
+      </div>
+      <button type="submit" class="btn btn-primary">Record expense</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── History filters (head + inclusive date range) ── -->
+<div class="panel">
+  <div class="panel-body">
+    <form method="GET" action="/expenses" class="field-row" style="align-items:flex-end; margin-bottom:0; flex-wrap:wrap; gap:12px;">
+      <div class="field" style="min-width:220px;">
+        <label for="filterHead">Expense head</label>
+        <select name="expenseHead" id="filterHead">
+          <option value="">All heads</option>
+          <% allHeads.forEach(function(h) { %>
+            <option value="<%= h._id %>" <%= filters.expenseHead === String(h._id) ? 'selected' : '' %>><%= h.name %><%= h.isActive ? '' : ' (inactive)' %></option>
+          <% }); %>
+        </select>
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label for="filterFrom">From</label>
+        <input type="date" name="from" id="filterFrom" value="<%= filters.from %>" />
+      </div>
+      <div class="field" style="max-width:180px;">
+        <label for="filterTo">To</label>
+        <input type="date" name="to" id="filterTo" value="<%= filters.to %>" />
+      </div>
+      <div class="field" style="flex:none;">
+        <button type="submit" class="btn btn-primary">Filter</button>
+        <a href="/expenses" class="btn btn-ghost">Reset</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Running total for the filtered view (sum across ALL filtered results) ── -->
+<div class="stats" style="margin-bottom:16px;">
+  <div class="stat-card accent-green">
+    <div class="stat-value mono"><%= fmtRs(runningTotal) %></div>
+    <div class="stat-label">Running total (filtered)</div>
+  </div>
+  <div class="stat-card accent-blue">
+    <div class="stat-value mono"><%= count %></div>
+    <div class="stat-label">Entr<%= count !== 1 ? 'ies' : 'y' %></div>
+  </div>
+</div>
+
+<!-- ── Expense history (date-wise log, newest first) ── -->
+<div class="panel">
+  <div class="panel-head">
+    <h2>Expense history</h2>
+    <span class="chart-subtitle"><%= pagination.total %> entr<%= pagination.total !== 1 ? 'ies' : 'y' %> · newest first</span>
+  </div>
+  <% if (entries.length === 0) { %>
+    <div class="panel-body" style="color:var(--ink-soft);">No expenses recorded for this filter yet. Record one above.</div>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="ledger">
+        <thead>
+          <tr><th>Date</th><th>Head</th><th>Item</th><th class="num">Qty</th><th class="num">Unit rate</th><th class="num">Total</th><th>Notes</th><th>By</th></tr>
+        </thead>
+        <tbody>
+          <% entries.forEach(function(e) { %>
+            <tr>
+              <td class="mono"><%= e.dateKey %></td>
+              <td><%= e.headName %><%= e.headActive ? '' : ' (inactive)' %></td>
+              <td><strong><%= e.itemName %></strong></td>
+              <td class="num mono"><%= e.quantity %></td>
+              <td class="num mono"><%= e.rateFmt %></td>
+              <td class="num mono"><strong><%= e.totalFmt %></strong></td>
+              <td><%= e.notes || '—' %></td>
+              <td><%= e.createdByName %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+
+    <%
+      var qs = '';
+      if (filters.expenseHead) qs += '&expenseHead=' + encodeURIComponent(filters.expenseHead);
+      if (filters.from) qs += '&from=' + encodeURIComponent(filters.from);
+      if (filters.to) qs += '&to=' + encodeURIComponent(filters.to);
+    %>
+    <div class="panel-body">
+      <div class="pagination-bar">
+        <span class="pagination-info">
+          Page <%= pagination.page %> of <%= Math.max(pagination.pages, 1) %> &middot; <%= pagination.total %> result<%= pagination.total !== 1 ? 's' : '' %>
+        </span>
+        <div class="pagination-links">
+          <% if (pagination.hasPrev) { %>
+            <a href="/expenses?page=<%= pagination.page - 1 %><%= qs %>" class="page-link">&laquo; Prev</a>
+          <% } else { %>
+            <span class="page-link disabled">&laquo; Prev</span>
+          <% } %>
+          <% if (pagination.hasNext) { %>
+            <a href="/expenses?page=<%= pagination.page + 1 %><%= qs %>" class="page-link">Next &raquo;</a>
+          <% } else { %>
+            <span class="page-link disabled">Next &raquo;</span>
+          <% } %>
+        </div>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<script src="/js/expense-entry.js"></script>
+<%- include('../partials/foot') %>

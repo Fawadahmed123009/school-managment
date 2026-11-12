@@ -22,14 +22,14 @@ This report documents the **toolchain**, the **repeatable workflow**, the **arti
 |---|---|---|
 | **Qoder** (agentic AI coding assistant + IDE) | Primary day-to-day builder: feature implementation, refactors, regression tests, security remediation, long-term memory of conventions. | `.qoder/` directory: `plans/`, `security-audit-queue.md`, `audit-fixes-completed.md`; the persistent memory system (user/project/dev-spec/experience categories). |
 | **Claude Code** (terminal AI agent) | Parallel/earlier agentic sessions for command-driven work: syntax gates, test runs, live `curl` probes, file surgery, server control. | `.claude/` directory: `settings.local.json` (permission allowlist of approved Bash commands), `launch.json`, `cpicker-harness.html`, `cpicker-preview-server.js`. |
-| **Gemini** (Google Generative AI) | A **product feature** of the app, *not* a dev tool: OCR of marked answer sheets and analytics/insight text. Wired through a shared client wrapper with API-key failover. | `@google/genai` dependency, `services/.../*ocr*`, `utils/geminiClient` wrapper, OCR views/tests (`__tests__/ocr*`). |
+| **OpenRouter** (NVIDIA Nemotron 3.5 Super VL, free tier) | A **product feature** of the app, *not* a dev tool: OCR of marked answer sheets and fee collection sheets. Wired through a shared client wrapper with API-key failover (formerly Google Gemini). | `services/.../*ocr*`, `utils/openRouterClient` wrapper, OCR views/tests (`__tests__/ocr*`, `__tests__/openRouter*`). |
 
-> **Important distinction:** Gemini is the application's *runtime* AI capability (reading scanned marks). The *development* AI is the agentic coding tools (Qoder / Claude Code) that wrote and verified the code. They are unrelated roles.
+> **Important distinction:** OpenRouter OCR is the application's *runtime* AI capability (reading scanned marks). The *development* AI is the agentic coding tools (Qoder / Claude Code) that wrote and verified the code. They are unrelated roles.
 
 ### 2.1 Operating environment
 
 - **Host → guest execution:** the developer works on Windows and drives a **WSL Ubuntu** guest (`wsl -d ubuntu -- bash -lc …`). The `.claude/settings.local.json` allowlist is full of these prefixed commands, which is a fingerprint of the AI-approval workflow: every recurring shell action is pre-registered so the agent can run it without re-prompting.
-- **Runtime:** Node.js, dev server on **port 5130**, **MongoDB Atlas** (remote) via `DB` env var; `PORT`, `JWT_SECRET_KEY`, `COOKIE_SECRET`, `SCHOOL_NAME`, `GEMINI_API_KEY` in `.env`.
+- **Runtime:** Node.js, dev server on **port 5130**, **MongoDB Atlas** (remote) via `DB` env var; `PORT`, `JWT_SECRET_KEY`, `COOKIE_SECRET`, `SCHOOL_NAME`, `OPENROUTER_API_KEY` in `.env`.
 
 ---
 
@@ -134,7 +134,7 @@ This single feature demonstrates the recurring pattern: *clarify → reuse exist
 
 ## 9. Reproducing this AI-assisted setup
 
-1. Clone the repo, `npm install`, configure `.env` (from `.env.example`) with `DB`, `PORT`, `JWT_SECRET_KEY`, `COOKIE_SECRET`, `GEMINI_API_KEY`.
+1. Clone the repo, `npm install`, configure `.env` (from `.env.example`) with `DB`, `PORT`, `JWT_SECRET_KEY`, `COOKIE_SECRET`, `OPENROUTER_API_KEY`.
 2. Create the first admin (`node scripts/createFirstAdmin.js`) and start the dev server (`bash tmp/restart_server.sh`).
 3. Open the project in an agentic AI coding tool (Qoder / Claude Code). Pre-approve the recurring shell commands (server restart, `node --check`, `npx jest`, live `curl`/cookie probes) so the agent can run them autonomously.
 4. Adopt the loop in §4: investigate → clarify → implement → `node --check` → Jest → live verify → clean → commit.
@@ -145,7 +145,7 @@ This single feature demonstrates the recurring pattern: *clarify → reuse exist
 ## 10. Limitations and notes
 
 - The project started from a third-party open-source scaffold; this report covers the **AI-driven extension and hardening** layered on top, not the original authorship.
-- "AI tools" here means **agentic coding assistants**; the app's own Gemini usage is a runtime feature and is called out separately to avoid conflating the two.
+- "AI tools" here means **agentic coding assistants**; the app's own OpenRouter OCR usage is a runtime feature and is called out separately to avoid conflating the two.
 - Live verification relies on a reachable dev server and MongoDB Atlas; CI environments without a live server fall back to the Jest suite plus spawned-process proofs.
 
 ---

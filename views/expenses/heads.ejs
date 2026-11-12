@@ -1,0 +1,71 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Setup</p>
+    <h1>Expense Heads</h1>
+  </div>
+  <a href="/expenses" class="btn btn-ghost">Expenses</a>
+</div>
+
+<% if (ok) { %><div class="flash ok">Saved.</div><% } %>
+<% if (typeof createError !== 'undefined' && createError) { %><div class="flash error"><%= createError %></div><% } %>
+<% if (loadError) { %><div class="flash error"><%= loadError %></div><% } %>
+
+<div class="panel">
+  <div class="panel-head"><h2>Add an expense head</h2></div>
+  <div class="panel-body">
+    <form method="POST" action="/expense-heads/create">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <div class="field">
+        <label for="name">Name</label>
+        <input type="text" name="name" id="name" required placeholder="e.g. Electricity, Printing — Labor, Charity Fund, Building Rent" />
+      </div>
+      <button type="submit" class="btn btn-primary">Add expense head</button>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head"><h2>All expense heads</h2></div>
+  <% if (heads.length === 0) { %>
+    <div class="empty">
+      <div class="display">No expense heads yet</div>
+      <p>Create one above to categorise expenses. New categories never need a code change.</p>
+    </div>
+  <% } else { %>
+    <div class="table-wrap">
+    <table class="ledger">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% heads.forEach(function(h) { %>
+          <tr>
+            <td><strong><%= h.name %></strong></td>
+            <td><span class="pill <%= h.isActive ? 'paid' : 'pending' %>"><%= h.isActive ? 'Active' : 'Inactive' %></span></td>
+            <td>
+              <form method="POST" action="/expense-heads/<%= h._id %>/toggle" style="display:inline;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="isActive" value="<%= !h.isActive %>" />
+                <button type="submit" class="btn btn-ghost" style="padding:6px 10px;"><%= h.isActive ? 'Deactivate' : 'Activate' %></button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    </div>
+    <div class="panel-body" style="color:var(--ink-soft); font-size:13px;">
+      Deactivating a head hides it from the new-entry dropdown but keeps every past expense entry that uses it. Heads are never hard-deleted.
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/foot') %>

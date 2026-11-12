@@ -1,12 +1,12 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { removeUploadedFile } = require("../../utils/uploadFactory");
-const { callGemini } = require("../../utils/geminiClient");
+const { callOpenRouter } = require("../../utils/openRouterClient");
 const fs = require("fs");
 
 exports.extractFeesFromImageService = async (filePath, mimeType, res) => {
   // H5: the temp file handed over by multer belongs to this function's scope,
-  // so its removal is in a `finally` — the read, the Gemini call and the JSON
-  // parse all have failure paths that used to strand the file on disk.
+  // so its removal is in a `finally` — the read, the OpenRouter call and the
+  // JSON parse all have failure paths that used to strand the file on disk.
   try {
     return await extractFeeRowsFromImage(filePath, mimeType, res);
   } finally {
@@ -31,12 +31,10 @@ Example output:
 
   let response;
   try {
-    response = await callGemini({
-      model: "gemini-3.6-flash",
-      contents: [
-        { text: prompt },
-        { inlineData: { mimeType: mimeType, data: imageData } },
-      ],
+    response = await callOpenRouter({
+      prompt,
+      mimeType,
+      imageData,
     });
   } catch (err) {
     // All keys exhausted / cooling down — the wrapper's specific message must

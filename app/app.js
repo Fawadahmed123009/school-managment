@@ -108,6 +108,8 @@ routeSync(app, "academic");
 routeSync(app, "students");
 routeSync(app, "fees");
 routeSync(app, "parents");
+routeSync(app, "expenses");
+routeSync(app, "income");
 routeSync(app, "finance");
 
 // ---------- Server-rendered portal ───────────────────────────
@@ -219,6 +221,8 @@ app.use(require("../routes/views/attendanceRollup.views"));
 app.use(require("../routes/views/teacherAttendance.views"));
 app.use(require("../routes/views/staffAttendance.views"));
 app.use(require("../routes/views/teacherSalary.views"));
+app.use(require("../routes/views/expenses.views"));
+app.use(require("../routes/views/income.views"));
 app.use(require("../routes/views/financeReport.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/teacherMyClasses.views"));

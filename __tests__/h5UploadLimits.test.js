@@ -522,24 +522,27 @@ describe("H5 orphan upload sweep", () => {
 
 // ── services: unlink on the paths that used to leak ──────────────────────────
 describe("H5 OCR/import services clean up on failure", () => {
-  // The services construct GoogleGenAI at module load, so the mock has to exist
-  // before they are required.
-  let mockGenerateContent;
+  // The OCR services call the shared OpenRouter wrapper, whose HTTP transport
+  // is injectable — the mock has to be installed before they are required.
+  let mockOcrTransport;
   let mockXlsxReadFile;
   let ocrServices;
   let importService;
 
+  // A chat-completions reply carrying the given model text.
+  const ocrReply = (text) => ({
+    status: 200,
+    headers: {},
+    body: JSON.stringify({ choices: [{ message: { content: text } }] }),
+  });
+
   beforeAll(() => {
-    // The shared Gemini wrapper builds its key pool lazily from env; this suite
-    // only exercises cleanup paths, so one dummy key and a mocked SDK suffice.
-    process.env.GEMINI_API_KEY = "h5-test-key";
+    // The shared OpenRouter wrapper builds its key pool lazily from env; this
+    // suite only exercises cleanup paths, so one dummy key and a mocked
+    // transport suffice.
+    process.env.OPENROUTER_API_KEY = "h5-test-key";
     jest.isolateModules(() => {
-      mockGenerateContent = jest.fn();
-      jest.doMock("@google/genai", () => ({
-        GoogleGenAI: jest.fn().mockImplementation(() => ({
-          models: { generateContent: (...args) => mockGenerateContent(...args) },
-        })),
-      }));
+      mockOcrTransport = jest.fn();
       // A workbook XLSX refuses to open is the real-world import failure (wrong
       // export, .xls saved as .xlsx, truncated download). Mocking readFile keeps
       // that path deterministic instead of depending on how lenient xlsx is.
@@ -554,17 +557,18 @@ describe("H5 OCR/import services clean up on failure", () => {
       ocrServices = {
         fees: require("../services/fees/ocr.service"),
         marks: require("../services/academic/marksOcr.service"),
-        gemini: require("../utils/geminiClient"),
+        ocrClient: require("../utils/openRouterClient"),
       };
+      ocrServices.ocrClient.__setTransportForTesting(mockOcrTransport);
       importService = require("../services/students/studentImport.service");
     });
   });
 
   beforeEach(() => {
     // Fresh key pool per case: a 429 cooldown from one test must not make the
-    // next test's call skip the SDK mock entirely.
-    ocrServices.gemini.__resetGeminiPoolForTesting();
-    mockGenerateContent.mockReset();
+    // next test's call skip the transport mock entirely.
+    ocrServices.ocrClient.__resetOpenRouterPoolForTesting();
+    mockOcrTransport.mockReset();
   });
 
   const mkRes = () => {
@@ -576,7 +580,7 @@ describe("H5 OCR/import services clean up on failure", () => {
 
   test("fee OCR: unparseable model output (an early return) still unlinks", async () => {
     const file = makeUploadTempFile();
-    mockGenerateContent.mockResolvedValue({ text: "this is not json" });
+    mockOcrTransport.mockResolvedValue(ocrReply("this is not json"));
 
     const res = mkRes();
     await ocrServices.fees.extractFeesFromImageService(file, "image/png", res);
@@ -585,9 +589,9 @@ describe("H5 OCR/import services clean up on failure", () => {
     expect(await fileGone(file)).toBe(true);
   });
 
-  test("fee OCR: a Gemini failure still unlinks", async () => {
+  test("fee OCR: an OpenRouter failure still unlinks", async () => {
     const file = makeUploadTempFile();
-    mockGenerateContent.mockRejectedValue(Object.assign(new Error("quota"), { status: 429 }));
+    mockOcrTransport.mockRejectedValue(Object.assign(new Error("quota"), { status: 429 }));
 
     const res = mkRes();
     await ocrServices.fees.extractFeesFromImageService(file, "image/png", res);
@@ -601,7 +605,7 @@ describe("H5 OCR/import services clean up on failure", () => {
 
   test("marks OCR: unparseable model output still unlinks", async () => {
     const file = makeUploadTempFile();
-    mockGenerateContent.mockResolvedValue({ text: "```json\n[broken" });
+    mockOcrTransport.mockResolvedValue(ocrReply("```json\n[broken"));
 
     const res = mkRes();
     await ocrServices.marks.extractMarksFromImageService(file, "image/jpeg", res);
@@ -612,7 +616,7 @@ describe("H5 OCR/import services clean up on failure", () => {
 
   test("marks OCR: success path unlinks too", async () => {
     const file = makeUploadTempFile();
-    mockGenerateContent.mockResolvedValue({ text: '[{"name":"Ali","score":42}]' });
+    mockOcrTransport.mockResolvedValue(ocrReply('[{"name":"Ali","score":42}]'));
 
     const res = mkRes();
     await ocrServices.marks.extractMarksFromImageService(file, "image/jpeg", res);
@@ -633,7 +637,7 @@ describe("H5 OCR/import services clean up on failure", () => {
   test("services never unlink outside uploads/", async () => {
     const outside = path.join(scratch, "not-an-upload.xlsx");
     fs.writeFileSync(outside, "keep me");
-    mockGenerateContent.mockResolvedValue({ text: "not json" });
+    mockOcrTransport.mockResolvedValue(ocrReply("not json"));
 
     await ocrServices.fees.extractFeesFromImageService(outside, "image/png", mkRes());
 
