@@ -24,13 +24,16 @@
 
     phaseSelect.innerHTML = '<option value="">—</option>';
     if (phasesAttr) {
-      var phases = JSON.parse(phasesAttr);
-      phases.forEach(function (p) {
-        var opt = document.createElement('option');
-        opt.value = p._id;
-        opt.textContent = p.name;
-        phaseSelect.appendChild(opt);
-      });
+      // Guarded like test-edit.js — a malformed island must leave the list
+      // empty, not kill every handler on the page (M5).
+      try {
+        JSON.parse(phasesAttr).forEach(function (p) {
+          var opt = document.createElement('option');
+          opt.value = p._id;
+          opt.textContent = p.name;
+          phaseSelect.appendChild(opt);
+        });
+      } catch (e) { /* leave the list empty rather than killing the handlers */ }
     }
 
     // Show/hide phase and week fields based on session selection

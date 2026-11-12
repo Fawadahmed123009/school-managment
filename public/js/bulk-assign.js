@@ -74,6 +74,7 @@
 
   // ── Auto-fill amount from fee head default ─────────────────────
   feeHeadSelect.addEventListener('change', function () {
+    FormFeedback.clearFieldError(this);
     var opt = this.options[this.selectedIndex];
     var amt = opt && opt.dataset.amount;
     if (amt && Number(amt) > 0 && !amountInput.value) {
@@ -326,14 +327,18 @@
 
   // ── Form validation on submit ──────────────────────────────────
   form.addEventListener('submit', function (e) {
+    // Inline + toast instead of alert() — alert can be a silent no-op in the
+    // installed PWA, making the Create button look dead (M1).
+    FormFeedback.clearFieldError(feeHeadSelect);
     if (targetType.value === 'class' && getSelectedClassIds().length === 0) {
       e.preventDefault();
-      alert('Please select at least one class.');
+      Toast.warning('Please select at least one class.', { title: 'Missing selection' });
       return;
     }
     if (!feeHeadSelect.value) {
       e.preventDefault();
-      alert('Please select a fee head.');
+      FormFeedback.setFieldError(feeHeadSelect, 'Please select a fee head.');
+      Toast.warning('Please select a fee head.', { title: 'Missing selection' });
       return;
     }
     // Serialize per-student overrides into the hidden field

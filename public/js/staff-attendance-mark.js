@@ -81,7 +81,11 @@
 
   rows.forEach((row) => {
     row.querySelectorAll('input[type="time"]').forEach((input) => {
-      input.addEventListener('input', () => refreshRow(row));
+      input.addEventListener('input', () => {
+        // Editing a flagged time clears its inline error (M1).
+        FormFeedback.clearFieldError(input);
+        refreshRow(row);
+      });
     });
   });
 
@@ -107,15 +111,33 @@
       });
 
       if (invalid.length > 0) {
-        alert('Departure must be after arrival for: ' + invalid.join(', '));
+        // Inline on the offending departure inputs + a toast naming the rows —
+        // alert() can be silently suppressed in the installed PWA (M1).
+        rows.forEach((row) => {
+          const dep = row.querySelector('.ta-departure');
+          const arr = row.querySelector('.ta-arrival').value;
+          const dept = dep.value;
+          if (arr && dept) {
+            const a = toMinutes(arr);
+            const d = toMinutes(dept);
+            if (Number.isNaN(a) || Number.isNaN(d) || d <= a) {
+              FormFeedback.setFieldError(dep, 'Departure must be after arrival.');
+            }
+          }
+        });
+        Toast.error('Departure must be after arrival for: ' + invalid.join(', '), { title: 'Check the times' });
         return;
       }
       if (records.length === 0) {
-        alert('Enter or correct at least one time before saving.');
+        Toast.warning('Enter or correct at least one time before saving.', { title: 'Nothing to save' });
         return;
       }
 
       document.getElementById('records-input').value = JSON.stringify(records);
+      // form.submit() fires no submit event, so the global double-submit
+      // guard never sees it — lock the button ourselves (M2), with bfcache
+      // restore so Back never lands on a dead "Saving…" button.
+      FormFeedback.busy(saveBtn, 'Saving…');
       document.getElementById('ta-form').submit();
     });
   }

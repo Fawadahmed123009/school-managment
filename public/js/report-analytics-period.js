@@ -186,7 +186,9 @@
       }
       if (msg) {
         e.preventDefault();
-        alert(msg);
+        // Toast, not alert() — alert can be a silent no-op in the installed
+        // PWA, making Generate look dead (M1).
+        Toast.warning(msg, { title: 'Check the report options' });
       }
     });
   }

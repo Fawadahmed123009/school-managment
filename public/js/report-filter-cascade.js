@@ -418,12 +418,17 @@
   // unchanged; this only mirrors the old mandatory "select a test" behaviour.
   var form = document.getElementById('pdfForm');
   if (form && rsTest) {
+    // Picking a test clears the submit guard's inline error (M1).
+    rsTest.addEventListener('change', function () { FormFeedback.clearFieldError(rsTest); });
     form.addEventListener('submit', function (e) {
       var reportType = document.getElementById('reportType');
       if (!reportType || reportType.value !== 'result-sheet') return;
       if (!rsTest.value) {
         e.preventDefault();
-        alert('Please select a Test — a result sheet is generated for one test.');
+        // Inline on the Test field + toast — alert() can be a silent no-op
+        // in the installed PWA (M1).
+        FormFeedback.setFieldError(rsTest, 'Please select a Test — a result sheet is generated for one test.');
+        Toast.warning('Please select a Test — a result sheet is generated for one test.', { title: 'Missing test' });
       }
     });
   }

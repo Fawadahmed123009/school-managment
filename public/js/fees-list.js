@@ -65,6 +65,7 @@
     onSelect: function (item) {
       picked = { id: item.id, label: item.title };
       hiddenInput.value = item.id;
+      FormFeedback.clearFieldError(searchInput);
     },
     onInvalidate: function () {
       // Any edit invalidates the previous selection until a row is picked again.
@@ -83,10 +84,16 @@
   if (classFilter) classFilter.addEventListener('change', onFilterChange);
   if (rollFilter)  rollFilter.addEventListener('input', onFilterChange);
 
-  document.querySelector('form[action="/fees/create"]').addEventListener('submit', function (e) {
-    if (!hiddenInput.value) {
-      e.preventDefault();
-      alert('Please select a student from the search results.');
-    }
-  });
+  var createForm = document.querySelector('form[action="/fees/create"]');
+  if (createForm) {
+    createForm.addEventListener('submit', function (e) {
+      if (!hiddenInput.value) {
+        e.preventDefault();
+        // Inline next to the picker + toast — alert() can be a silent no-op
+        // in the installed PWA, making the button look dead (M1).
+        FormFeedback.setFieldError(searchInput, 'Please select a student from the search results.');
+        Toast.warning('Please select a student from the search results.', { title: 'Missing student' });
+      }
+    });
+  }
 })();

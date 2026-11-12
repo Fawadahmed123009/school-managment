@@ -61,6 +61,9 @@
   // a teacher gets an empty list and therefore no bulk classes (bulk generation
   // is admin/manager only regardless).
   var sessionClasses = [];
+  // M3: a FAILED load must not masquerade as "No grades in this session" —
+  // the flag drives an explicit retry hint in the picker placeholders.
+  var sessionClassesFailed = false;
 
   // Checked class ids survive a grade switch in sections mode.
   var checkedClassIds = {};
@@ -71,13 +74,6 @@
   function setDisabled(container, disabled) {
     if (!container) return;
     container.querySelectorAll('select, input').forEach(function (elm) { elm.disabled = disabled; });
-  }
-
-  function getHeaders() {
-    var headers = {};
-    var meta = document.querySelector('meta[name="auth-token"]');
-    if (meta && meta.content) headers['Authorization'] = 'Bearer ' + meta.content;
-    return headers;
   }
 
   // Grade sort: PG first, then numeric ascending.
@@ -163,6 +159,7 @@
   // ── session-scoped classes (for the bulk pickers only) ────────────────────
   function loadSessionClasses() {
     var sessionId = sessionSelect.value;
+    sessionClassesFailed = false;
     if (!sessionId) {
       sessionClasses = [];
       refreshClassScopePickers();
@@ -170,17 +167,21 @@
     }
     sessionClasses = [];
     refreshClassScopePickers();
-    fetch('/api/v1/pdf-reports/session-students?sessionId=' + encodeURIComponent(sessionId), { headers: getHeaders() })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var payload = (data && data.status === 'success' && data.data) ? data.data : {};
+    // fetchJson never throws and reads non-JSON/expired-session replies as
+    // failures with a message — a raw fetch().json() used to drop those into
+    // the catch and show the empty-state placeholder instead (M3).
+    FormFeedback.fetchJson('/api/v1/pdf-reports/session-students?sessionId=' + encodeURIComponent(sessionId), { action: 'Load classes' })
+      .then(function (result) {
+        if (!result.ok) {
+          sessionClassesFailed = true;
+          refreshClassScopePickers();
+          Toast.error(result.message + ' Re-select the session to retry.', { title: 'Could not load the session classes' });
+          return;
+        }
+        var payload = result.payload.data || {};
         sessionClasses = (payload.classes || []).map(function (c) {
           return { _id: String(c._id), gradeLevel: c.gradeLevel || null, section: c.section || null, name: c.name, group: c.group || null };
         });
-        refreshClassScopePickers();
-      })
-      .catch(function () {
-        sessionClasses = [];
         refreshClassScopePickers();
       });
   }
@@ -200,6 +201,7 @@
   // grade) is available yet.
   function gradePlaceholder() {
     if (!sessionSelect.value) return '-- Select session first --';
+    if (sessionClassesFailed) return 'Could not load grades — re-select the session to retry';
     return distinctGrades().length ? '-- Select grade --' : 'No grades in this session';
   }
 
@@ -477,7 +479,9 @@
       }
       if (msg) {
         e.preventDefault();
-        alert(msg);
+        // Toast, not alert() — alert can be a silent no-op in the installed
+        // PWA, making Generate look dead (M1).
+        Toast.warning(msg, { title: 'Check the report options' });
       }
     });
   }

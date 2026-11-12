@@ -53,6 +53,8 @@
     } else {
       countEl.textContent =
         checked.length + " section" + (checked.length !== 1 ? "s" : "") + " selected";
+      // A selection clears the submit guard's inline error (M1).
+      FormFeedback.clearFieldError(container);
     }
   }
 
@@ -180,7 +182,10 @@
     var checked = container.querySelectorAll("input.class-checkbox:checked");
     if (checked.length === 0) {
       e.preventDefault();
-      alert("Please select at least one class section.");
+      // Inline on the checkbox group + toast — alert() can be a silent no-op
+      // in the installed PWA, making the button look dead (M1).
+      FormFeedback.setFieldError(container, "Please select at least one class section.");
+      Toast.warning("Please select at least one class section.", { title: "Missing selection" });
     }
   });
 })();

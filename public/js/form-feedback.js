@@ -101,18 +101,36 @@
     return typeof input === 'string' ? document.getElementById(input) : input;
   }
 
+  // Shared lookup so set/clear stay symmetric: with a .field wrapper the
+  // error lives anywhere inside it; WITHOUT one (e.g. inputs in table cells)
+  // it is a direct child of the input's parent — never a sibling's error.
+  function findFieldError(el) {
+    var field = el.closest ? el.closest('.field') : null;
+    var host = field || el.parentNode;
+    if (!host) return { host: null, errEl: null };
+    var errEl = null;
+    if (field) {
+      errEl = field.querySelector('.field-error');
+    } else {
+      var kids = host.children || [];
+      for (var i = 0; i < kids.length; i++) {
+        if (kids[i].classList && kids[i].classList.contains('field-error')) { errEl = kids[i]; break; }
+      }
+    }
+    return { host: host, errEl: errEl };
+  }
+
   function setFieldError(input, message) {
     var el = resolveEl(input);
     if (!el) return;
-    var field = el.closest ? el.closest('.field') : null;
-    var host = field || el.parentNode;
-    if (!host) return;
-    var errEl = field ? field.querySelector('.field-error') : null;
+    var found = findFieldError(el);
+    if (!found.host) return;
+    var errEl = found.errEl;
     if (!errEl) {
       errEl = document.createElement('p');
       errEl.className = 'field-error';
       errEl.setAttribute('role', 'alert');
-      host.appendChild(errEl);
+      found.host.appendChild(errEl);
     }
     errEl.textContent = message;
     el.classList.add('input-invalid');
@@ -122,8 +140,7 @@
   function clearFieldError(input) {
     var el = resolveEl(input);
     if (!el) return;
-    var field = el.closest ? el.closest('.field') : null;
-    var errEl = field ? field.querySelector('.field-error') : null;
+    var errEl = findFieldError(el).errEl;
     if (errEl && errEl.parentNode) errEl.parentNode.removeChild(errEl);
     el.classList.remove('input-invalid');
     el.removeAttribute('aria-invalid');

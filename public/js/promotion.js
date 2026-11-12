@@ -13,6 +13,11 @@
 
   if (!promotionForm) return;
 
+  // Choosing a bulk target clears its inline validation error (M1).
+  if (bulkTarget) {
+    bulkTarget.addEventListener('change', function () { FormFeedback.clearFieldError(this); });
+  }
+
   // ── Select all / Deselect all ───────────────────────────────────
   function setAllChecked(checked) {
     checkboxes.forEach(function (cb) { cb.checked = checked; });
@@ -37,7 +42,10 @@
     bulkApplyBtn.addEventListener('click', function () {
       var target = bulkTarget.value;
       if (!target) {
-        alert('Please choose a target class or "Graduate" first.');
+        // Inline + toast instead of alert() — alert can be a silent no-op in
+        // the installed PWA (M1).
+        FormFeedback.setFieldError(bulkTarget, 'Choose a target class or "Graduate" first.');
+        Toast.warning('Please choose a target class or "Graduate" first.', { title: 'Missing target' });
         return;
       }
 
@@ -54,7 +62,7 @@
       });
 
       if (count === 0) {
-        alert('No students are selected. Tick the checkboxes first.');
+        Toast.warning('No students are selected. Tick the checkboxes first.', { title: 'Nothing selected' });
         return;
       }
 
@@ -106,16 +114,16 @@
 
     if (promotions.length === 0) {
       e.preventDefault();
-      alert('Please assign a target class or "Graduate" to at least one student.');
+      Toast.warning('Please assign a target class or "Graduate" to at least one student.', { title: 'Nothing to preview' });
       return;
     }
 
     promotionsField.value = JSON.stringify(promotions);
 
-    // Disable the button to prevent double-submits.
+    // Lock the button against double-submits; busy() also restores it on
+    // bfcache pageshow so Back never lands on a dead "Loading preview…".
     if (previewBtn) {
-      previewBtn.disabled = true;
-      previewBtn.textContent = 'Loading preview…';
+      FormFeedback.busy(previewBtn, 'Loading preview…');
     }
   });
 

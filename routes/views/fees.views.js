@@ -211,7 +211,14 @@ router.post("/fees/create", requireRole("admin"), async (req, res) => {
     // Selected from the dropdown — pass the ObjectId and resolve the name
     // for the legacy feeType field (kept for backward-compatible display).
     body.feeHead = feeHead;
-    const headsResult = await getAllFeeHeadsService({ limit: 100 });
+    // This lookup sits OUTSIDE the create try/catch below — a DB hiccup here
+    // must redirect with the reason, not escape as a raw 500 (M4).
+    let headsResult;
+    try {
+      headsResult = await getAllFeeHeadsService({ limit: 100 });
+    } catch (err) {
+      return res.redirect(`/fees?error=${encodeURIComponent(err.message || "Failed to load fee heads")}`);
+    }
     const head = (headsResult.data || []).find((h) => h._id.toString() === feeHead);
     if (head) body.feeType = head.name;
   } else if (feeType && feeType.trim()) {

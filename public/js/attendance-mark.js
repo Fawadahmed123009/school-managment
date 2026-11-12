@@ -87,11 +87,17 @@
       });
 
       if (records.length === 0) {
-        alert('Mark at least one student before saving.');
+        // Toast, not alert() — alert can be a silent no-op in the installed
+        // PWA, making the Save button look dead (M1).
+        Toast.warning('Mark at least one student before saving.', { title: 'Nothing to save' });
         return;
       }
 
       document.getElementById('records-input').value = JSON.stringify(records);
+      // form.submit() fires no submit event, so the global double-submit
+      // guard never sees it — lock the button ourselves (M2). busy() also
+      // restores it on bfcache pageshow, so Back never lands on a dead button.
+      FormFeedback.busy(saveBtn, 'Saving…');
       document.getElementById('attendance-form').submit();
     });
   }
