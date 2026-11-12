@@ -5,6 +5,13 @@ const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const { todayKey } = require("../../utils/dateRange");
 const { localDateKey } = require("../../utils/localDateKey");
 const { getFinanceReportService } = require("../../services/finance/financeReport.service");
+const {
+  normalizeExportFormat,
+  fetchReportForExport,
+  buildFinanceReportExport,
+  financeReportFilename,
+} = require("../../services/finance/financeExport.service");
+const { sendExport } = require("../../utils/exportFile");
 
 // Phase 4 financial reports — Daily / Monthly / Yearly. ADMIN ONLY on every
 // route (requireRole resolves the role from the DB via authView): managers
@@ -89,8 +96,33 @@ function reportView(cfg) {
   };
 }
 
+// CSV/Excel export of the SAME report the page shows — same picker value,
+// same service, admin-only, read-only GET (no CSRF needed, like the picker).
+// On a bad picker value we bounce back to the report page, which renders the
+// identical loadError for that value.
+function reportExportView(cfg) {
+  return async (req, res) => {
+    const format = normalizeExportFormat(req.query.format);
+    if (!format) return res.status(400).send("Invalid export format — expected csv or xlsx");
+
+    const raw = req.query[cfg.param];
+    const value = raw !== undefined && String(raw).trim() !== "" ? String(raw).trim() : cfg.defaultValue();
+
+    const loaded = await fetchReportForExport({ mode: cfg.mode, [cfg.param]: value });
+    if (!loaded.ok) return res.redirect(`${cfg.path}?${cfg.param}=${encodeURIComponent(value)}`);
+
+    const report = loaded.report;
+    return sendExport(res, {
+      filename: financeReportFilename(report.mode, report.from, report.to, format),
+      format,
+      ...buildFinanceReportExport(report),
+    });
+  };
+}
+
 REPORTS.forEach((cfg) => {
   router.get(cfg.path, requireRole("admin"), reportView(cfg));
+  router.get(cfg.path + "/export", requireRole("admin"), reportExportView(cfg));
 });
 
 module.exports = router;

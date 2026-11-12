@@ -12,6 +12,13 @@ const {
   createIncomeEntryService,
   getIncomeEntriesService,
 } = require("../../services/income/incomeEntry.service");
+const {
+  normalizeExportFormat,
+  fetchHistoryForExport,
+  buildHistoryExport,
+  historyFilename,
+} = require("../../services/finance/financeExport.service");
+const { sendExport } = require("../../utils/exportFile");
 
 // Income — flexible ad-hoc income (parallel to Phase 3 Expenses). ADMIN ONLY on
 // every route (requireRole resolves the role from the DB via authView): managers
@@ -98,6 +105,36 @@ router.get("/income", requireRole("admin"), async (req, res) => {
     loadError,
     fmtRs,
     schoolName: res.locals.schoolName,
+  });
+});
+
+// CSV/Excel export of the FILTERED history — same filters and same service
+// as the page (admin-only, read-only GET). Walks every page of the filtered
+// set because the on-screen running total spans all filtered entries; the
+// total row is included in the file.
+router.get("/income/export", requireRole("admin"), async (req, res) => {
+  const format = normalizeExportFormat(req.query.format);
+  if (!format) return res.status(400).send("Invalid export format — expected csv or xlsx");
+
+  const filters = {
+    incomeHead: req.query.incomeHead || "",
+    from: req.query.from || "",
+    to: req.query.to || "",
+  };
+
+  const loaded = await fetchHistoryForExport("income", filters);
+  if (!loaded.ok) {
+    const qs = Object.entries(filters)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `&${k}=${encodeURIComponent(v)}`)
+      .join("");
+    return res.redirect(`/income?error=${encodeURIComponent(loaded.message)}${qs}`);
+  }
+
+  return sendExport(res, {
+    filename: historyFilename("income", filters.from, filters.to, format),
+    format,
+    ...buildHistoryExport("income", loaded),
   });
 });
 

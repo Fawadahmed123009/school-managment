@@ -8,6 +8,11 @@
     <h1><%= title %></h1>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    <% if (report) { %>
+      <% var exportBase = reports.find(function(r) { return r.mode === mode; }).path + '/export?' + param + '=' + encodeURIComponent(value); %>
+      <a href="<%= exportBase %>&format=csv" class="btn btn-ghost">Export CSV</a>
+      <a href="<%= exportBase %>&format=xlsx" class="btn btn-ghost">Export Excel</a>
+    <% } %>
     <% reports.forEach(function(r) { %>
       <% if (r.mode !== mode) { %>
         <a href="<%= r.path %>" class="btn btn-ghost"><%= r.title %></a>

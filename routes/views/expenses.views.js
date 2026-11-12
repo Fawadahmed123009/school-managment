@@ -12,6 +12,13 @@ const {
   createExpenseEntryService,
   getExpenseEntriesService,
 } = require("../../services/expenses/expenseEntry.service");
+const {
+  normalizeExportFormat,
+  fetchHistoryForExport,
+  buildHistoryExport,
+  historyFilename,
+} = require("../../services/finance/financeExport.service");
+const { sendExport } = require("../../utils/exportFile");
 
 // Expenses — Phase 3. ADMIN ONLY on every route (requireRole resolves the role
 // from the DB via authView): managers never see expense heads, entries or totals
@@ -92,6 +99,36 @@ router.get("/expenses", requireRole("admin"), async (req, res) => {
     loadError,
     fmtRs,
     schoolName: res.locals.schoolName,
+  });
+});
+
+// CSV/Excel export of the FILTERED history — same filters and same service
+// as the page (admin-only, read-only GET). Walks every page of the filtered
+// set because the on-screen running total spans all filtered entries; the
+// total row is included in the file.
+router.get("/expenses/export", requireRole("admin"), async (req, res) => {
+  const format = normalizeExportFormat(req.query.format);
+  if (!format) return res.status(400).send("Invalid export format — expected csv or xlsx");
+
+  const filters = {
+    expenseHead: req.query.expenseHead || "",
+    from: req.query.from || "",
+    to: req.query.to || "",
+  };
+
+  const loaded = await fetchHistoryForExport("expense", filters);
+  if (!loaded.ok) {
+    const qs = Object.entries(filters)
+      .filter(([, v]) => v)
+      .map(([k, v]) => `&${k}=${encodeURIComponent(v)}`)
+      .join("");
+    return res.redirect(`/expenses?error=${encodeURIComponent(loaded.message)}${qs}`);
+  }
+
+  return sendExport(res, {
+    filename: historyFilename("expense", filters.from, filters.to, format),
+    format,
+    ...buildHistoryExport("expense", loaded),
   });
 });
 

@@ -113,7 +113,17 @@
 <div class="panel">
   <div class="panel-head">
     <h2>Expense history</h2>
-    <span class="chart-subtitle"><%= pagination.total %> entr<%= pagination.total !== 1 ? 'ies' : 'y' %> · newest first</span>
+    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <span class="chart-subtitle"><%= pagination.total %> entr<%= pagination.total !== 1 ? 'ies' : 'y' %> · newest first</span>
+      <%
+        var exportQs = '';
+        if (filters.expenseHead) exportQs += '&expenseHead=' + encodeURIComponent(filters.expenseHead);
+        if (filters.from) exportQs += '&from=' + encodeURIComponent(filters.from);
+        if (filters.to) exportQs += '&to=' + encodeURIComponent(filters.to);
+      %>
+      <a href="/expenses/export?format=csv<%= exportQs %>" class="btn btn-ghost">Export CSV</a>
+      <a href="/expenses/export?format=xlsx<%= exportQs %>" class="btn btn-ghost">Export Excel</a>
+    </div>
   </div>
   <% if (entries.length === 0) { %>
     <div class="panel-body" style="color:var(--ink-soft);">No expenses recorded for this filter yet. Record one above.</div>
