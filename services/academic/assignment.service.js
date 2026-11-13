@@ -4,6 +4,7 @@ const Subject = require("../../models/Academic/subject.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const Teacher = require("../../models/Staff/teachers.model");
 const { paginate } = require("../../utils/paginate");
+const { escapeRegex } = require("../../utils/escapeRegex");
 
 exports.createAssignmentService = async (data, adminId, res) => {
   const { teacher, subject, classLevel } = data;
@@ -112,10 +113,14 @@ exports.getAllAssignmentsService = async (query = {}) => {
 
   // Text search across teacher name, subject name, and class name
   if (search) {
+    // B-12: one `search` fans out into three collection scans, so a single
+    // metacharacter here used to be able to throw a MongoServerError on all
+    // three at once. escapeRegex() is called per query rather than hoisted into
+    // one shared filter object, so no two queries alias the same object.
     const [teacherIds, subjectIds, classIds] = await Promise.all([
-      Teacher.find({ name: { $regex: search, $options: "i" } }).select("_id"),
-      Subject.find({ name: { $regex: search, $options: "i" } }).select("_id"),
-      ClassLevel.find({ name: { $regex: search, $options: "i" } }).select("_id"),
+      Teacher.find({ name: { $regex: escapeRegex(search), $options: "i" } }).select("_id"),
+      Subject.find({ name: { $regex: escapeRegex(search), $options: "i" } }).select("_id"),
+      ClassLevel.find({ name: { $regex: escapeRegex(search), $options: "i" } }).select("_id"),
     ]);
 
     const orConditions = [];

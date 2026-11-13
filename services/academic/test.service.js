@@ -8,6 +8,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const TeacherDoc = require("../../models/Staff/teachers.model");
+const { escapeRegex } = require("../../utils/escapeRegex");
 const TestAudit = require("../../models/Academic/testAudit.model");
 const { getAssignedClassLevels } = require("./assignment.service");
 
@@ -1675,9 +1676,11 @@ exports.getEnhancedTestAnalyticsService = async (filters, res) => {
   // text search with an exact pupil id (nameSearch/rollNumberSearch stay
   // supported for the retired query shape — bookmarks/API callers).
   if (studentId) studentMatch._id = studentId;
-  if (nameSearch) studentMatch.name = { $regex: nameSearch, $options: "i" };
+  // B-12: these two are still reachable from retired bookmarked/API query
+  // shapes, so they take raw text just like the live ones.
+  if (nameSearch) studentMatch.name = { $regex: escapeRegex(nameSearch), $options: "i" };
   if (rollNumberSearch) {
-    studentMatch.rollNumber = { $regex: String(rollNumberSearch).trim(), $options: "i" };
+    studentMatch.rollNumber = { $regex: escapeRegex(rollNumberSearch).trim(), $options: "i" };
   }
 
   // ── Fetch results for the current test ──

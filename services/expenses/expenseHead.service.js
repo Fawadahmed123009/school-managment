@@ -4,8 +4,9 @@ const { paginate } = require("../../utils/paginate");
 const { recordAudit } = require("../audit/auditLog.service");
 
 // Escape free-text before building a RegExp so metacharacters can't throw or
-// match unintended heads (same rule as findOrCreateFeeHeadByName).
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// match unintended heads. Formerly a local copy of the same one-liner; the
+// single definition now lives in utils/escapeRegex.js (B-12/B-13).
+const { escapedRegExp } = require("../../utils/escapeRegex");
 
 // ---- Expense head management (admin only) ----
 
@@ -16,7 +17,7 @@ exports.createExpenseHeadService = async (data, adminId, res) => {
   if (!name) return responseStatus(res, 400, "failed", "Name is required");
 
   const exists = await ExpenseHead.findOne({
-    name: { $regex: new RegExp(`^${escapeRe(name)}$`, "i") },
+    name: { $regex: escapedRegExp(name) },
   });
   if (exists) return responseStatus(res, 409, "failed", "Expense head already exists");
 

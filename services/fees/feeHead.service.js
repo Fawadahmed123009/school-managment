@@ -4,6 +4,7 @@ const Fees = require("../../models/Fees/fees.model");
 const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
 const { dayRangeFilter, singleDayFilter, todayKey } = require("../../utils/dateRange");
+const { escapedRegExp } = require("../../utils/escapeRegex");
 
 // ---- Fee Head CRUD ----
 
@@ -11,7 +12,13 @@ exports.createFeeHeadService = async (data, adminId, res) => {
   const { name, description, defaultAmount } = data;
   if (!name) return responseStatus(res, 400, "failed", "Name is required");
 
-  const exists = await FeeHead.findOne({ name: { $regex: new RegExp(`^${name}$`, "i") } });
+  // B-12: this was the one head-dedupe lookup that never escaped. The failure is
+  // not an error page — it is a SILENT DUPLICATE. "40%+ (Term 1)" is valid regex
+  // syntax that does not match its own literal, so the lookup answered "no such
+  // head" about a head that already existed and a second copy was created.
+  // (Conversely "Fee.2" over-matched, blocking an unrelated "Feex2".) Escaped
+  // and anchored, the dedupe means exactly what it says.
+  const exists = await FeeHead.findOne({ name: { $regex: escapedRegExp(name) } });
   if (exists) return responseStatus(res, 409, "failed", "Fee head already exists");
 
   const feeHead = await FeeHead.create({
@@ -33,9 +40,9 @@ exports.findOrCreateFeeHeadByName = async (name, adminId) => {
   const trimmed = (name || "").trim();
   if (!trimmed) return null;
   // Escape free-text before building the RegExp so metacharacters can't throw
-  // or match unintended heads.
-  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const existing = await FeeHead.findOne({ name: { $regex: new RegExp(`^${escaped}$`, "i") } });
+  // or match unintended heads. Now delegated to the shared helper (this was the
+  // site the convention was invented at).
+  const existing = await FeeHead.findOne({ name: { $regex: escapedRegExp(trimmed) } });
   if (existing) return existing;
   return await FeeHead.create({ name: trimmed, createdBy: adminId });
 };

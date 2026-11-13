@@ -6,6 +6,7 @@ const { createFeeService, updateFeeService, deleteFeeService, bulkAssignFeesServ
 const { getAllFeeHeadsService } = require("../../services/fees/feeHead.service");
 const { paginate } = require("../../utils/paginate");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
+const { escapeRegex } = require("../../utils/escapeRegex");
 const Student = require("../../models/Students/students.model");
 const Parent = require("../../models/Parents/parents.model");
 const ClassLevel = require("../../models/Academic/class.model");
@@ -42,11 +43,13 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       if (!isNaN(asNum)) {
         studentFilter.rollNumber = asNum;
       } else {
-        studentFilter.rollNumber = { $regex: rollSearch, $options: "i" };
+        // B-12: this branch is reached precisely when the text is NOT a number,
+        // i.e. when it is most likely to contain punctuation.
+        studentFilter.rollNumber = { $regex: escapeRegex(rollSearch), $options: "i" };
       }
     }
     if (studentNameSearch) {
-      studentFilter.name = { $regex: studentNameSearch, $options: "i" };
+      studentFilter.name = { $regex: escapeRegex(studentNameSearch), $options: "i" };
     }
 
     // We need classes for the dropdown regardless
@@ -63,10 +66,10 @@ router.get("/fees", requireRole("admin"), async (req, res) => {
       if (parentSearch) {
         const parentClause = [];
         // Branch 1: fatherName directly on Student
-        parentClause.push({ fatherName: { $regex: parentSearch, $options: "i" } });
+        parentClause.push({ fatherName: { $regex: escapeRegex(parentSearch), $options: "i" } });
         // Branch 2: linked Parent document's name
         const matchingParents = await Parent.find(
-          { name: { $regex: parentSearch, $options: "i" } }
+          { name: { $regex: escapeRegex(parentSearch), $options: "i" } }
         ).select("_id");
         if (matchingParents.length > 0) {
           parentClause.push({ parent: { $in: matchingParents.map((p) => p._id) } });

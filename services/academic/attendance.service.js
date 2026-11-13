@@ -5,6 +5,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const Assignment = require("../../models/Academic/assignment.model");
 const mongoose = require("mongoose");
 const { dateKeyStage, localDateKey } = require("../../utils/localDateKey");
+const { escapeRegex } = require("../../utils/escapeRegex");
 
 // Students we count as "enrolled" for attendance. Mirrors the enrolled
 // head-count convention used across the dashboards/reports: a student whose
@@ -557,10 +558,14 @@ exports.getStudentAttendanceHistoryService = async (filters, selectedStudentId, 
   if (classLevel && mongoose.Types.ObjectId.isValid(classLevel)) {
     studentFilter.classLevel = new mongoose.Types.ObjectId(classLevel);
   }
+  // B-12: escape before the value becomes a pattern. Both of these are raw
+  // query text; `rollNumber` in particular is stringified, and String() of a
+  // non-string (e.g. an object from `?rollNumber[$ne]=1`) used to be handed
+  // straight to $regex, where "[object Object]" is a valid character class.
   if (rollNumber) {
-    studentFilter.rollNumber = { $regex: String(rollNumber).trim(), $options: "i" };
+    studentFilter.rollNumber = { $regex: escapeRegex(rollNumber).trim(), $options: "i" };
   }
-  if (name) studentFilter.name = { $regex: name, $options: "i" };
+  if (name) studentFilter.name = { $regex: escapeRegex(name), $options: "i" };
 
   let studentQuery = Student.find(studentFilter)
     .select("name rollNumber email")

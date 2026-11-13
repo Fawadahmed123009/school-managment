@@ -13,6 +13,7 @@ const { getAllClassesService } = require("../../services/academic/class.service"
 const { adminResetParentPasswordService } = require("../../services/parents/parents.service");
 const { captureServiceResponse } = require("../../utils/viewServiceResponse");
 const { admissionDateInputValue, todayAdmissionDate } = require("../../utils/admissionDate");
+const { escapeRegex } = require("../../utils/escapeRegex");
 const Parent = require("../../models/Parents/parents.model");
 const Student = require("../../models/Students/students.model");
 
@@ -97,7 +98,8 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
       filter.classLevel = { $in: scopedIds };
     }
 
-    if (nameSearch) filter.name = { $regex: nameSearch, $options: "i" };
+    // B-12: escape the raw query text at every $regex (see utils/escapeRegex.js).
+    if (nameSearch) filter.name = { $regex: escapeRegex(nameSearch), $options: "i" };
 
     // Status filter (enrolled / inactive / graduated / withdrawn / suspended).
     if (statusFilter && STATUS_CLAUSES[statusFilter]) {
@@ -109,10 +111,10 @@ router.get("/students", requireAdminOrManager(), async (req, res) => {
     if (parentSearch) {
       const parentClause = [];
       // Branch 1: fatherName directly on Student
-      parentClause.push({ fatherName: { $regex: parentSearch, $options: "i" } });
+      parentClause.push({ fatherName: { $regex: escapeRegex(parentSearch), $options: "i" } });
       // Branch 2: linked Parent document's name
       const matchingParents = await Parent.find(
-        { name: { $regex: parentSearch, $options: "i" } }
+        { name: { $regex: escapeRegex(parentSearch), $options: "i" } }
       ).select("_id");
       if (matchingParents.length > 0) {
         parentClause.push({ parent: { $in: matchingParents.map((p) => p._id) } });

@@ -10,6 +10,7 @@ const TestResult = require("../../models/Academic/testResult.model");
 const Attendance = require("../../models/Academic/attendance.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const { escapeRegex } = require("../../utils/escapeRegex");
 const { paginate } = require("../../utils/paginate");
 const { isValidTime } = require("../../utils/teacherAttendanceTime");
 const { recordAudit, changedFields } = require("../audit/auditLog.service");
@@ -119,7 +120,8 @@ exports.teacherLoginService = async (data, res) => {
 exports.getAllTeachersService = async (query) => {
   const filter = {};
   const search = (query.search || "").trim();
-  if (search) filter.name = { $regex: search, $options: "i" };
+  // B-12: `search` is raw query text; escape it so it is matched as a name.
+  if (search) filter.name = { $regex: escapeRegex(search), $options: "i" };
 
   return await paginate(Teacher, filter, {
     page: query.page,

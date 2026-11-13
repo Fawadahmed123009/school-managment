@@ -4,6 +4,7 @@ const { requireAdminOrManager } = require("../../middlewares/authView");
 const Parent = require("../../models/Parents/parents.model");
 const Student = require("../../models/Students/students.model");
 const { paginate } = require("../../utils/paginate");
+const { escapeRegex } = require("../../utils/escapeRegex");
 
 // GET /families — list all families
 router.get("/families", requireAdminOrManager(), async (req, res) => {
@@ -15,13 +16,16 @@ router.get("/families", requireAdminOrManager(), async (req, res) => {
     // Build filter: search by parent name, family number, or student name
     const filter = { familyNumber: { $exists: true, $ne: null } };
     if (search) {
+      // B-12: escapeRegex is applied at every $regex rather than hoisted into a
+      // shared value, so "every $regex in the app is escaped" stays checkable
+      // with one grep.
       const orClauses = [
-        { name: { $regex: search, $options: "i" } },
-        { familyNumber: { $regex: search, $options: "i" } },
+        { name: { $regex: escapeRegex(search), $options: "i" } },
+        { familyNumber: { $regex: escapeRegex(search), $options: "i" } },
       ];
       // Also search by child name — find matching parent IDs first
       const studentsMatch = await Student.find(
-        { name: { $regex: search, $options: "i" }, familyNumber: { $exists: true, $ne: null } }
+        { name: { $regex: escapeRegex(search), $options: "i" }, familyNumber: { $exists: true, $ne: null } }
       ).select("familyNumber").lean();
       if (studentsMatch.length > 0) {
         const famNums = [...new Set(studentsMatch.map((s) => s.familyNumber))];
