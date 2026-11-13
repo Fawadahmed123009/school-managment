@@ -61,6 +61,10 @@ router.post("/teacher-attendance", requireAdminOrManager(), async (req, res) => 
   const result = await apiFetch("/teacher-attendance", req.token, {
     method: "POST",
     body: JSON.stringify({ date, records }),
+    // A-4: same deadline as the pupil roster (see attendance.views.js). Without
+    // it a hung internal call left this route never answering the browser's
+    // native form submit, so the save looked like it had simply not happened.
+    timeoutMs: 20000,
   });
 
   if (result.status !== "success") {

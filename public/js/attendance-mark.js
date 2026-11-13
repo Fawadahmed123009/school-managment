@@ -97,7 +97,10 @@
       // form.submit() fires no submit event, so the global double-submit
       // guard never sees it — lock the button ourselves (M2). busy() also
       // restores it on bfcache pageshow, so Back never lands on a dead button.
-      FormFeedback.busy(saveBtn, 'Saving…');
+      // A-4: a native submit has no promise to catch, so arm the no-answer
+      // watchdog too — otherwise a save the server never replies to looks like
+      // a page that simply did nothing.
+      FormFeedback.watchForNoAnswer(FormFeedback.busy(saveBtn, 'Saving…'));
       document.getElementById('attendance-form').submit();
     });
   }

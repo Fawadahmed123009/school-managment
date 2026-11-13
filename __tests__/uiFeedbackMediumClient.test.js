@@ -750,3 +750,96 @@ describe("M5 — test-manage.js survives a malformed phase island", () => {
     expect(phase.options.some((o) => o.value === "p1" && o.textContent === "Term 1")).toBe(true);
   });
 });
+
+// ── A-4: no-answer watchdog on the native form.submit() saves ────────────────
+// Both attendance pages post through a real form.submit(), which is a navigation
+// rather than a fetch — there is no promise to catch. Before this, a save the
+// server never answered left the teacher staring at a locked "Saving…" button
+// with no message at all: no confirmation, no error, no record. A successful
+// save unloads the document, so "still here N seconds later" means no response.
+
+describe("A-4 — attendance-mark.js warns when the server never answers", () => {
+  /** Mark one pupil and press Save; returns the (now locked) button. */
+  function savePupilAttendance(h) {
+    h.doc
+      .querySelectorAll("#roster-body tr")[0]
+      .querySelector('.attend-btn[data-status="present"]')
+      .dispatch("click");
+    const btn = byId(h.doc, "save-attendance-btn");
+    btn.dispatch("click");
+    return btn;
+  }
+
+  test("submitting locks the button and does NOT cry timeout on the spot", () => {
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    const btn = savePupilAttendance(h);
+    expect(byId(h.doc, "attendance-form")._submitCount).toBe(1);
+    expect(btn.disabled).toBe(true);
+    expect(toastTexts(h.doc).join(" ")).toBe("");
+  });
+
+  test("still on the page after the deadline → sticky toast + button restored", () => {
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    const btn = savePupilAttendance(h);
+    jest.advanceTimersByTime(31000);
+    const toasts = toastTexts(h.doc).join(" ");
+    expect(toasts).toMatch(/never answered/i);
+    // Restoring the button is what lets the teacher retry at all.
+    expect(btn.disabled).toBe(false);
+    expect(btn.textContent).toBe("Save attendance");
+  });
+
+  test("ordering: the server's own 20s deadline answers before the watchdog fires", () => {
+    // If the client watchdog were SHORTER than utils/apiClient.js timeoutMs, the
+    // user would get a vague "no confirmation" while the app was about to return
+    // a precise server-rendered reason. The 30s > 20s relationship is the fix.
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    savePupilAttendance(h);
+    jest.advanceTimersByTime(20000);
+    expect(toastTexts(h.doc).join(" ")).toBe("");
+    jest.advanceTimersByTime(10000);
+    expect(toastTexts(h.doc).join(" ")).toMatch(/never answered/i);
+  });
+
+  test("a save that DID answer (page unloading) never raises a false alarm", () => {
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    savePupilAttendance(h);
+    (h.winListeners.pagehide || []).forEach((cb) => cb({}));
+    jest.advanceTimersByTime(120000);
+    expect(toastTexts(h.doc).join(" ")).toBe("");
+  });
+
+  test("returning via bfcache also cancels the pending watchdog", () => {
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    savePupilAttendance(h);
+    (h.winListeners.pageshow || []).forEach((cb) => cb({ persisted: true }));
+    jest.advanceTimersByTime(120000);
+    expect(toastTexts(h.doc).join(" ")).toBe("");
+  });
+
+  test("the message never claims the save failed — an abort does not roll back", () => {
+    const h = loadPage(["attendance-mark.js"], { pre: (sb, d) => attendanceDom(d) });
+    savePupilAttendance(h);
+    jest.advanceTimersByTime(31000);
+    const toasts = toastTexts(h.doc).join(" ");
+    // Telling a teacher it definitely failed makes them re-submit the whole class
+    // and double-record attendance, which is a worse bug than the silence was.
+    expect(toasts).toMatch(/may or may not/i);
+    expect(toasts).not.toMatch(/was not saved|failed to save|not recorded\./i);
+  });
+});
+
+describe("A-4 — staff-attendance-mark.js arms the same watchdog", () => {
+  test("a staff save the server never answers surfaces the toast too", () => {
+    const h = loadPage(["staff-attendance-mark.js"], { pre: (sb, d) => staffAttendanceDom(d) });
+    const { arr, dep } = staffAttendanceDomRefs(h.doc);
+    arr.value = "09:00";
+    dep.value = "10:00";
+    const btn = byId(h.doc, "save-attendance-btn");
+    btn.dispatch("click");
+    expect(byId(h.doc, "ta-form")._submitCount).toBe(1);
+    jest.advanceTimersByTime(31000);
+    expect(toastTexts(h.doc).join(" ")).toMatch(/never answered/i);
+    expect(btn.disabled).toBe(false);
+  });
+});

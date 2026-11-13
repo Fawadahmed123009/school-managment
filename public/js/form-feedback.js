@@ -224,6 +224,60 @@
     });
   }
 
+  // ── No-answer watchdog for native form.submit() navigations ────────────
+  // A-4. Some save buttons post through a real form.submit(), which is a
+  // full-page navigation rather than a fetch — so there is no promise to catch
+  // and no error event to hook. The browser keeps displaying the CURRENT page
+  // until the first byte of the response arrives: if the server never answers,
+  // the user sits looking at a locked "Saving…" button with no message at all,
+  // and their entered data is gone the moment they navigate away.
+  //
+  // A successful save unloads the document, so "still here N seconds later"
+  // reliably means no response was received. N must be LARGER than the server's
+  // own internal deadline (utils/apiClient.js timeoutMs) so the authoritative
+  // server-rendered message is what users normally see; this is the last-resort
+  // net for when the app process or a proxy never replies at all.
+  //
+  // Honesty rule: abandoning the REQUEST does not roll back the server's work,
+  // so this must never claim the save failed — only that it was not confirmed.
+  var NO_ANSWER_MS = 30000;
+
+  function watchForNoAnswer(restore, ms) {
+    var limit = ms || NO_ANSWER_MS;
+    var done = false;
+    function stop() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (window.removeEventListener) {
+        window.removeEventListener('pagehide', stop);
+        window.removeEventListener('pageshow', stop);
+      }
+    }
+    // Bare global, not window.setTimeout: in a browser they are the same thing,
+    // but the vm DOM harness passes setTimeout as a sandbox global only.
+    var timer = setTimeout(function () {
+      if (done) return;
+      done = true;
+      if (typeof restore === 'function') restore();
+      if (window.Toast && window.Toast.error) {
+        window.Toast.error(
+          'The page is still here, which means the server never answered this '
+          + 'save. Your entries may or may not have been recorded — check the '
+          + 'list before saving again.',
+          { title: 'No confirmation from the server' }
+        );
+      }
+    }, limit);
+    // Navigating away (the save answered) or returning via bfcache both make
+    // this timer's premise void.
+    if (window.addEventListener) {
+      window.addEventListener('pagehide', stop);
+      window.addEventListener('pageshow', stop);
+    }
+    return stop;
+  }
+
   window.FormFeedback = {
     readApiResponse: readApiResponse,
     describeApiResponse: describeApiResponse,
@@ -234,6 +288,7 @@
     clearFieldError: clearFieldError,
     clearFieldErrors: clearFieldErrors,
     statusFor: statusFor,
-    busy: busy
+    busy: busy,
+    watchForNoAnswer: watchForNoAnswer
   };
 })();

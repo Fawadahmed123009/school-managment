@@ -225,3 +225,15 @@ the same time the gaps above are closed, so every write path moves together).
   internals are echoed into HTML/JSON. The escaping fix removes the trigger, not
   the disclosure. Worth a small dedicated pass to render a generic message and log
   the detail server-side.
+
+- **A-4 / the other ~99 `apiFetch` call sites still have no deadline.** Deliberate:
+  `timeoutMs` is opt-in so this round stayed surgical. A-4 fixed the two routes the
+  finding named (pupil + staff attendance POST) because those are the ones where a
+  hung internal call met a *native* `form.submit()` and produced the silent
+  "nothing happened". The same awaits exist on GET view routes (form load) and on
+  fetch-based POSTs, where the blast radius is a spinner or a generic failed toast
+  rather than lost entries. Expanding the deadline is a policy decision per route
+  (what is a legitimate slow report?), so it should be its own measured pass, not a
+  blanket default — start with the report/PDF routes, which are the known slow ones.
+  Note the client-side half of A-4 (`FormFeedback.watchForNoAnswer`) only guards the
+  two native-submit pages for the same reason.

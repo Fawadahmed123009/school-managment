@@ -137,7 +137,9 @@
       // form.submit() fires no submit event, so the global double-submit
       // guard never sees it — lock the button ourselves (M2), with bfcache
       // restore so Back never lands on a dead "Saving…" button.
-      FormFeedback.busy(saveBtn, 'Saving…');
+      // A-4: same no-answer watchdog as the pupil roster — a native submit that
+      // the server never replies to must still say so.
+      FormFeedback.watchForNoAnswer(FormFeedback.busy(saveBtn, 'Saving…'));
       document.getElementById('ta-form').submit();
     });
   }

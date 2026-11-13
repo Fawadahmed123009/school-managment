@@ -58,6 +58,21 @@ router.post("/attendance/mark/:classLevelId", requireRole("teacher"), async (req
   const result = await apiFetch("/attendance", req.token, {
     method: "POST",
     body: JSON.stringify({ classLevel: req.params.classLevelId, date, records: parsed }),
+    // A-4. The save runs one upsert per pupil, so it is the slowest call a
+    // teacher makes. Without a deadline this route awaited a hung internal
+    // request forever: the browser's native form POST was never answered, which
+    // is the reported "submitted, no confirmation, no error, no record". 20s is
+    // deliberately well under any proxy/browser patience and over a legitimate
+    // save. Measured on the isolated verify DB, real 40-pupil class
+    // (tmp/_verify_a4_attendance.js): sequential saves 1.6-3.4s; 12 concurrent
+    // saves peaked at 5.3s on one run and 12.1s on another, because every
+    // upsert serialises on the {student, date} unique index. So the deadline is
+    // ~2-4x the worst legitimate case observed — generous for this school's real
+    // concurrency (a handful of teachers), and a hung call is still caught well
+    // before any browser gives up.
+    // The client watchdog in public/js/attendance-mark.js sits BEYOND this value
+    // so the server's own message is the one users see.
+    timeoutMs: 20000,
   });
 
   if (result.status !== "success") {
