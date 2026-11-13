@@ -2,5 +2,5 @@
 deployment:
   tasks:
     - export DEPLOYPATH=/home2/avenslms/repositories/school-managment/
-    - /home2/avenslms/nodevenv/repositories/school-managment/20/bin/npm install --prefix $DEPLOYPATH --production
+    - /home2/avenslms/nodevenv/repositories/school-managment/20/bin/npm ci --prefix $DEPLOYPATH --omit=dev
     - /bin/touch $DEPLOYPATH/tmp/restart.txt
