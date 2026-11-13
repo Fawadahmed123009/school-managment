@@ -239,53 +239,13 @@ app.use(require("../routes/views/teacherSettings.views"));
 app.use(require("../routes/views/parentPortal.views"));
 app.use(require("../routes/views/families.views"));
 
-// ── DEBUG ROUTE (auth-gated) ──────────────────────────────────
-const isLoggedIn = require("../middlewares/isLoggedIn");
-const isAdmin = require("../middlewares/isAdmin");
-app.get("/debug/db-test", isLoggedIn, isAdmin, async (req, res) => {
-  const dns = require("dns");
-  const { MongoClient } = require("mongodb");
-  const results = {};
-
-  // Extract hostname from DB URI for SRV lookup
-  const uri = process.env.DB || "";
-  const hostMatch = uri.match(/\/\/([^/?]+)/);
-  const dbHost = hostMatch ? hostMatch[1] : "cluster0.nrinqhy.mongodb.net";
-
-  // 1. SRV DNS resolution
-  try {
-    const records = await new Promise((resolve, reject) => {
-      dns.resolveSrv(`_mongodb._tcp.${dbHost}`, (err, recs) => {
-        if (err) reject(err);
-        else resolve(recs);
-      });
-    });
-    results.dns = { success: true, host: dbHost, records };
-  } catch (err) {
-    results.dns = { success: false, host: dbHost, error: err.message };
-  }
-
-  // 2. Raw connection test with 5s timeout (using MongoClient to avoid disrupting mongoose)
-  if (!uri) {
-    results.mongo = { success: false, error: "DB environment variable not set" };
-  } else {
-    let client;
-    try {
-      client = await new MongoClient(uri, {
-        serverSelectionTimeoutMS: 5000,
-        connectTimeoutMS: 5000,
-      }).connect();
-      results.mongo = { success: true, message: "Connection successful" };
-    } catch (err) {
-      results.mongo = { success: false, error: err.message };
-    } finally {
-      if (client) await client.close();
-    }
-  }
-
-  res.json(results);
-});
-// ── END TEMP DEBUG ROUTE ─────────────────────────────────────────────
+// ── (removed) /debug/db-test ────────────────────────────────────────────
+// B-16: this temporary diagnostic route is gone. It was reachable by any admin
+// session and (a) disclosed Atlas SRV topology/hostnames, (b) opened a SECOND
+// full MongoClient connection pool per request with no rate limit — on the free
+// tier's 100-connection ceiling that is a self-inflicted connection-exhaustion
+// amplifier, and (c) surfaced raw driver error strings. The same checks are now
+// run offline (node tmp/_debug_db_test.js), which needs no HTTP surface at all.
 
 // ── 404 handler ──────────────────────────────────────────────
 app.use((req, res) => {
