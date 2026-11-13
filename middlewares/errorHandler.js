@@ -121,6 +121,20 @@ const sendError = (err, req, res) => {
     // JWT errors
     statusCode = 401;
     message = "Invalid or expired token";
+  } else if (err.name === "MongoWaitQueueTimeoutError") {
+    // A-1 — the connection pool was full and the query gave up waiting for one
+    // of the bounded waitQueueTimeoutMS in config/dbConnect.js. Before A-1 that
+    // wait was unbounded, so this error could not exist: an overflowing request
+    // simply held its socket open until the proxy killed it, and the browser saw
+    // nothing at all (the A-4 "no confirmation, no error, no record" symptom).
+    //
+    // It must not be reported as a generic 500. It is a transient, self-healing
+    // server-load condition, so 503 says "retry shortly" rather than "broken",
+    // and — because the driver error object carries an internal `address`
+    // (an Atlas shard hostname) plus a message that is meaningless to a teacher —
+    // the wording here is fixed rather than derived from `err`.
+    statusCode = 503;
+    message = "The system is busy right now. Your change was not saved \u2014 please wait a moment and try again.";
   } else {
     // Default: the error's own status when it declares one, else 500.
     // `statusCode` is this codebase's convention; third-party errors (body-parser,
