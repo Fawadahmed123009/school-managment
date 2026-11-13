@@ -178,3 +178,50 @@ These were flagged during the password-policy / audit work:
 Related note: the current policy minimum is **6 characters**. Whether to raise
 the floor is folded into items 1–4 (it only makes sense to bump the minimum at
 the same time the gaps above are closed, so every write path moves together).
+
+---
+
+# Round 1 — production stability & security sweep (A*/B* findings)
+
+## Flagged for a dedicated decision (deliberately NOT fixed in this round)
+
+- **B-1 / `qs` — cannot be cleared without a breaking move.** `npm audit fix`
+  patched the copy `body-parser` uses (now `6.16.2`), but `express@4.22.2` pins
+  `"qs": "~6.15.1"`, a range that mathematically excludes every non-vulnerable
+  release (the fix needs `>=6.16.1`). The root copy moved `6.15.3 → 6.15.4` and
+  is still reported. Two ways out, both out of scope for a "non-breaking patches"
+  pass: an `overrides` pin past a range the framework declares, or express 4 → 5.
+  - **Measured reachability** (`tmp/_verify_b1_qs.js`, 5/5): the advisory is a
+    two-stage chain. Stage 1 **IS armed here** — express force-sets
+    `allowPrototypes = true` (`node_modules/express/lib/middleware/query.js:34`),
+    so `?x[constructor][isBuffer]=y` really does arrive in `req.query` on every
+    route; bare `qs.parse` would have stripped it. Stage 2 is the throw, and
+    `qs@6.15.4` genuinely throws `TypeError: obj.constructor.isBuffer is not a
+    function` on that shape while `6.16.2` does not.
+  - **Not exploitable today**: stage 2 needs a parse→**stringify** round-trip, and
+    no module in `app/ routes/ controllers/ services/ middlewares/ utils/
+    handlers/ config/` imports `qs` or calls any query-stringify. Outbound internal
+    calls use `URLSearchParams`, which is not qs.
+  - **Re-open this the moment any code forwards a received `req.query` to an
+    upstream service** (gateway/proxy/retry feature) — that single change converts
+    a latent defect into an unauthenticated DoS on the whole worker.
+
+- **B-1 / `sharp` — needs a semver-major.** `0.33.5` stays. Advisory `range
+  <=0.35.5-rc.1` (inherited libvips / libheif / librsvg CVEs); the only fix is
+  `0.35.5`, flagged as `isSemVerMajor`. Native image pipeline → its own decision.
+
+- **B-1 / `xlsx` — no fix exists.** `0.18.5` stays; `npm audit` reports "No fix
+  available" for both the prototype-pollution and ReDoS advisories. The SheetJS
+  npm package is frozen upstream, so closing this means replacing the library.
+
+- **B-1 / dev-tree advisories left alone on purpose.** `jest`, `jest-config`,
+  `glob`, `deepmerge`, `minimatch`, `nodemon` are still reported. Their only
+  "fix" is a **downgrade to `jest@25.1.0`** — npm is offering to break the test
+  runner, not secure it. Test-only, never shipped; ignore.
+
+- **Audit error wording reaching the browser (found during B-12/B-13).** The view
+  routes catch a DB error and `res.render(..., { loadError: err.message })`, and
+  `attendance.controller.js` returns 400 with `error.message` — so MongoDB driver
+  internals are echoed into HTML/JSON. The escaping fix removes the trigger, not
+  the disclosure. Worth a small dedicated pass to render a generic message and log
+  the detail server-side.
