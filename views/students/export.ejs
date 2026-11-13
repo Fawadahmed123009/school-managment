@@ -99,7 +99,7 @@
   </div>
 </form>
 
-<script type="application/json" id="export-classes-data"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="export-classes-data"><%- safeJson(classes) %></script>
 <script src="/js/student-export.js"></script>
 
 <%- include('../partials/foot') %>

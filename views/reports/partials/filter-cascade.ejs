@@ -38,7 +38,7 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
     <select name="<%= namep %>SessionId" id="<%= idp %>-session">
       <option value="">-- All sessions --</option>
       <% sessions.forEach(function (s) { %>
-        <option value="<%= s._id %>" data-phases='<%- JSON.stringify((s.phases || []).slice().sort(function (a, b) { return a.order - b.order; })) %>'><%= s.name %></option>
+        <option value="<%= s._id %>" data-phases='<%- safeJsonAttr((s.phases || []).slice().sort(function (a, b) { return a.order - b.order; })) %>'><%= s.name %></option>
       <% }); %>
     </select>
   </div>
@@ -93,7 +93,7 @@ const catKey = (value) => (value ? String(value) : NONE_KEY);
     <select name="<%= namep %>TestId" id="<%= idp %>-test">
       <option value="">All tests</option>
       <% tests.forEach(function (t) { %>
-        <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-subject="<%= catKey(t.subject && t.subject._id) %>" data-classes='<%- JSON.stringify((t.classLevels || []).map(function (cl) { return (cl && cl._id ? String(cl._id) : String(cl)); })) %>'><%= t.name %> — <%= t.subject ? (t.subject.displayName || t.subject.name) : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
+        <option value="<%= t._id %>" data-session="<%= catKey(t.session && t.session._id) %>" data-subject="<%= catKey(t.subject && t.subject._id) %>" data-classes='<%- safeJsonAttr((t.classLevels || []).map(function (cl) { return (cl && cl._id ? String(cl._id) : String(cl)); })) %>'><%= t.name %> — <%= t.subject ? (t.subject.displayName || t.subject.name) : '?' %> (<%= new Date(t.date).toLocaleDateString() %>)</option>
       <% }); %>
     </select>
   </div>

@@ -72,7 +72,7 @@
   <% } %>
 </div>
 
-<script type="application/json" id="cpicker-sessions-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="cpicker-sessions-classes"><%- safeJson(classes) %></script>
 <script src="/js/class-picker.js"></script>
 <script src="/js/test-sessions.js"></script>
 

@@ -127,7 +127,7 @@
   </div>
 </div>
 
-<script id="classLevelOptions" type="application/json"><%- JSON.stringify(classLevels.map(function(cl) { return { _id: cl._id, name: cl.name, gradeLevel: cl.gradeLevel, group: cl.group, section: cl.section }; })) %></script>
+<script id="classLevelOptions" type="application/json"><%- safeJson(classLevels.map(function(cl) { return { _id: cl._id, name: cl.name, gradeLevel: cl.gradeLevel, group: cl.group, section: cl.section }; })) %></script>
 <script src="/js/subject-applies-to.js"></script>
 
 <%- include('../partials/foot') %>

@@ -77,7 +77,7 @@
   </div>
 </div>
 
-<script type="application/json" id="ocr-students"><%- JSON.stringify(students).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="ocr-students"><%- safeJson(students) %></script>
 <script src="/js/escape-html.js"></script>
 <script src="/js/ocr-review.js"></script>
 <script src="/js/ocr-camera.js"></script>

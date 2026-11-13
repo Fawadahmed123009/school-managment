@@ -247,8 +247,8 @@
         </div>
       </div>
     </div>
-    <script type="application/json" id="weekly-data"><%- JSON.stringify(weekly) %></script>
-    <script type="application/json" id="overview-data"><%- JSON.stringify(dash.summary) %></script>
+    <script type="application/json" id="weekly-data"><%- safeJson(weekly) %></script>
+    <script type="application/json" id="overview-data"><%- safeJson(dash.summary) %></script>
 
     <!-- ── Class-wise table — the teacher's own assigned classes only ── -->
     <% if (scope === 'myClasses' && classRows.length > 0) { %>
@@ -450,7 +450,7 @@
             <canvas id="studentSummaryChart"></canvas>
           </div>
         </div>
-        <script type="application/json" id="student-summary-data"><%- JSON.stringify(summ) %></script>
+        <script type="application/json" id="student-summary-data"><%- safeJson(summ) %></script>
       <% } %>
 
       <!-- Timeline -->

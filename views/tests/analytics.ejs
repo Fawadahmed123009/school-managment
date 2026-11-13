@@ -101,9 +101,9 @@
 
     <!-- ── Chart data island (CSP-safe) ────────────────────── -->
     <script type="application/json" id="trend-chart-data">{
-      "trendMode": <%- JSON.stringify(trendMode) %>,
-      "trendLines": <%- JSON.stringify(trendLines) %>,
-      "trendTableRows": <%- JSON.stringify(trendTableRows) %>
+      "trendMode": <%- safeJson(trendMode) %>,
+      "trendLines": <%- safeJson(trendLines) %>,
+      "trendTableRows": <%- safeJson(trendTableRows) %>
     }</script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <script src="/js/trend-charts.js"></script>
@@ -279,7 +279,7 @@
 
     <!-- ── Chart data island (CSP-safe) ────────────────────── -->
     <script type="application/json" id="analytics-chart-data">{
-      "distribution": <%- JSON.stringify(combined.distribution) %>,
+      "distribution": <%- safeJson(combined.distribution) %>,
       "current": null,
       "previous": null
     }</script>
@@ -454,9 +454,9 @@
 
   <!-- ── Chart data island (CSP-safe) ────────────────────── -->
   <script type="application/json" id="analytics-chart-data">{
-    "distribution": <%- JSON.stringify(distribution) %>,
-    "current": <%- JSON.stringify(current) %>,
-    "previous": <%- JSON.stringify(previous) %>
+    "distribution": <%- safeJson(distribution) %>,
+    "current": <%- safeJson(current) %>,
+    "previous": <%- safeJson(previous) %>
   }</script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="/js/test-analytics-charts.js"></script>
@@ -470,8 +470,8 @@
      to resolve a test's grade/section behind its ClassLevels.
      #ax-filter-state: the just-applied cascade selection, re-applied by
      public/js/tests-analytics-cascade.js through the shared factory. -->
-<script type="application/json" id="report-class-scope"><%- JSON.stringify(classScope || {}).replace(/</g, '\\u003c') %></script>
-<script type="application/json" id="ax-filter-state"><%- JSON.stringify(filterState || {}).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="report-class-scope"><%- safeJson(classScope || {}) %></script>
+<script type="application/json" id="ax-filter-state"><%- safeJson(filterState || {}) %></script>
 <script src="/js/student-typeahead.js"></script>
 <script src="/js/report-filter-cascade.js"></script>
 <script src="/js/tests-analytics-cascade.js"></script>

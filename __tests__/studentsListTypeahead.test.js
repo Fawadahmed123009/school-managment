@@ -255,7 +255,14 @@ describe("page wiring", () => {
   test("the roster pool is embedded as a non-executed JSON island with '<' escaped", () => {
     const src = read("views/students/list.ejs");
     expect(src).toContain('id="students-typeahead-pool"');
-    expect(src).toMatch(/JSON\.stringify\([^)]*studentPool[^)]*\)\.replace\(\/</g);
+    // B-14: this used to assert the hand-rolled `JSON.stringify(x).replace(/</g,
+    // '\\u003c')` guard. That intent is unchanged — the pool must still be a
+    // non-executed island with angle brackets escaped — but escaping now goes
+    // through the shared safeJson serializer (utils/safeJson.js), which also
+    // covers `>` and never-throw degradation. See __tests__/safeJsonEmbed.test.js
+    // for the behaviour contract; this assertion pins that THIS site uses it.
+    expect(src).toMatch(/<%-\s*safeJson\([^)]*studentPool[^)]*\)/);
+    expect(src).not.toMatch(/<%-\s*JSON\.stringify\([^)]*studentPool/);
   });
 
   test("the route supplies the pool with the fields the picker filters on", () => {

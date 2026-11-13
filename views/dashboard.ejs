@@ -933,7 +933,7 @@
 <% } %>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-<script type="application/json" id="dashboard-data"><%- JSON.stringify({ charts: charts, role: user.role }).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="dashboard-data"><%- safeJson({ charts: charts, role: user.role }) %></script>
 <script src="/js/dashboard-charts.js"></script>
 
 <%- include('partials/foot') %>

@@ -119,7 +119,7 @@
         </div>
       </div>
     </div>
-    <script type="application/json" class="child-chart-data" data-child-id="<%= cid %>"><%- JSON.stringify({ progress: ca.marks.progress || [], bySubject: ca.marks.bySubject || [] }).replace(/</g, '\u003c') %></script>
+    <script type="application/json" class="child-chart-data" data-child-id="<%= cid %>"><%- safeJson({ progress: ca.marks.progress || [], bySubject: ca.marks.bySubject || [] }) %></script>
     <% } %>
   <% }); %>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>

@@ -210,9 +210,9 @@
 <!-- Pass data to external JS via CSP-safe JSON islands -->
 <script type="application/json" id="subjectClassMap"><%- subjectClassMap %></script>
 <script type="application/json" id="subjectHasAppliesTo"><%- subjectHasAppliesTo %></script>
-<script type="application/json" id="allClassesData"><%- JSON.stringify(classes) %></script>
-<script type="application/json" id="sortedGradesData"><%- JSON.stringify(sortedGrades) %></script>
-<script type="application/json" id="classesByGradeData"><%- JSON.stringify(classesByGrade) %></script>
+<script type="application/json" id="allClassesData"><%- safeJson(classes) %></script>
+<script type="application/json" id="sortedGradesData"><%- safeJson(sortedGrades) %></script>
+<script type="application/json" id="classesByGradeData"><%- safeJson(classesByGrade) %></script>
 <script src="/js/assignment-classes.js"></script>
 
 <%- include('../partials/foot') %>

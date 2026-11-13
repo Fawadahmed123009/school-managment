@@ -145,6 +145,15 @@ if (process.env.NODE_ENV !== "test") {
 
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "../views"));
+// B-14 — JSON embedded in <script type="application/json"> islands and in HTML
+// attributes must go through one serializer, never a raw `<%- JSON.stringify(x) %>`.
+// `<%-` is EJS's raw sink and JSON.stringify leaves `<`/`>` literal, so a stored
+// value containing </script> would close the element and execute. app.locals puts
+// these in scope for every template (res.render merges them automatically) so the
+// rule is stated once in utils/safeJson.js instead of being re-derived per view.
+const { safeJson, safeJsonAttr } = require("../utils/safeJson");
+app.locals.safeJson = safeJson;
+app.locals.safeJsonAttr = safeJsonAttr;
 app.use(express.static(path.join(__dirname, "../public")));
 // Serve uploaded files only to authenticated users (signed session cookie check)
 app.use("/uploads", (req, res, next) => {

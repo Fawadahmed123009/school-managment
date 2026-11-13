@@ -61,7 +61,7 @@
           <select name="session" id="session">
             <option value="">Standalone test — no session</option>
             <% sessions.forEach(function(s) { %>
-              <option value="<%= s._id %>" data-phases='<%- JSON.stringify(s.phases) %>'><%= s.name %></option>
+              <option value="<%= s._id %>" data-phases='<%- safeJsonAttr(s.phases) %>'><%= s.name %></option>
             <% }); %>
           </select>
         </div>
@@ -183,7 +183,7 @@
   <% } %>
 </div>
 
-<script type="application/json" id="cpicker-manage-classes"><%- JSON.stringify(classes).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="cpicker-manage-classes"><%- safeJson(classes) %></script>
 <script src="/js/class-picker.js"></script>
 <script src="/js/test-manage.js"></script>
 <script src="/js/test-manage-filter.js"></script>

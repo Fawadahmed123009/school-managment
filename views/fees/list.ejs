@@ -241,7 +241,7 @@
   <% } %>
 </div>
 
-<script type="application/json" id="fees-students"><%- JSON.stringify(students.map(function(s) {
+<script type="application/json" id="fees-students"><%- safeJson(students.map(function(s) {
   return {
     id: s._id,
     name: s.name,
@@ -250,7 +250,7 @@
     section: s.classLevel && s.classLevel.section ? s.classLevel.section : '—',
     classId: s.classLevel ? s.classLevel._id : '',
   };
-})).replace(/</g, '\\u003c') %></script>
+})) %></script>
 <!-- Shared searchable-picker component (also used by the PDF-report filter
      cascade) + this page's class/roll filters on top of it. Row styling lives
      in /css/style.css under .student-typeahead-*, shared by both pages. -->

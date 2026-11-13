@@ -320,7 +320,7 @@
 
 <!-- Full roster for the searchable Student picker — a non-executed JSON island,
      "<" escaped so a stored name can never break out of the script tag. -->
-<script type="application/json" id="students-typeahead-pool"><%- JSON.stringify(typeof studentPool !== 'undefined' ? studentPool : []).replace(/</g, '\\u003c') %></script>
+<script type="application/json" id="students-typeahead-pool"><%- safeJson(typeof studentPool !== 'undefined' ? studentPool : []) %></script>
 <script src="/js/student-typeahead.js"></script>
 <script src="/js/students-filter-cascade.js"></script>
 <script src="/js/students-typeahead.js"></script>

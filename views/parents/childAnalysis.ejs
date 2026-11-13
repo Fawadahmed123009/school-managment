@@ -141,7 +141,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-  <script type="application/json" id="analysis-data"><%- JSON.stringify({ progress: analysis.marks.progress || [], bySubject: analysis.marks.bySubject || [] }).replace(/</g, '\\u003c') %></script>
+  <script type="application/json" id="analysis-data"><%- safeJson({ progress: analysis.marks.progress || [], bySubject: analysis.marks.bySubject || [] }) %></script>
   <script src="/js/analysis-charts.js"></script>
 <% } else { %>
   <div class="panel"><div class="empty"><div class="display">No data available</div></div></div>

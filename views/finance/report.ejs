@@ -238,7 +238,7 @@
 <!-- Chart data island — CSP-safe (external JS only). Same figures the tables
      show: by-head rows come straight from the report; trend points are the
      existing monthly/daily reports composed server-side. -->
-<script type="application/json" id="finance-chart-data"><%- JSON.stringify({
+<script type="application/json" id="finance-chart-data"><%- safeJson({
   mode: mode,
   value: value,
   totals: { collections: report.collections, income: report.income, expenses: report.expenses, salaries: report.salaries, net: report.net },
@@ -246,7 +246,7 @@
   expensesByHead: report.expensesByHead.map(function(h) { return { name: h.name, total: h.total, count: h.count, isActive: h.isActive }; }),
   trend: trend,
   dailyTrend: dailyTrend
-}).replace(/</g, '\\u003c') %></script>
+}) %></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script src="/js/finance-charts.js"></script>
 <% } %>

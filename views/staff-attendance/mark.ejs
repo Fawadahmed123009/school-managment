@@ -125,7 +125,7 @@
   </form>
 
   <!-- Per-request data island (CSP-safe: no inline executable script) -->
-  <script type="application/json" id="ta-settings"><%- JSON.stringify({ lateDetectionEnabled: settings.lateDetectionEnabled, startTime: settings.startTime, graceMinutes: settings.graceMinutes }) %></script>
+  <script type="application/json" id="ta-settings"><%- safeJson({ lateDetectionEnabled: settings.lateDetectionEnabled, startTime: settings.startTime, graceMinutes: settings.graceMinutes }) %></script>
   <script src="/js/staff-attendance-mark.js"></script>
 <% } %>
 
