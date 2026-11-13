@@ -1,0 +1,144 @@
+<%- include('../partials/head') %>
+<%- include('../partials/sidebar') %>
+<%- include('../partials/topbar') %>
+
+<%
+  /* Unified Admin Overview — the admin landing page tying the system together.
+     Pure composition: every panel below is filled by its own JSON endpoint,
+     each of which ONLY adapts an existing service (net-summary, daily trend,
+     pay configs, teacher-attendance day, audit log). No figure is calculated
+     here. Panels load independently, so the slowest query never blocks the
+     page — each shows its own skeleton, then content or a retry error. */
+  var hour = new Date().getHours();
+  var greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+%>
+
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h1><%= greeting %>, <%= user.name.split(' ')[0] %></h1>
+    <p class="page-sub">Everything that needs your attention this morning, in one place.</p>
+  </div>
+  <a href="/dashboard" class="btn btn-ghost">Full dashboard</a>
+</div>
+
+<!-- ── Panel grid: two-up on desktop, stacks at tablet width (ao-grid CSS) ── -->
+<div class="ao-grid">
+
+  <!-- Finance snapshot — net today / this month + daily-net sparkline.
+       Source: /net-summary core + the SAME daily-trend composition the
+       monthly finance report charts. -->
+  <div class="panel ao-panel" data-ao-endpoint="/admin/overview/data/finance">
+    <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>Finance snapshot <span class="chart-subtitle" data-ao-subtitle>Today · This month</span></h2>
+      <a href="/finance/daily-report" class="btn btn-ghost" style="font-size:12px;padding:5px 12px;">Full reports</a>
+    </div>
+    <div class="panel-body ao-body">
+      <div class="ao-loading" role="status">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Attention needed — aggregated "not set" flags, each row links to the
+       existing page that fixes it. -->
+  <div class="panel ao-panel" data-ao-endpoint="/admin/overview/data/attention">
+    <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>Attention needed <span class="chart-subtitle">Configuration gaps</span></h2>
+      <span class="ao-badge" data-ao-badge hidden></span>
+    </div>
+    <div class="panel-body ao-body">
+      <div class="ao-loading" role="status">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Attendance snapshot — today's staff day from the marking page's own
+       service (late list + present/absent counts). -->
+  <div class="panel ao-panel" data-ao-endpoint="/admin/overview/data/attendance">
+    <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>Staff attendance <span class="chart-subtitle">Today</span></h2>
+      <a href="/teacher-attendance" class="btn btn-ghost" style="font-size:12px;padding:5px 12px;">Marking page</a>
+    </div>
+    <div class="panel-body ao-body">
+      <div class="ao-loading" role="status">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Recent activity — last entries of the audit trail, straight from the
+       viewer service. -->
+  <div class="panel ao-panel" data-ao-endpoint="/admin/overview/data/activity">
+    <div class="panel-head" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <h2>Recent activity <span class="chart-subtitle">Audit log · Last 8</span></h2>
+      <a href="/audit-logs" class="btn btn-ghost" style="font-size:12px;padding:5px 12px;">Full log</a>
+    </div>
+    <div class="panel-body ao-body" style="padding:0;">
+      <div class="ao-loading" style="padding:16px;" role="status">Loading…</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Quick links — the most-used admin actions, all existing routes ────── -->
+<div class="panel" style="margin-top:20px;">
+  <div class="panel-head"><h2>Quick links</h2></div>
+  <div class="panel-body">
+    <div class="action-grid">
+      <a href="/teacher-salary" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Generate salary run</span>
+          <span class="action-desc">Monthly teacher payroll</span>
+        </div>
+      </a>
+      <a href="/expenses" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7 7 7-7"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Add expense</span>
+          <span class="action-desc">Record school spending</span>
+        </div>
+      </a>
+      <a href="/income" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7-7-7 7"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Add income</span>
+          <span class="action-desc">Record ad-hoc income</span>
+        </div>
+      </a>
+      <a href="/finance/daily-report" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Finance reports</span>
+          <span class="action-desc">Daily · Monthly · Yearly</span>
+        </div>
+      </a>
+      <a href="/audit-logs" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Audit log</span>
+          <span class="action-desc">Who did what, and when</span>
+        </div>
+      </a>
+      <a href="/teacher-attendance" class="action-card">
+        <div class="action-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>
+        </div>
+        <div class="action-text">
+          <span class="action-title">Staff attendance</span>
+          <span class="action-desc">Mark today's register</span>
+        </div>
+      </a>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script src="/js/admin-overview.js"></script>
+<%- include('../partials/foot') %>

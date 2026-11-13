@@ -2002,3 +2002,132 @@ button.page-link { cursor: pointer; }
   .fin-chart-panel, .fin-chips { display: none !important; }
   .fin-breakdown { grid-template-columns: minmax(0, 1fr); padding: 0; }
 }
+
+/* ── Unified Admin Overview (/admin/overview) ─────────────────────────────
+   Composition landing page: independent async panels inside the existing
+   clean-card theme. Only NEW layout primitives live here — every visual
+   token reuses the admin palette (--paid/--error/--review/--ocr, .panel,
+   .pill, .action-grid). */
+.page-sub { margin: 4px 0 0; font-size: 13px; color: var(--ink-soft); }
+.ao-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.ao-panel { margin: 0; min-width: 0; }
+.ao-body { min-height: 120px; }
+.ao-loading {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100px;
+  font-size: 13px; color: var(--ink-soft);
+  animation: ao-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ao-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+.ao-error { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0; }
+.ao-error-msg { font-size: 13px; color: var(--error); }
+
+/* Panel-head status badge (attention count / all clear) */
+.ao-badge {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  white-space: nowrap;
+}
+.ao-badge--ok { background: rgba(5,150,105,0.1); color: var(--paid); }
+.ao-badge--warn { background: rgba(217,119,6,0.12); color: var(--review); }
+
+/* Finance snapshot */
+.ao-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.ao-kpi {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; background: var(--panel); min-width: 0;
+}
+.ao-kpi-label {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-soft); margin-bottom: 6px;
+}
+.ao-net { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; overflow-wrap: anywhere; }
+.ao-net--pos { color: var(--paid); }
+.ao-net--neg { color: var(--error); }
+.ao-kpi-sub { font-size: 11.5px; color: var(--ink-soft); margin-top: 6px; }
+.ao-spark { position: relative; height: 96px; margin-top: 14px; }
+.ao-spark-caption { font-size: 11px; color: var(--ink-soft); margin-top: 6px; }
+
+/* Attention-needed + late lists: compact clickable rows */
+.ao-section {
+  display: flex; align-items: center; gap: 8px;
+  margin: 14px 0 6px; padding-top: 4px;
+}
+.ao-section:first-child { margin-top: 0; }
+.ao-section-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.ao-section--warn .ao-section-title { color: var(--review); }
+.ao-section--late .ao-section-title { color: var(--error); }
+.ao-section--muted .ao-section-title { color: var(--ink-soft); }
+.ao-count {
+  font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px;
+  background: rgba(217,119,6,0.12); color: var(--review);
+}
+.ao-section--muted .ao-count, .ao-section--late .ao-count { background: rgba(107,114,128,0.12); color: var(--ink-soft); }
+.ao-hint { font-size: 12px; color: var(--ink-soft); margin: 0 0 8px; }
+.ao-rows { display: flex; flex-direction: column; gap: 6px; }
+.ao-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); text-decoration: none; color: var(--ink);
+  font-size: 13px; transition: all 0.15s ease; min-width: 0;
+}
+a.ao-row:hover { border-color: var(--ink-soft); box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.ao-row--static { cursor: default; }
+.ao-row-main { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ao-row-sub { color: var(--ink-soft); font-size: 12px; white-space: nowrap; }
+.ao-row-fix { margin-left: auto; color: var(--partial); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ao-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.ao-pill--late { background: rgba(220,38,38,0.08); color: var(--error); }
+.ao-allclear {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px; border-radius: var(--radius);
+  background: rgba(5,150,105,0.06); border: 1px solid rgba(5,150,105,0.18);
+  color: var(--paid); font-size: 13px; font-weight: 500;
+}
+
+/* Attendance snapshot mini-KPIs */
+.ao-att-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.ao-att-stat {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; text-align: center; background: var(--panel); min-width: 0;
+}
+.ao-att-num { font-size: 20px; font-weight: 700; line-height: 1.1; }
+.ao-att-num--ok { color: var(--paid); }
+.ao-att-num--late { color: var(--error); }
+.ao-att-num--pend { color: var(--pending); }
+.ao-att-label {
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--ink-soft); margin-top: 3px;
+}
+
+/* Recent-activity rows */
+.ao-activity-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px; border-bottom: 1px solid var(--border);
+  font-size: 12.5px; min-width: 0;
+}
+.ao-activity-row:last-child { border-bottom: none; }
+.ao-activity-time { color: var(--ink-soft); font-size: 11.5px; white-space: nowrap; width: 78px; flex: none; }
+.ao-activity-pill { flex: none; font-size: 11px; }
+.ao-activity-summary {
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.ao-activity-user { color: var(--ink-soft); font-size: 11.5px; white-space: nowrap; }
+
+/* Tablet: single column — panels stay comfortable at ~768–1024px */
+@media (max-width: 1024px) {
+  .ao-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 600px) {
+  .ao-kpis { grid-template-columns: minmax(0, 1fr); }
+  .ao-att-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ao-activity-user { display: none; }
+  .ao-row-sub { display: none; }
+}

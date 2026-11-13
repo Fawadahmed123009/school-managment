@@ -231,6 +231,8 @@ app.use(require("../routes/views/expenses.views"));
 app.use(require("../routes/views/income.views"));
 app.use(require("../routes/views/financeReport.views"));
 app.use(require("../routes/views/auditLog.views"));
+// Unified Admin Overview — admin-only composition landing page (/admin/overview)
+app.use(require("../routes/views/adminOverview.views"));
 app.use(require("../routes/views/teacherAnalytics.views"));
 app.use(require("../routes/views/teacherMyClasses.views"));
 app.use(require("../routes/views/teacherSettings.views"));

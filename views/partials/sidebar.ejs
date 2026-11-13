@@ -13,6 +13,15 @@
       <span>Dashboard</span>
     </a>
 
+    <% /* Overview — admin-only unified landing (pure composition of existing
+         pages; every panel has its own JSON endpoint). */ %>
+    <% if (user.role === 'admin') { %>
+    <a href="/admin/overview" class="nav-standalone <%= page === 'admin-overview' ? 'active' : '' %>" data-page="admin-overview">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13h8V3H3z"/><path d="M13 21h8V11h-8z"/><path d="M3 21h8v-4H3z"/><path d="M13 9h8V3h-8z"/></svg>
+      <span>Overview</span>
+    </a>
+    <% } %>
+
     <% if (user.role === 'admin' || user.isManager) { %>
     <!-- Academics -->
     <div class="nav-section" data-section="academics">
