@@ -12,9 +12,7 @@ const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { paginate } = require("../../utils/paginate");
 const { isValidTime } = require("../../utils/teacherAttendanceTime");
-const { recordTeacherLoginArrival } = require("./teacherAttendance.service");
 const { recordAudit, changedFields } = require("../audit/auditLog.service");
-const logger = require("../../config/logger");
 
 /**
  * Expected working hours (staff profile) share one strict blank contract:
@@ -107,16 +105,8 @@ exports.teacherLoginService = async (data, res) => {
   const responseTeacher = teacherFound.toObject();
   delete responseTeacher.password;
 
-  // Staff attendance (Phase 1): the first login of the day IS the arrival
-  // record. Best-effort — a capture hiccup must never break or delay the
-  // login itself, so failures are logged and swallowed here.
-  if (!teacherFound.isWithdrawn) {
-    try {
-      await recordTeacherLoginArrival(teacherFound._id);
-    } catch (e) {
-      logger.warn(`teacher-attendance login capture failed: ${e.message}`);
-    }
-  }
+  // Teacher login no longer auto-captures attendance: entry/exit times are
+  // recorded ONLY manually by a manager/admin via markTeacherAttendanceService.
 
   const response = {
     teacher: responseTeacher,

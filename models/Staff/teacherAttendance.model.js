@@ -15,13 +15,15 @@ const { ObjectId } = mongoose.Schema;
  * (TeacherAttendanceSettings). They are stored so Phase 2 (salary) can sum
  * them without recomputing; no pay/deduction amounts live here.
  *
- * Times arrive through two capture paths (`*Source` fields):
- *   • auto — a teacher's first login of the day fixes the arrival and their
- *     explicit logout the departure (arrivalSource "login" / departureSource
- *     "logout");
- *   • manual — a manager/admin marks or corrects the day (source "manual",
- *     which the auto paths never overwrite).
- * Documents written before login-capture existed have no source fields —
+ * Capture provenance per time field (`*Source`):
+ *   • manual — a manager/admin marks or corrects the day (source "manual");
+ *     this is the ONLY path that writes new records now.
+ *   • login / logout — HISTORICAL ONLY. Earlier versions auto-captured a
+ *     teacher's arrival from their first login and departure from logout.
+ *     That auto-capture has been retired; existing "login"/"logout" rows are
+ *     preserved untouched for reference, and the enum values stay so those
+ *     documents remain valid and readable.
+ * Documents written before source tracking existed have no source fields —
  * readers must treat a missing source as "manual".
  */
 const teacherAttendanceSchema = new mongoose.Schema(

@@ -9,9 +9,6 @@ const {
   isValidTime,
   computeWorkingMinutes,
   computeLateFlag,
-  timeToMinutes,
-  hhmmFromDate,
-  dayStartFromDate,
 } = require("../../utils/teacherAttendanceTime");
 
 // ── shared helpers ──────────────────────────────────────────────────────────
@@ -288,97 +285,11 @@ exports.getTeacherAttendanceTeachersService = async (res) => {
 };
 
 // ── automatic capture from login / logout ──────────────────────────────
-// The primary way attendance is recorded: a teacher's FIRST login of the day
-// fixes their arrival, their explicit LOGOUT fixes their departure. Both
-// functions are best-effort for the caller — they must be wrapped in a
-// try/catch so a capture hiccup can never break the auth flow itself.
-// Precedence rule: an explicit manager/admin correction (source "manual",
-// which older manager-written records also lack a source on → treated as
-// manual) is NEVER overwritten by the auto paths.
-
-/**
- * Record a teacher's login as their arrival for the day.
- * - no record yet           → create one (departure stays open until logout/marking)
- * - login-captured arrival  → keep the EARLIEST (re-logins never push it later)
- * - manager-marked arrival  → untouched
- * Returns the resulting record (or null on impossible input).
- */
-exports.recordTeacherLoginArrival = async (teacherId, at = new Date()) => {
-  const day = dayStartFromDate(at);
-  const hhmm = hhmmFromDate(at);
-
-  // A real teacher must exist (and not be withdrawn) — a forged/stale token
-  // id must never fabricate attendance rows. The profile read also carries
-  // the expected arrival time that the late flag is judged against (blank →
-  // late detection is skipped for this teacher).
-  const teacher = await Teacher.findOne({ _id: teacherId, isWithdrawn: { $ne: true } })
-    .select("_id expectedArrivalTime")
-    .lean();
-  if (!teacher) return null;
-  const expected = teacher.expectedArrivalTime || "";
-
-  const settings = await getSettingsDoc();
-  const existing = await TeacherAttendance.findOne({ teacher: teacherId, date: day }).lean();
-
-  if (!existing) {
-    const { isLate, lateMinutes } = computeLateFlag(hhmm, settings, expected);
-    return TeacherAttendance.create({
-      teacher: teacherId,
-      date: day,
-      arrivalTime: hhmm,
-      departureTime: "",
-      workingMinutes: 0,
-      isLate,
-      lateMinutes,
-      arrivalSource: "login",
-      // The login itself wrote the row — the teacher is its creator.
-      createdBy: teacherId,
-    });
-  }
-
-  // Manager-marked day → the human value wins; nothing to do.
-  if (existing.arrivalSource !== "login") return existing;
-
-  // Keep the earliest login of the day (only clock skew could beat it).
-  if (timeToMinutes(hhmm) >= timeToMinutes(existing.arrivalTime)) return existing;
-
-  const { isLate, lateMinutes } = computeLateFlag(hhmm, settings, expected);
-  return TeacherAttendance.findByIdAndUpdate(
-    existing._id,
-    { $set: { arrivalTime: hhmm, isLate, lateMinutes, updatedBy: teacherId } },
-    { new: true }
-  );
-};
-
-/**
- * Record a teacher's explicit logout as their departure for the day.
- * - no record (or no arrival) → nothing to close; never fabricate a day
- * - manager-marked departure  → untouched
- * - otherwise                 → LAST logout wins (re-logins during the day)
- */
-exports.recordTeacherLogoutDeparture = async (teacherId, at = new Date()) => {
-  const day = dayStartFromDate(at);
-  const hhmm = hhmmFromDate(at);
-
-  const existing = await TeacherAttendance.findOne({ teacher: teacherId, date: day }).lean();
-  if (!existing || !existing.arrivalTime) return null;
-  if (existing.departureTime && existing.departureSource === "manual") return existing;
-
-  const worked = computeWorkingMinutes(existing.arrivalTime, hhmm);
-  return TeacherAttendance.findByIdAndUpdate(
-    existing._id,
-    {
-      $set: {
-        departureTime: hhmm,
-        departureSource: "logout",
-        // Same-minute login→logout (or skew) → 0; never negative.
-        workingMinutes: worked === null ? 0 : worked,
-        updatedBy: teacherId,
-      },
-    },
-    { new: true }
-  );
-};
+// RETIRED. Teacher arrival/departure is no longer auto-captured from the
+// login/logout flow — times are recorded ONLY manually by a manager/admin via
+// markTeacherAttendanceService above. The record schema keeps the
+// arrivalSource/departureSource "login"/"logout" enum values so historical
+// auto-captured rows remain readable; no new rows are ever written that way.
 
 // ── history + working-hours totals (manager/admin) ──────────────────────────
 
