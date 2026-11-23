@@ -53,7 +53,18 @@
         <tbody>
           <tr><td>Teacher</td><td><strong><%= run.teacherName %></strong><% if (run.teacherCode) { %> <span style="color:var(--ink-soft); font-size:12px;">(<%= run.teacherCode %>)</span><% } %></td></tr>
           <tr><td>Period</td><td class="mono"><%= run.startKey %> → <%= run.endKey %> (both inclusive)</td></tr>
-          <tr><td>Pay type</td><td><%= run.payType === 'per-hour' ? 'Per hour' : 'Per lecture' %></td></tr>
+          <tr><td>Pay type</td><td><%= payTypeLabel(run.payType) %></td></tr>
+          <% if (run.payType === 'lump-sum') { %>
+            <tr>
+              <td>Lump-sum amount</td>
+              <td>
+                Paid as-is for the period — not multiplied by hours or lectures, and unaffected by attendance.
+                <% if (run.segments && run.segments.length > 1) { %>
+                  <span style="color:var(--ink-soft); font-size:12px;">(the amount changed mid-period, so the run is split by calendar days below)</span>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
           <% if (run.payType === 'per-lecture') { %>
             <tr>
               <td>Lectures</td>
@@ -119,16 +130,17 @@
   <div class="table-wrap">
     <table class="ledger">
       <thead>
-        <tr><th>Effective from</th><th>Rate</th><th>Days</th><th>Hours</th><% if (run.payType === 'per-lecture') { %><th>Lectures</th><% } %><th>Amount</th></tr>
+        <tr><th>Effective from</th><th>Rate</th><th>Days</th><th>Hours</th><% if (run.payType === 'per-lecture') { %><th>Lectures</th><% } %><% if (run.payType === 'lump-sum') { %><th>Period days</th><% } %><th>Amount</th></tr>
       </thead>
       <tbody>
         <% run.segments.forEach(function(s) { %>
           <tr>
             <td class="mono"><%= s.effectiveKey %></td>
-            <td class="mono"><%= s.rateFmt %><%= run.payType === 'per-hour' ? ' / h' : ' / lecture' %></td>
+            <td class="mono"><%= s.rateFmt %><%= run.payType === 'per-hour' ? ' / h' : (run.payType === 'lump-sum' ? ' lump' : ' / lecture') %></td>
             <td class="mono"><%= s.days %></td>
             <td class="mono"><%= s.hours %></td>
             <% if (run.payType === 'per-lecture') { %><td class="mono"><%= s.lectures %></td><% } %>
+            <% if (run.payType === 'lump-sum') { %><td class="mono"><%= s.periodDays %></td><% } %>
             <td class="num mono"><%= s.amountFmt %></td>
           </tr>
         <% }); %>

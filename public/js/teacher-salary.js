@@ -33,6 +33,15 @@
     return d.getFullYear() + '-' + m + '-' + day;
   }
 
+  // Mirrors payTypeLabel() in utils/teacherSalaryCalc.js — kept in sync so the
+  // preview reads exactly like the saved run detail page.
+  function payTypeLabel(t) {
+    if (t === 'per-hour') return 'Per hour';
+    if (t === 'per-lecture') return 'Per lecture';
+    if (t === 'lump-sum') return 'Lump sum';
+    return '—';
+  }
+
   function selected() {
     return teacherSel.options[teacherSel.selectedIndex] || null;
   }
@@ -53,8 +62,10 @@
       statusEl.innerHTML = '<span class="pill review">Scheduled rate</span> ' +
         'The configured rate takes effect in the future — runs for earlier periods need a rate effective on or before the period start.';
     } else {
-      statusEl.innerHTML = '<span class="pill paid">' + (payType === 'per-hour' ? 'Per hour' : 'Per lecture') + '</span> ' +
-        'Pay rate configured.';
+      statusEl.innerHTML = '<span class="pill paid">' + esc(payTypeLabel(payType)) + '</span> ' +
+        (payType === 'lump-sum'
+          ? 'Fixed lump-sum salary configured — attendance is not used to calculate pay.'
+          : 'Pay rate configured.');
     }
 
     // Lecture override only makes sense for per-lecture teachers.
@@ -89,9 +100,15 @@
     }
 
     html += '<p style="margin:0 0 10px;"><strong>' + esc(data.teacher.name) + '</strong> · ' +
-      esc(data.payType === 'per-hour' ? 'Per hour' : 'Per lecture') + ' · ' +
+      esc(payTypeLabel(data.payType)) + ' · ' +
       data.totalWorkingDays + ' working day(s) · ' + data.totalWorkingHours + ' h · ' +
       data.lateDays + ' late day(s)</p>';
+
+    if (data.payType === 'lump-sum') {
+      html += '<p style="margin:0 0 10px; font-size:13px; color:var(--ink-soft);">Lump sum: the configured amount is paid for the period as-is' +
+        ((data.segments || []).length > 1 ? ' — it changed mid-period, so it is split by calendar days below' : '') +
+        '. Attendance is shown for reference only.</p>';
+    }
 
     if (data.payType === 'per-lecture') {
       html += '<p style="margin:0 0 10px; font-size:13px; color:var(--ink-soft);">Lectures: ' +
@@ -99,15 +116,18 @@
     }
 
     // Rate segments
+    var isLump = data.payType === 'lump-sum';
     html += '<div class="table-wrap"><table class="ledger"><thead><tr>' +
       '<th>Effective from</th><th>Rate</th><th>Days</th><th>Hours</th>' +
       (data.payType === 'per-lecture' ? '<th>Lectures</th>' : '') +
+      (isLump ? '<th>Period days</th>' : '') +
       '<th>Amount</th></tr></thead><tbody>';
     (data.segments || []).forEach(function (s) {
       html += '<tr><td class="mono">' + esc(localKey(s.effectiveFrom)) + '</td>' +
-        '<td class="mono">' + fmtRs(s.rateAmount) + (data.payType === 'per-hour' ? ' / h' : ' / lecture') + '</td>' +
+        '<td class="mono">' + fmtRs(s.rateAmount) + (isLump ? ' lump' : (data.payType === 'per-hour' ? ' / h' : ' / lecture')) + '</td>' +
         '<td class="mono">' + s.days + '</td><td class="mono">' + s.hours + '</td>' +
         (data.payType === 'per-lecture' ? '<td class="mono">' + s.lectures + '</td>' : '') +
+        (isLump ? '<td class="mono">' + (s.periodDays || 0) + '</td>' : '') +
         '<td class="num mono">' + fmtRs(s.amount) + '</td></tr>';
     });
     html += '</tbody></table></div>';

@@ -57,6 +57,14 @@ async function resolveActiveTeacher(teacherId) {
   return { teacher };
 }
 
+// Unit suffix for the pay-rate audit summary: a rate is always "per something",
+// a lump sum is the amount itself and takes no unit.
+function payUnitLabel(payType) {
+  if (payType === "per-hour") return "/hour";
+  if (payType === "per-lecture") return "/lecture";
+  return " lump sum";
+}
+
 // Finalized runs overlapping a period — surfaced as a WARNING (the admin may
 // legitimately regenerate a correction), never a silent double-pay.
 async function findFinalizedOverlaps(teacherId, start, end) {
@@ -196,10 +204,13 @@ exports.createTeacherPayConfigService = async (payload, adminId, res) => {
   if (resolved.error) return responseStatus(res, 400, "failed", resolved.error);
 
   const payType = payload.payType;
-  if (payType !== "per-hour" && payType !== "per-lecture") {
-    return responseStatus(res, 400, "failed", "Pay type must be per-hour or per-lecture");
+  if (payType !== "per-hour" && payType !== "per-lecture" && payType !== "lump-sum") {
+    return responseStatus(res, 400, "failed", "Pay type must be per-hour, per-lecture or lump-sum");
   }
 
+  // For per-hour / per-lecture this is the RATE (Rs per unit); for lump-sum it
+  // is the fixed AMOUNT itself. Same field, same rule: it must be positive, so
+  // a blank/zero entry fails closed instead of producing a Rs 0 run.
   const rateAmount = Number(payload.rateAmount);
   if (!Number.isFinite(rateAmount) || rateAmount <= 0) {
     return responseStatus(res, 400, "failed", "Rate must be a positive amount");
@@ -232,7 +243,7 @@ exports.createTeacherPayConfigService = async (payload, adminId, res) => {
     actionType: "create",
     entityType: "pay_config",
     entityId: created._id,
-    summary: `Set pay rate for ${resolved.teacher.name}: ${formatMoney(created.rateAmount)}/${payType === "per-hour" ? "hour" : "lecture"} effective ${formatDay(effectiveFrom)}`,
+    summary: `Set pay rate for ${resolved.teacher.name}: ${formatMoney(created.rateAmount)}${payUnitLabel(payType)} effective ${formatDay(effectiveFrom)}`,
     afterSnapshot: {
       teacher: resolved.teacher.name,
       payType,

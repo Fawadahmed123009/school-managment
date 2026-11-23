@@ -34,6 +34,22 @@ const nextDay = (d) => {
   return n;
 };
 
+// Inclusive calendar-day count between two local-midnight Dates (a "4th to 4th"
+// range is exactly 1 day). DST moves the raw millisecond gap by at most an hour
+// across a whole range, so Math.round stays exact.
+const inclusiveDays = (start, end) =>
+  Math.max(1, Math.round((new Date(end) - new Date(start)) / 86400000) + 1);
+
+// Display label for a pay mode — one source of truth so the config table, the
+// run detail page and the live preview can never drift apart. Unknown/absent
+// modes render as "—" rather than silently falling back to "Per lecture".
+function payTypeLabel(payType) {
+  if (payType === "per-hour") return "Per hour";
+  if (payType === "per-lecture") return "Per lecture";
+  if (payType === "lump-sum") return "Lump sum";
+  return "—";
+}
+
 /**
  * Split [start, end] (inclusive, local-midnight Dates) into rate-effective
  * segments from a teacher's INSERT-ONLY pay-config history.
@@ -125,6 +141,14 @@ function computeLateDeduction({ gross, lateDays, workingDays, salarySettings, ph
  *   phase1Settings — Phase 1 late rule (detection gate).
  *   lectureOverride— optional admin-entered lecture count (per-lecture only).
  *
+ * Pay modes:
+ *   per-hour    — Σ (attendance hours × the rate effective for each segment).
+ *   per-lecture — Σ (lectures × rate), lectures defaulting to attended days.
+ *   lump-sum    — the configured amount for the period, FULL STOP. Attendance,
+ *                 hours and lecture overrides are all ignored (they are still
+ *                 reported, so an admin can see the days worked alongside pay).
+ *                 Only a mid-period amount change is split by calendar days.
+ *
  * Returns { error } on fail-closed conditions, otherwise the full run payload
  * (totals, rate segments, deduction snapshot, day-wise audit rows).
  */
@@ -165,8 +189,18 @@ function computeSalary({ records, configs, start, end, salarySettings, phase1Set
     const hours = round2(minutes / 60);
     let lectures = 0;
     let amount = 0;
+    let periodDays = 0;
     if (payType === "per-hour") {
       amount = round2((minutes / 60) * seg.rateAmount);
+    } else if (payType === "lump-sum") {
+      // Fixed salary: the configured amount IS the pay for the period — no
+      // rate × units and no attendance input at all, so a lump-sum run pays the
+      // same whether the teacher attended every day or none. The only split is
+      // a mid-period AMOUNT change, apportioned by calendar days so each part
+      // of the period is paid at the amount that was effective for it. With one
+      // effective amount (the normal case) this is exactly that amount.
+      periodDays = inclusiveDays(seg.start, seg.end);
+      amount = round2((seg.rateAmount * periodDays) / inclusiveDays(start, end));
     } else {
       // Apportion the lecture count across rate segments proportionally to
       // each segment's attended days. With NO attended days at all, an
@@ -182,6 +216,7 @@ function computeSalary({ records, configs, start, end, salarySettings, phase1Set
       days: bucket.length,
       hours,
       lectures,
+      periodDays,
       amount,
     };
   });
@@ -229,7 +264,9 @@ module.exports = {
   DATE_RE,
   round2,
   parseDayStart,
+  inclusiveDays,
   buildRateSegments,
   computeLateDeduction,
   computeSalary,
+  payTypeLabel,
 };

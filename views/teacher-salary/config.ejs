@@ -38,10 +38,11 @@
           <select name="payType" id="ratePayType" required>
             <option value="per-hour">Per hour</option>
             <option value="per-lecture">Per lecture</option>
+            <option value="lump-sum">Lump sum</option>
           </select>
         </div>
         <div class="field" style="max-width:160px;">
-          <label for="rateAmount">Rate (Rs)</label>
+          <label for="rateAmount" id="rateAmountLabel">Rate (Rs)</label>
           <input type="number" name="rateAmount" id="rateAmount" min="0.01" step="0.01" required />
         </div>
         <div class="field" style="max-width:180px;">
@@ -52,6 +53,11 @@
       <p style="font-size:13px; color:var(--ink-soft); margin:4px 0 12px;">
         The rate applies from this date forward. Past salary runs keep the rate that was effective during their period.
         A pay-type change mid-period requires separate runs on each side of the change.
+      </p>
+      <!-- Shown only when Pay type = Lump sum (js/teacher-salary-config.js) -->
+      <p id="lumpSumHint" style="font-size:13px; color:var(--ink-soft); margin:-6px 0 12px; display:none;">
+        Lump sum: this amount <strong>is</strong> the salary for the run period — nothing is multiplied by hours or
+        lectures, and attendance does not change it. A mid-period amount change is split by calendar days.
       </p>
       <button type="submit" class="btn btn-accent">Save rate</button>
     </form>
@@ -116,7 +122,7 @@
     <div class="table-wrap">
       <table class="ledger">
         <thead>
-          <tr><th>Teacher</th><th>Pay type</th><th>Current rate</th><th>Effective from</th><th>Rate history</th></tr>
+          <tr><th>Teacher</th><th>Pay type</th><th>Current rate / amount</th><th>Effective from</th><th>Rate history</th></tr>
         </thead>
         <tbody>
           <% configs.forEach(function(c) { %>
@@ -127,7 +133,7 @@
                   <span class="pill review" title="Salary generation is blocked for this teacher until a pay rate is configured">Pay rate not set</span>
                 </td>
               <% } else { %>
-                <td><%= c.current.payType === 'per-hour' ? 'Per hour' : 'Per lecture' %></td>
+                <td><%= payTypeLabel(c.current.payType) %></td>
                 <td class="mono"><%= c.current.rateFmt %></td>
                 <td class="mono">
                   <%= c.current.effectiveKey %>
@@ -139,7 +145,7 @@
                       <summary style="cursor:pointer; font-size:13px;"><%= c.history.length %> rates</summary>
                       <ul style="margin:6px 0 0; padding-left:18px; font-size:13px;">
                         <% c.history.forEach(function(h) { %>
-                          <li class="mono"><%= h.effectiveKey %> — <%= h.rateFmt %> (<%= h.payType === 'per-hour' ? 'per hour' : 'per lecture' %>)</li>
+                          <li class="mono"><%= h.effectiveKey %> — <%= h.rateFmt %> (<%= payTypeLabel(h.payType).toLowerCase() %>)</li>
                         <% }); %>
                       </ul>
                     </details>

@@ -4,6 +4,8 @@
  * - Generate recomputes server-side and upserts ONLY the same-period draft.
  * - Fail-closed: no pay config / bad range / bad override → 400, no writes.
  * - Finalize locks a draft; finalized runs can't be re-finalized or deleted.
+ * - Lump-sum runs store the configured amount as gross — attendance in the
+ *   snapshot is informational only.
  *
  * Models are mocked at the data layer so the real service logic executes.
  */
@@ -203,6 +205,101 @@ describe("generate — server-side recompute + draft replace", () => {
     await generateTeacherSalaryService(RANGE, ADMIN, res);
     expect(res.status).toHaveBeenCalledWith(400);
     expect(mockRunFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+});
+
+/* ── lump sum through the run lifecycle ─────────────────────────────────────
+ * The configured amount IS the pay: attendance rows are still read and stored
+ * for the snapshot, but they never move gross, and a lecture override has no
+ * effect on a lump-sum teacher.
+ */
+describe("lump sum — preview and generate", () => {
+  const MONTH = { teacherId: String(T1), startDate: "2026-11-01", endDate: "2026-11-30" };
+  const dayRow = (d, isLate = false) => ({
+    teacher: T1, date: day(2026, 11, d), arrivalTime: "08:00",
+    departureTime: "16:00", workingMinutes: 480, isLate,
+  });
+
+  // Replace the per-hour happy-path config with a Rs 30 000 lump sum.
+  const asLumpTeacher = (records) => {
+    mockConfigFind.mockReturnValue(leanChain([
+      { teacher: T1, payType: "lump-sum", rateAmount: 30000, effectiveFrom: day(2026, 10, 1) },
+    ]));
+    mockAttendanceFind.mockReturnValue(leanChain(records));
+  };
+
+  it("preview pays the amount in full and writes NOTHING", async () => {
+    asLumpTeacher([dayRow(4)]);
+    const res = mockRes();
+    await previewTeacherSalaryService(MONTH, res);
+    const data = payload(res).data;
+    expect(data.payType).toBe("lump-sum");
+    expect(data.grossAmount).toBe(30000);
+    expect(data.netAmount).toBe(30000);
+    // Attendance is REPORTED next to the amount, it is not paid.
+    expect(data.totalWorkingDays).toBe(1);
+    expect(data.segments[0]).toMatchObject({ rateAmount: 30000, periodDays: 30, amount: 30000 });
+    expect(mockRunFindOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("zero attendance still pays the amount (unlike per-hour, which would pay Rs 0)", async () => {
+    asLumpTeacher([]);
+    const res = mockRes();
+    await previewTeacherSalaryService(MONTH, res);
+    const data = payload(res).data;
+    expect(data.totalWorkingDays).toBe(0);
+    expect(data.grossAmount).toBe(30000);
+  });
+
+  it("a lecture override cannot change a lump-sum gross", async () => {
+    asLumpTeacher([dayRow(4)]);
+    const res = mockRes();
+    await previewTeacherSalaryService({ ...MONTH, lectureCount: 999 }, res);
+    const data = payload(res).data;
+    expect(data.lectureCount).toBe(0);
+    expect(data.lectureOverridden).toBe(false);
+    expect(data.grossAmount).toBe(30000);
+  });
+
+  it("a late deduction still comes off the lump gross when the rule is on", async () => {
+    asLumpTeacher([dayRow(4, true), dayRow(5, true)]);
+    mockSalarySettingsFindOne.mockReturnValue(
+      leanChain({ lateDeductionEnabled: true, deductionType: "flat", flatAmount: 200, percentValue: 0 })
+    );
+    const res = mockRes();
+    await previewTeacherSalaryService(MONTH, res);
+    const data = payload(res).data;
+    expect(data.lateDays).toBe(2);
+    expect(data.grossAmount).toBe(30000);
+    expect(data.lateDeductionAmount).toBe(400);
+    expect(data.netAmount).toBe(29600);
+  });
+
+  it("generate snapshots the pay type, the amount and the segment day split", async () => {
+    asLumpTeacher([dayRow(4)]);
+    mockRunFindOneAndUpdate.mockReturnValue(leanChain({ _id: RUN_ID, status: "draft" }));
+    const res = mockRes();
+    await generateTeacherSalaryService(MONTH, ADMIN, res);
+    expect(res.status).toHaveBeenCalledWith(201);
+
+    const [filter, update] = mockRunFindOneAndUpdate.mock.calls[0];
+    expect(filter).toMatchObject({
+      status: "draft", periodStart: day(2026, 11, 1), periodEnd: day(2026, 11, 30),
+    });
+    expect(update.$set.payType).toBe("lump-sum");
+    expect(update.$set.grossAmount).toBe(30000);
+    expect(update.$set.netAmount).toBe(30000);
+    expect(update.$set.segments[0]).toMatchObject({ rateAmount: 30000, periodDays: 30, amount: 30000 });
+  });
+
+  it("client-supplied amounts are ignored for a lump-sum run too", async () => {
+    asLumpTeacher([dayRow(4)]);
+    mockRunFindOneAndUpdate.mockReturnValue(leanChain({ _id: RUN_ID, status: "draft" }));
+    const res = mockRes();
+    await generateTeacherSalaryService({ ...MONTH, grossAmount: 1, netAmount: 999999 }, ADMIN, res);
+    const update = mockRunFindOneAndUpdate.mock.calls[0][1];
+    expect(update.$set.grossAmount).toBe(30000); // the configured amount, not the injected 1
+    expect(update.$set.netAmount).toBe(30000);
   });
 });
 

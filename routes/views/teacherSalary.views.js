@@ -4,6 +4,7 @@ const { apiFetch } = require("../../utils/apiClient");
 const { requireRole } = require("../../middlewares/authView");
 const { localDateKey } = require("../../utils/localDateKey");
 const { formatMinutes } = require("../../utils/teacherAttendanceTime");
+const { payTypeLabel } = require("../../utils/teacherSalaryCalc");
 
 // Teacher salary — Phase 2. ADMIN ONLY on every route (requireRole resolves
 // the role from the DB via authView): managers never see pay rates, salary
@@ -149,6 +150,7 @@ router.get("/teacher-salary/runs/:id", requireRole("admin"), async (req, res) =>
     error: req.query.error || "",
     fmtRs,
     formatMinutes,
+    payTypeLabel,
     schoolName: res.locals.schoolName,
   });
 });
@@ -205,6 +207,7 @@ router.get("/teacher-salary/config", requireRole("admin"), async (req, res) => {
     error: req.query.error || "",
     loadError: configsRes.status === "success" ? null : configsRes.message,
     fmtRs,
+    payTypeLabel,
     schoolName: res.locals.schoolName,
   });
 });

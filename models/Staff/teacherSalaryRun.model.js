@@ -98,12 +98,15 @@ const teacherSalaryRunSchema = new mongoose.Schema(
     // ── snapshots (history survives later config changes) ──
     payType: {
       type: String,
-      enum: ["per-hour", "per-lecture"],
+      enum: ["per-hour", "per-lecture", "lump-sum"],
       required: true,
     },
     // One entry per rate-effective segment of the period. For per-lecture
     // runs the lecture count is apportioned across segments proportionally
-    // to each segment's attended days.
+    // to each segment's attended days. For lump-sum runs `rateAmount` holds
+    // the fixed amount and `amount` its calendar-day share (periodDays);
+    // days/hours stay informational because pay never depends on attendance
+    // in that mode.
     segments: [
       {
         _id: false,
@@ -112,6 +115,7 @@ const teacherSalaryRunSchema = new mongoose.Schema(
         days: { type: Number, default: 0 },
         hours: { type: Number, default: 0 },
         lectures: { type: Number, default: 0 },
+        periodDays: { type: Number, default: 0 },
         amount: { type: Number, default: 0 },
       },
     ],

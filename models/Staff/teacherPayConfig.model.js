@@ -23,14 +23,19 @@ const teacherPayConfigSchema = new mongoose.Schema(
       ref: "Teacher",
       required: true,
     },
-    // How the teacher is paid: working hours × rate, or lectures × rate.
+    // How the teacher is paid: working hours × rate, lectures × rate, or a
+    // fixed LUMP SUM for the period. "lump-sum" is the third mode: the amount
+    // below IS the salary — it is never multiplied by hours or lectures, and
+    // it does not depend on attendance at all.
     payType: {
       type: String,
-      enum: ["per-hour", "per-lecture"],
+      enum: ["per-hour", "per-lecture", "lump-sum"],
       required: true,
     },
-    // Rupees per hour / per lecture. Must be positive — a zero rate would
-    // silently produce Rs 0 runs, which the feature explicitly forbids.
+    // Rupees per hour / per lecture — or, for a lump-sum teacher, the fixed
+    // amount itself (the field keeps one name so the insert-only rate history
+    // and every stored run snapshot stay uniform). Must be positive — a zero
+    // amount would silently produce Rs 0 runs, which the feature forbids.
     rateAmount: {
       type: Number,
       required: true,

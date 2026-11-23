@@ -5,11 +5,15 @@
  *   effective during each segment is used, never the current rate.
  * - Fail-closed: no config covering the period start → error, never Rs 0.
  * - Per-hour vs per-lecture; lecture override apportioned across segments.
+ * - Lump sum: the configured AMOUNT is the pay for the period — attendance and
+ *   lecture overrides are ignored; only a mid-period amount change splits it.
  * - Deductions: flat / percent, gated by BOTH settings, capped at gross.
  */
 
 const {
   parseDayStart,
+  inclusiveDays,
+  payTypeLabel,
   buildRateSegments,
   computeLateDeduction,
   computeSalary,
@@ -330,5 +334,161 @@ describe("computeSalary — end-to-end deduction snapshot", () => {
     expect(out.lateDeductionAmount).toBe(0);
     expect(out.netAmount).toBe(4000);
     expect(out.deductionRule.enabled).toBe(true);
+  });
+});
+
+/* ── lump sum (third pay mode) ──────────────────────────────────────────────
+ * rateAmount IS the period's pay: no rate × units, no attendance input, no
+ * lecture override. Attendance is still REPORTED next to the amount, and the
+ * only thing that can split the amount is a mid-period AMOUNT change.
+ */
+describe("computeSalary — lump sum", () => {
+  const lumpCfg = [cfg("2026-10-01", 30000, "lump-sum")];
+  const month = { start: day("2026-11-01"), end: day("2026-11-30") };
+
+  it("pays the configured amount for the period", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480), rec("2026-11-05", 480)],
+      configs: lumpCfg,
+      ...month,
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.payType).toBe("lump-sum");
+    expect(out.grossAmount).toBe(30000);
+    expect(out.netAmount).toBe(30000);
+    expect(out.segments).toHaveLength(1);
+    expect(out.segments[0]).toMatchObject({ rateAmount: 30000, periodDays: 30, amount: 30000 });
+  });
+
+  it("attendance changes nothing — full month, one day and no days all pay the same", () => {
+    const forRecords = (records) =>
+      computeSalary({
+        records,
+        configs: lumpCfg,
+        ...month,
+        salarySettings: SALARY_OFF,
+        phase1Settings: PHASE1_ON,
+      });
+    const full = forRecords([
+      rec("2026-11-04", 480), rec("2026-11-05", 480), rec("2026-11-06", 480),
+    ]);
+    const one = forRecords([rec("2026-11-04", 480)]);
+    const none = forRecords([]);
+    expect(full.grossAmount).toBe(30000);
+    expect(one.grossAmount).toBe(30000);
+    expect(none.grossAmount).toBe(30000);
+    // …but attendance is still reported alongside the amount, never hidden.
+    expect(full.totalWorkingDays).toBe(3);
+    expect(full.totalWorkingHours).toBe(24);
+    expect(none.totalWorkingDays).toBe(0);
+  });
+
+  it("a lecture override is ignored (lump sum has no units to override)", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480)],
+      configs: lumpCfg,
+      ...month,
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+      lectureOverride: 40,
+    });
+    expect(out.lectureCount).toBe(0);
+    expect(out.lectureOverridden).toBe(false);
+    expect(out.grossAmount).toBe(30000);
+  });
+
+  it("a single-day period pays the amount in full (the amount is per period)", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480)],
+      configs: lumpCfg,
+      start: day("2026-11-04"),
+      end: day("2026-11-04"),
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.segments[0]).toMatchObject({ periodDays: 1, amount: 30000 });
+    expect(out.grossAmount).toBe(30000);
+  });
+
+  it("mid-period AMOUNT change splits by calendar days so each part is paid its own amount", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480), rec("2026-11-20", 480)],
+      configs: [cfg("2026-11-01", 30000, "lump-sum"), cfg("2026-11-16", 35000, "lump-sum")],
+      ...month,
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.segments).toHaveLength(2);
+    // Nov 1–15 at 30 000 and Nov 16–30 at 35 000 over a 30-day period.
+    expect(out.segments[0]).toMatchObject({ rateAmount: 30000, periodDays: 15, amount: 15000 });
+    expect(out.segments[1]).toMatchObject({ rateAmount: 35000, periodDays: 15, amount: 17500 });
+    expect(out.grossAmount).toBe(32500);
+  });
+
+  it("late deduction still applies on top of the lump gross", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480, true), rec("2026-11-05", 480, true), rec("2026-11-06", 480, false)],
+      configs: lumpCfg,
+      ...month,
+      salarySettings: SALARY_ON_FLAT,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.lateDays).toBe(2);
+    expect(out.grossAmount).toBe(30000);
+    expect(out.lateDeductionAmount).toBe(400); // 2 late days × Rs 200
+    expect(out.netAmount).toBe(29600);
+  });
+
+  it("pay TYPE change across a lump boundary still fails closed", () => {
+    const out = computeSalary({
+      records: [rec("2026-11-04", 480)],
+      configs: [cfg("2026-10-01", 30000, "lump-sum"), cfg("2026-11-15", 700, "per-lecture")],
+      ...month,
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.error).toMatch(/Pay type changes/);
+  });
+
+  it("no lump config covering the period start → error, never a silent Rs 0", () => {
+    const out = computeSalary({
+      records: [],
+      configs: [cfg("2026-11-10", 30000, "lump-sum")],
+      ...month,
+      salarySettings: SALARY_OFF,
+      phase1Settings: PHASE1_ON,
+    });
+    expect(out.error).toMatch(/No pay config effective/);
+  });
+});
+
+describe("payTypeLabel — one label source for config table, run detail and preview", () => {
+  it.each([
+    ["per-hour", "Per hour"],
+    ["per-lecture", "Per lecture"],
+    ["lump-sum", "Lump sum"],
+  ])("%s → %s", (payType, label) => {
+    expect(payTypeLabel(payType)).toBe(label);
+  });
+
+  it.each([["monthly"], ["per-day"], [""], [null], [undefined]])("%p → em dash, never a silent fallback", (payType) => {
+    expect(payTypeLabel(payType)).toBe("—");
+  });
+});
+
+describe("inclusiveDays", () => {
+  it.each([
+    ["2026-11-04", "2026-11-04", 1],
+    ["2026-11-01", "2026-11-30", 30],
+    ["2026-11-16", "2026-11-30", 15],
+    ["2026-12-31", "2027-01-01", 2],
+    ["2028-02-01", "2028-02-29", 29], // leap year
+  ])("%p → %p = %i day(s)", (start, end, expected) => {
+    expect(inclusiveDays(day(start), day(end))).toBe(expected);
+  });
+
+  it("clamps a reversed range to 1 instead of going negative", () => {
+    expect(inclusiveDays(day("2026-11-30"), day("2026-11-01"))).toBe(1);
   });
 });
