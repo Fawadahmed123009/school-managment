@@ -80,6 +80,15 @@
         <svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
       </button>
       <div class="nav-section-body">
+        <% /* Marking the class register is a manager action, not a teacher one:
+             the /attendance view routes and the POST /attendance + roster APIs
+             gate on the manager flag (isAttendanceManager), and that guard
+             carries no subject-assignment check, so a manager marks ANY
+             class/section. It therefore lives in the management block, gated on
+             isManager — the same gate the dashboard tiles use. */ %>
+        <% if (user.isManager) { %>
+        <a href="/attendance" class="<%= page === 'attendance' ? 'active' : '' %>" data-page="attendance">Mark attendance</a>
+        <% } %>
         <a href="/attendance/rollup" class="<%= page === 'attendance-rollup' ? 'active' : '' %>" data-page="attendance-rollup">Attendance rollup</a>
         <a href="/teacher-attendance" class="<%= page === 'staff-attendance' ? 'active' : '' %>" data-page="staff-attendance">Teacher attendance</a>
         <a href="/teacher-attendance/history" class="<%= page === 'staff-attendance-history' ? 'active' : '' %>" data-page="staff-attendance-history">Teacher history</a>
