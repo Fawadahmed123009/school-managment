@@ -363,7 +363,10 @@ exports.getTeacherAttendanceService = async (teacherId, filters, res) => {
 //     convention as the fees module's outstanding calc)
 //   • range summary totals + rate  —  rate = (present + late) / totalMarked
 //   • day-by-day rollup (powers KPI row, weekly trend, overview donut)
-//   • class-wise breakdown with an `incomplete` flag per class
+//   • class-wise breakdown — range totals plus a per-day `daily` map, an
+//     `incomplete` flag and the `shortDays` dates behind it, per class
+//     (the per-day detail is what the class-wise table renders with; the
+//     teacher-facing view simply ignores it)
 // The per-class part is skipped when classLevel scope is set (nothing to
 // compare) or when breakdown=0 is passed (e.g. the monthly-report re-fetch),
 // so we never run aggregations the caller won't render.
@@ -483,17 +486,30 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
 
   let classes = [];
   if (includeClassBreakdown && !scopedClass) {
-    // Merge attendance per class + per-class covered-days from the classDayAgg
+    // Merge attendance per class + per-class covered-days from the classDayAgg.
+    // The class×day rows are also kept as a per-day map (`daily`) instead of
+    // being flattened straight into range totals — that is what lets the
+    // class-wise table render a Mon/Tue/Wed… breakdown and name the exact days
+    // a class still needs. Keys come from the same dateKeyStage() as the day
+    // rollup above, so `daily` keys always line up with `days[].date`.
+    const emptyClass = () => ({ present: 0, absent: 0, late: 0, marked: 0, coveredDays: 0, daily: {} });
     const byClass = {};
     for (const r of classDayAgg) {
       if (!r._id.classLevel) continue;
       const key = r._id.classLevel.toString();
-      if (!byClass[key]) byClass[key] = { present: 0, absent: 0, late: 0, marked: 0, coveredDays: 0 };
+      if (!byClass[key]) byClass[key] = emptyClass();
       byClass[key].present += r.present;
       byClass[key].absent += r.absent;
       byClass[key].late += r.late;
       byClass[key].marked += r.marked;
       byClass[key].coveredDays += 1;
+      byClass[key].daily[r._id.date] = {
+        present: r.present,
+        absent: r.absent,
+        late: r.late,
+        marked: r.marked,
+        rate: rateOf(r.present, r.late, r.marked),
+      };
     }
 
     // "Marked days" = days with any attendance institute-wide in this range.
@@ -501,14 +517,25 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
     // enrolled × markedDays (i.e. someone, somewhere, is unmarked for a day
     // the institute was marked at all — matches how the banner reads for a day).
     const markedDays = days.length;
+    const markedDayDates = days.map((d) => d.date);
     const seen = new Set();
     classes = classDocs
       .map((c) => {
         const key = c._id.toString();
         seen.add(key);
-        const a = byClass[key] || { present: 0, absent: 0, late: 0, marked: 0, coveredDays: 0 };
+        const a = byClass[key] || emptyClass();
         const enrolled = enrolledByClass[key] || 0;
         const expected = enrolled * markedDays;
+        // The specific days this class has not got a full roster for — either
+        // nothing marked at all, or fewer records than active students. Only
+        // meaningful once there is more than one day to compare, which the
+        // caller decides; here we just report the dates.
+        const shortDays = enrolled > 0
+          ? markedDayDates.filter((date) => {
+              const rec = a.daily[date];
+              return !rec || rec.marked < enrolled;
+            })
+          : [];
         return {
           classLevel: key,
           name: c.name,
@@ -518,6 +545,8 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
           late: a.late,
           marked: a.marked,
           coveredDays: a.coveredDays,
+          daily: a.daily,
+          shortDays,
           rate: rateOf(a.present, a.late, a.marked),
           incomplete: enrolled > 0 && a.marked < expected,
         };
@@ -530,6 +559,7 @@ exports.getAttendanceDashboardService = async (startDate, endDate, classLevel, i
           .map((k) => ({
             classLevel: k, name: "Unknown", enrolled: enrolledByClass[k] || 0,
             ...byClass[k], rate: rateOf(byClass[k].present, byClass[k].late, byClass[k].marked),
+            shortDays: [],
             incomplete: false,
           }))
       )

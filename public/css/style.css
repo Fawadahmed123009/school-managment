@@ -985,6 +985,42 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .th-sort.sort-desc::after { content: ' ▼'; font-size: 9px; }
 #classWiseTable td .pill { margin-left: 8px; }
 
+/* Class-wise per-day breakdown (weekly / short custom ranges). Cells carry the
+   same colour language as the weekly trend bars: green full day, amber partial
+   marking, grey nothing marked. */
+#classWiseTable th.cw-day-head { padding-left: 10px; padding-right: 10px; }
+#classWiseTable td.cw-day { padding-left: 10px; padding-right: 10px; font-size: 12.5px; white-space: nowrap; }
+#classWiseTable td.cw-day.cw-full { background: rgba(16,185,129,0.10); }
+#classWiseTable td.cw-day.cw-partial { background: rgba(245,158,11,0.14); }
+#classWiseTable td.cw-day.cw-none { background: rgba(229,231,235,0.6); color: var(--ink-soft); }
+/* The "Incomplete: Wednesday, Thursday" label can run to a few day names —
+   let the pill wrap inside the class column instead of stretching the table. */
+#classWiseTable .pill.review { max-width: 240px; white-space: normal; line-height: 1.45; }
+
+/* Monthly / long-range class-wise: more day columns than a week can show no
+   longer collapse into summed cells — they all render, so the wrapper scrolls
+   both ways and pins the class-name column (left) and the date header (top) to
+   keep the grid readable. The route only adds .cw-scroll when the range is wider
+   than a week, so the weekly table above is completely untouched. */
+.cw-scroll { max-height: 70vh; overflow: auto; }
+/* Keep the pinned cells opaque so scrolled columns never show through them. */
+.cw-scroll #classWiseTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fafbfd;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+.cw-scroll #classWiseTable .cw-col-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--panel, #fff);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+/* The "Class" corner header cell is pinned on both axes → sits above the rest. */
+.cw-scroll #classWiseTable thead th.cw-col-sticky { z-index: 4; background: #fafbfd; }
+
 /* ── Login ───────────────────────────────── */
 .login-wrap {
   min-height: 100vh;

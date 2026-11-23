@@ -256,11 +256,12 @@
           <h2>Class-wise Attendance</h2>
           <span style="font-size:12px; color:var(--ink-soft);">click a column heading to sort</span>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap<% if (classWiseScroll) { %> cw-scroll<% } %>">
           <table class="ledger" id="classWiseTable">
             <thead>
               <tr>
-                <th class="th-sort" data-sort="name" role="button" tabindex="0">Class</th>
+                <th class="th-sort<% if (classWiseScroll) { %> cw-col-sticky<% } %>" data-sort="name" role="button" tabindex="0">Class</th><% /* One column per marked day, day-by-day like the weekly trend above. Emitted only when the route supplies columns — a single-day range gets none, so the daily view renders exactly as before. */ %><% classDayColumns.forEach(function(col) { %>
+                  <th class="th-sort num cw-day-head" data-sort="day-<%= col.date %>" title="<%= col.date %>" role="button" tabindex="0"><%= col.label %></th><% }); %>
                 <th class="th-sort num" data-sort="total" role="button" tabindex="0">Total</th>
                 <th class="th-sort num" data-sort="present" role="button" tabindex="0">Present</th>
                 <th class="th-sort num" data-sort="absent" role="button" tabindex="0">Absent</th>
@@ -269,11 +270,12 @@
             </thead>
             <tbody>
               <% classRows.forEach(function(c) { %>
-                <tr data-name="<%= c.name.toLowerCase() %>" data-total="<%= c.marked %>" data-present="<%= c.present %>" data-absent="<%= c.absent %>" data-rate="<%= c.rate !== null ? c.rate : '' %>">
-                  <td>
+                <tr data-name="<%= c.name.toLowerCase() %>" data-total="<%= c.marked %>" data-present="<%= c.present %>" data-absent="<%= c.absent %>" data-rate="<%= c.rate !== null ? c.rate : '' %>"<% classDayColumns.forEach(function(col, i) { %> data-day-<%= col.date %>="<%= c.dayCells[i].sortValue %>"<% }); %>>
+                  <td<% if (classWiseScroll) { %> class="cw-col-sticky"<% } %>>
                     <strong><%= c.name %></strong>
-                    <% if (c.incomplete) { %><span class="pill review" title="Some students/days are unmarked in this range">incomplete</span><% } %>
-                  </td>
+                    <% if (c.incomplete) { %><span class="pill review" title="<%= c.incompleteTitle %>"><%= c.incompleteLabel %></span><% } %>
+                  </td><% classDayColumns.forEach(function(col, i) { %><% var cell = c.dayCells[i]; %>
+                    <td class="num mono cw-day cw-<%= cell.tone %>" title="<%= cell.marked === 0 ? 'Not marked' : cell.marked + '/' + cell.enrolled + ' marked · ' + cell.present + ' present, ' + cell.absent + ' absent, ' + cell.late + ' late' %>"><%= cell.rate !== null ? cell.rate + '%' : '—' %></td><% }); %>
                   <td class="num mono"><%= c.marked %></td>
                   <td class="num mono"><%= c.present %></td>
                   <td class="num mono"><%= c.absent %></td>
@@ -282,7 +284,12 @@
               <% }); %>
             </tbody>
           </table>
-        </div>
+        </div><% if (classDayColumns.length > 0) { %><% /* Same colour key as the weekly trend, so the two read alike */ %>
+          <div class="att-chart-legend">
+            <span class="key"><i style="background:#10b981;"></i> full day</span>
+            <span class="key"><i style="background:#f59e0b;"></i> partial marking</span>
+            <span class="key"><i style="background:#e5e7eb;"></i> not marked</span>
+          </div><% } %>
       </div>
     <% } %>
 

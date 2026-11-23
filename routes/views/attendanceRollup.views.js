@@ -31,6 +31,113 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES_FULL = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+
+// Weekday index for a "YYYY-MM-DD" attendance day key. The key is a LOCAL
+// calendar date (see utils/localDateKey), so it must be parsed as local —
+// `new Date("YYYY-MM-DD")` reads it as UTC and shifts the weekday. Same
+// convention as the weekly chart labels and the student timeline.
+const dowOf = (dateKey) => new Date(`${dateKey}T00:00:00`).getDay();
+
+// ── Class-wise per-day breakdown ────────────────────────────────────────────
+// The class table gets one column per marked day (Mon, Tue, Wed …) — the same
+// day-by-day shape the weekly trend above already uses — instead of a single
+// summed figure for the whole range. Only a single-day range yields no columns
+// (so the daily view renders exactly as before); every multi-day range, weekly
+// or monthly, now shows one column per day.
+//
+// A week's worth of columns is the line where two things change:
+//   • the view route flags anything wider `classWiseScroll`, and the template
+//     wraps it in a scroll container (sticky class-name column + sticky date
+//     header) so ~30 month columns stay usable;
+//   • the "Incomplete" label switches from weekday names to "Nov 3"-style
+//     dates, because a bare weekday is ambiguous once a month repeats it.
+// Neither writes data nor changes the payload — it is all derived from the
+// `days` / `daily` / `shortDays` the service already returns.
+const WEEK_COLUMNS = 7;
+
+const MONTH_NAMES_SHORT = MONTH_NAMES.map((m) => m.slice(0, 3));
+
+function buildClassDayColumns(dash) {
+  const days = dash && Array.isArray(dash.days) ? dash.days : [];
+  if (days.length < 2) return [];
+  return days.map((d) => ({
+    date: d.date,
+    // "Mon 16" — the day-of-month is just a convenience; the full date rides in
+    // the column title and drives the sort key, so repeats never confuse it.
+    label: `${DAY_NAMES_SHORT[dowOf(d.date)]} ${d.date.slice(8)}`,
+  }));
+}
+
+// One cell per day column. `tone` reuses the weekly chart's colour language:
+// nothing marked = grey, partially marked = amber, full roster = green.
+function buildClassDayCells(row, columns) {
+  const daily = row.daily || {};
+  return columns.map((col) => {
+    const rec = daily[col.date];
+    const marked = rec ? rec.marked : 0;
+    return {
+      date: col.date,
+      marked,
+      enrolled: row.enrolled,
+      present: rec ? rec.present : 0,
+      absent: rec ? rec.absent : 0,
+      late: rec ? rec.late : 0,
+      rate: rec ? rec.rate : null,
+      tone: marked === 0 ? "none" : marked < row.enrolled ? "partial" : "full",
+      // Consumed by the table's existing generic sorter (data-day-<date>);
+      // an unmarked day gives "" so it sinks to the bottom of the column.
+      sortValue: rec && rec.rate !== null ? rec.rate : "",
+    };
+  });
+}
+
+// Pill text + tooltip for a class the range flagged incomplete.
+// Within a week it reads "Incomplete: Wednesday, Thursday"; wider ranges list
+// the dates instead — "Incomplete: Nov 3, Nov 11" — since a weekday alone is
+// ambiguous once a month repeats it. Either way the FULL list of gaps is shown:
+// the monthly breakdown exists precisely so the attendance-taker can see every
+// day still to fill in, so there is no "+N more" truncation. When there is no
+// day detail to name (a single-day range, or a class whose gaps were never
+// computed) both keep their original lowercase wording, so the daily view
+// renders exactly as before.
+function buildIncomplete(dash, row) {
+  const generic = {
+    label: "incomplete",
+    title: "Some students/days are unmarked in this range",
+  };
+  const days = dash && Array.isArray(dash.days) ? dash.days : [];
+  const dates = days.length > 1 ? (row.shortDays || []) : [];
+  if (dates.length === 0) return generic;
+
+  // Tooltip keeps the per-day shortfall for every named day, complete list.
+  const daily = row.daily || {};
+  const title = dates
+    .map((d) => `${d}: ${daily[d] ? daily[d].marked : 0}/${row.enrolled} marked`)
+    .join(" · ");
+
+  // Ranges wider than a week: month + day-of-month, unambiguous across a month.
+  if (days.length > WEEK_COLUMNS) {
+    const pretty = dates.map(
+      (d) => `${MONTH_NAMES_SHORT[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(8, 10))}`
+    );
+    return { label: `Incomplete: ${pretty.join(", ")}`, title };
+  }
+
+  // Within a week the weekday is unique, so the plain name reads best. A range
+  // of a few marked days can still span past a week and repeat one; then the
+  // date rides along to disambiguate ("Wed 11-18"), exactly as before.
+  const names = dates.map((d) => DAY_NAMES_FULL[dowOf(d)]);
+  const ambiguous = new Set(names).size !== names.length;
+  const titled = dates.map((d, i) =>
+    ambiguous ? `${names[i].slice(0, 3)} ${d.slice(5)}` : names[i]
+  );
+  return { label: `Incomplete: ${titled.join(", ")}`, title };
+}
+
 const fmtPct = (v) => (v === null || v === undefined ? "—" : v + "%");
 
 // ── Admin/Manager attendance dashboard (unified filter interface) ───────────
@@ -165,6 +272,22 @@ router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
 
     const classRows = dash ? dash.classes : [];
 
+    // ── Class-wise table model ──
+    // Range totals stay exactly as they were; the per-day cells and the
+    // specific missing-day label are added on top, so the teacher-facing view
+    // (which renders the same payload without these fields) is untouched.
+    const classDayColumns = buildClassDayColumns(dash);
+    // Wider than a normal week → too many day cells for the fixed table, so the
+    // template wraps the grid in a scroll container (sticky class column + date
+    // header). Weekly (≤7) keeps the plain, non-scrolling table exactly as-is.
+    const classWiseScroll = classDayColumns.length > WEEK_COLUMNS;
+    classRows.forEach((c) => {
+      c.dayCells = buildClassDayCells(c, classDayColumns);
+      const incomplete = buildIncomplete(dash, c);
+      c.incompleteLabel = incomplete.label;
+      c.incompleteTitle = incomplete.title;
+    });
+
     // ── Insight tiles (v1: one computed sentence each, linking to the
     // relevant filtered view of this page — deep views come later) ──
     const insights = [];
@@ -255,6 +378,8 @@ router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
       weekly,
       monthly,
       classRows,
+      classDayColumns,
+      classWiseScroll,
       insights,
       // Student-scope vars kept for the shared template branches
       dailyRollup: [],
@@ -301,6 +426,8 @@ router.get("/attendance/rollup", requireAdminOrManager(), async (req, res) => {
     weekly: [],
     monthly: null,
     classRows: [],
+    classDayColumns: [],
+    classWiseScroll: false,
     insights: [],
     dailyRollup: [],
     rollup: {},
