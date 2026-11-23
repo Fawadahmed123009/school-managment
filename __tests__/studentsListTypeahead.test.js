@@ -242,7 +242,9 @@ describe("page wiring", () => {
     expect(src).toContain('name="name" id="st-student-name"');
     expect(src).toContain('id="st-student-results"');
     expect(src).toContain('id="st-filter-form"');
-    expect(src).toContain("Search by name or roll number");
+    // Placeholder text is the redesigned roster copy; the picker still searches
+    // name OR roll (see the roll-number test above).
+    expect(src).toContain("Search by name or roll.");
   });
 
   test("the cascade selects the picker scopes by all carry stable ids", () => {

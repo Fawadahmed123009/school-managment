@@ -1811,6 +1811,111 @@ button.page-link { cursor: pointer; }
 .student-typeahead-item span { font-size: 12.5px; color: var(--muted, #888); }
 .student-typeahead-empty { padding: 10px 12px; font-size: 13.5px; color: var(--muted, #888); }
 
+/* ── Roster search field (students list filter bar) ──────────────────────
+   The shared picker markup keeps its ids/behaviour untouched; this only
+   anchors a magnifier inside the box. The wrapper is the positioning
+   context, so the results dropdown still opens under the input. */
+.st-search-box { position: relative; display: block; }
+.st-search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
+  display: flex;
+  color: var(--ink-soft);
+  pointer-events: none; /* clicks must always reach the input */
+}
+.st-search-icon svg { width: 15px; height: 15px; }
+.st-search-input { padding-left: 33px; }
+
+/* ── Roster table (Students list, admin/manager) ─────────────────────────
+   Airier register: a selection column, an avatar beside the name and
+   icon-only actions. Dividers stay hairline and the hover is a whisper —
+   deliberately lighter than a bordered card grid. */
+.roster-table td, .roster-table th { padding: 13px 20px; }
+.roster-table tbody tr { transition: background 0.14s ease; }
+.roster-table tbody tr:hover td { background: rgba(244, 246, 251, 0.75); }
+.roster-table tbody tr:last-child td { border-bottom: none; }
+
+/* Selection column — reset the global form padding/border applied to <input> */
+.roster-table .col-select { width: 44px; text-align: center; }
+.row-check {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  vertical-align: middle;
+  accent-color: var(--partial);
+}
+
+/* Avatar + name */
+.st-identity { display: inline-flex; align-items: center; gap: 11px; min-width: 0; }
+.st-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: linear-gradient(145deg, #eef1f8, #dfe4f0);
+  color: var(--ink-soft);
+}
+.st-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%; /* class beats the global height-auto img baseline */
+  object-fit: cover;
+}
+.st-avatar-initials { font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; }
+.st-name { font-weight: 600; overflow-wrap: anywhere; }
+
+/* Icon-only row actions — no visible labels, meaning lives in title/aria-label */
+.roster-table .col-actions { text-align: right; width: 1%; }
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.icon-btn svg { width: 15px; height: 15px; }
+.icon-btn:hover { background: rgba(37, 99, 235, 0.09); color: var(--partial); }
+.icon-btn:focus-visible { outline: 2px solid var(--partial); outline-offset: 1px; }
+.icon-btn-danger:hover { background: rgba(220, 38, 38, 0.09); color: var(--error); }
+.icon-form { display: inline; margin: 0; }
+.col-actions .icon-btn + .icon-btn,
+.col-actions .icon-form { margin-left: 2px; }
+
+/* Card mode (≤480px): the avatar row stays a single line, the action icons
+   sit right-aligned opposite the "Actions" label, and the select cell keeps
+   its checkbox beside the label instead of stretching. */
+@media (max-width: 480px) {
+  /* the roster's roomier desktop padding must not beat the compact card
+     padding the shared .card-table rules set for every list on a phone */
+  .card-table.roster-table td { padding: 7px 14px; }
+  .card-table td.cell-student { align-items: center; }
+  .card-table .col-select { justify-content: flex-start; width: auto; }
+  .card-table .col-actions { align-items: center; justify-content: flex-end; }
+  .card-table .col-actions .icon-btn + .icon-btn,
+  .card-table .col-actions .icon-form { margin-left: 6px; }
+}
+
 /* ── Toast notifications (public/js/toast.js) ──────────────────────
    Non-blocking feedback that works inside the installed PWA, where
    alert()/confirm() can be silently suppressed. Errors are sticky until
