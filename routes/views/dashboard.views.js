@@ -480,6 +480,13 @@ router.get("/dashboard", async (req, res) => {
         enrolledStudents,
         testAverage: null,
         attendanceRate: null,
+        // ── Welcome-banner figures (presentation only — no schema change) ──
+        // totalTestsAssigned / subjectAverage are the two lightweight read-only
+        // additions for the redesigned banner; classAverages is derived purely
+        // in JS from the already-fetched per-student rows (topRows) below.
+        totalTestsAssigned: 0,
+        subjectAverage: null,
+        classAverages: [],
       };
 
       const thirtyDaysAgo = new Date();
@@ -497,7 +504,7 @@ router.get("/dashboard", async (req, res) => {
       //                    the teacher testAverage KPI derived from these rows
       //                    follows the same rule.
       //   • attLifetime  — lifetime attendance % per student (the Att % column).
-      const [attAgg, topRows, attLifetimeAgg] = await Promise.all([
+      const [attAgg, topRows, attLifetimeAgg, subjectScoreAgg] = await Promise.all([
         classLevelIds.length > 0
           ? Attendance.aggregate([
               { $match: { classLevel: { $in: classLevelObjIds }, date: { $gte: thirtyDaysAgo } } },
@@ -581,6 +588,41 @@ router.get("/dashboard", async (req, res) => {
               },
             ])
           : Promise.resolve([]),
+        // ── Per-subject score averages (banner "subject avg") ──
+        // Mirrors the topRows $match exactly, but groups by the joined test's
+        // subject instead of by student, so the banner can show a per-subject
+        // average that is genuinely distinct from the weighted class average.
+        classLevelIds.length > 0 && subjectIds.length > 0
+          ? TestResult.aggregate([
+              { $lookup: { from: "tests", localField: "test", foreignField: "_id", as: "_test" } },
+              {
+                $addFields: {
+                  _totalMarks: { $arrayElemAt: ["$_test.totalMarks", 0] },
+                  _testSubject: { $arrayElemAt: ["$_test.subject", 0] },
+                },
+              },
+              { $match: { _totalMarks: { $gt: 0 }, _testSubject: { $in: subjectObjIds } } },
+              { $lookup: { from: "students", localField: "student", foreignField: "_id", as: "_stu" } },
+              {
+                $addFields: {
+                  _stuStatus: { $arrayElemAt: ["$_stu.status", 0] },
+                  _stuGrad: { $arrayElemAt: ["$_stu.isGraduated", 0] },
+                  _stuWith: { $arrayElemAt: ["$_stu.isWithdrawn", 0] },
+                  _stuClass: { $arrayElemAt: ["$_stu.classLevel", 0] },
+                  _pct: { $multiply: [{ $divide: ["$score", "$_totalMarks"] }, 100] },
+                },
+              },
+              {
+                $match: {
+                  _stuStatus: { $ne: "inactive" },
+                  _stuGrad: { $ne: true },
+                  _stuWith: { $ne: true },
+                  _stuClass: { $in: classLevelObjIds },
+                },
+              },
+              { $group: { _id: "$_testSubject", avg: { $avg: "$_pct" }, count: { $sum: 1 } } },
+            ])
+          : Promise.resolve([]),
       ]);
 
       // Attendance trend + mix + rate KPI all come from the ONE 30-day aggregation.
@@ -652,6 +694,39 @@ router.get("/dashboard", async (req, res) => {
       });
       stats.teacher.testAverage = tpPctCount > 0 ? Math.round((tpPctSum / tpPctCount) * 10) / 10 : null;
 
+      // ── Banner "subject avg": mean of the teacher's per-subject averages ──
+      // (distinct from the student-weighted class average above). Sourced from
+      // the per-subject aggregation added to the parallel batch above.
+      const subjectAvgs = (subjectScoreAgg || []).map((s) => s.avg).filter((n) => typeof n === "number");
+      stats.teacher.subjectAverage =
+        subjectAvgs.length > 0 ? Math.round((subjectAvgs.reduce((a, b) => a + b, 0) / subjectAvgs.length) * 10) / 10 : null;
+
+      // ── Per-class test averages (new ApexCharts bar) — derived PURELY from the
+      // already-fetched topRows, so no extra query. Weight each student's avg by
+      // their test count, bucket by their class level, then one entry per class.
+      const classScore = new Map();
+      (topRows || []).forEach((r) => {
+        const cid = String(r.classLevel || "");
+        if (!cid) return;
+        const cur = classScore.get(cid) || { pctSum: 0, tests: 0, students: 0 };
+        cur.pctSum += (r.avg || 0) * (r.tests || 0);
+        cur.tests += r.tests || 0;
+        cur.students += 1;
+        classScore.set(cid, cur);
+      });
+      stats.teacher.classAverages = classLevelIds
+        .map((id) => {
+          const c = classLevelsById.get(id) || {};
+          const agg = classScore.get(String(id));
+          return {
+            class: c.name || "—",
+            gradeLevel: c.gradeLevel != null ? String(c.gradeLevel) : "",
+            avg: agg && agg.tests > 0 ? Math.round((agg.pctSum / agg.tests) * 10) / 10 : null,
+            students: agg ? agg.students : 0,
+          };
+        })
+        .filter((x) => x.avg !== null);
+
       // At-Risk (teacher-scoped), bucketed per grade via each row's gradeLevel.
       const atRiskFull =
         classLevelIds.length > 0
@@ -717,8 +792,10 @@ router.get("/dashboard", async (req, res) => {
         if (!subjectAssignments[selectedSubjectId]) selectedSubjectId = subjKeys[0];
 
         // Tests already past their date (candidate overdue) + this week's tests
-        // for the selected subject, both scoped to the teacher's classes.
-        const [overdueTests, weekTests] = await Promise.all([
+        // for the selected subject, both scoped to the teacher's classes. The
+        // third fetch is a single count for the banner's "tests assigned" figure
+        // — all-time, teacher-scoped; Model.countDocuments casts hex strings.
+        const [overdueTests, weekTests, totalTestsAssigned] = await Promise.all([
           Test.find({
             subject: { $in: subjKeys },
             classLevels: { $in: [...assignedClassIds] },
@@ -729,7 +806,13 @@ router.get("/dashboard", async (req, res) => {
             classLevels: { $in: [...subjectAssignments[selectedSubjectId].classLevelIds] },
             date: { $gte: weekStart, $lt: weekEnd },
           }).populate("classLevels", "name").lean(),
+          Test.countDocuments({
+            subject: { $in: subjKeys },
+            classLevels: { $in: [...assignedClassIds] },
+          }),
         ]);
+
+        stats.teacher.totalTestsAssigned = totalTestsAssigned || 0;
 
         // Fetch every relevant result once and group marked student ids per test.
         const relevantTestIds = [...new Set([...overdueTests, ...weekTests].map((t) => t._id))];

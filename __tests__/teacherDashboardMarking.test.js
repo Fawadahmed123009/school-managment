@@ -104,6 +104,9 @@ jest.mock("../models/Academic/assignment.model", () => ({
 }));
 jest.mock("../models/Academic/test.model", () => ({
   find: () => mockChain(mockTests),
+  // The redesigned banner fetches an all-time assigned-test count alongside the
+  // overdue/weekly queries; return the fixture length so the handler completes.
+  countDocuments: () => Promise.resolve(mockTests.length),
 }));
 jest.mock("../models/Students/students.model", () => ({
   find: (q) => {

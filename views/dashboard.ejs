@@ -84,8 +84,36 @@
         My progress
       </a>
     </div>
-  <% } else { /* plain teacher — icon-forward quick-launch (matches admin's tile row),
-         but the personal greeting is kept above it, unlike admin */ %>
+  <% } else { /* plain teacher — dark welcome banner (greeting + key figures),
+         then the icon-forward quick-launch tiles below it */ %>
+    <%
+      var tt = stats.teacher || {};
+      var wbPending = (tt.overdueUnmarked || []).length;
+      var wbPct = function (v) { return v == null ? '—' : v + '%'; };
+      var wbGrades = (tt.performance && tt.performance.gradeTabs) ? tt.performance.gradeTabs.length : 0;
+      var wbFig = [
+        { n: tt.totalTestsAssigned != null ? tt.totalTestsAssigned : 0, l: 'Tests assigned' },
+        { n: wbPending, l: 'Pending marking' },
+        { n: wbGrades, l: 'Grades taught' },
+        { n: wbPct(tt.testAverage), l: 'Class avg' },
+        { n: wbPct(tt.subjectAverage), l: 'Subject avg' },
+        { n: wbPct(tt.attendanceRate), l: 'Attendance' },
+      ];
+    %>
+    <div class="welcome-banner">
+      <div class="wb-greeting">
+        <p class="wb-eyebrow">Teacher dashboard</p>
+        <h1><%= greeting %>, <%= user.name.split(' ')[0] %></h1>
+      </div>
+      <div class="wb-figures">
+        <% wbFig.forEach(function (f) { %>
+        <div class="wb-figure">
+          <span class="wb-figure-value"><%= f.n %></span>
+          <span class="wb-figure-label"><%= f.l %></span>
+        </div>
+        <% }); %>
+      </div>
+    </div>
     <div class="quick-launch">
       <a href="/tests/mark" class="ql-tile">
         <span class="ql-tile-icon i-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
@@ -262,59 +290,43 @@
       <% } %>
     </div>
 
-    <div class="stats">
-      <div class="stat-card accent-blue">
-        <div class="stat-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-        </div>
-        <div class="stat-value" data-count="<%= stats.teacher.totalClasses %>"><%= stats.teacher.totalClasses %></div>
-        <div class="stat-label">My classes</div>
-      </div>
-      <div class="stat-card accent-green">
-        <div class="stat-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </div>
-        <div class="stat-value" data-count="<%= stats.teacher.enrolledStudents %>"><%= stats.teacher.enrolledStudents %></div>
-        <div class="stat-label">Enrolled students</div>
-      </div>
-      <% /* Test average across the teacher's OWN subjects only (no fee data at
-             teacher scope, so this replaces admin's fee KPIs). */ %>
-      <div class="stat-card accent-purple">
-        <div class="stat-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-        </div>
-        <div class="stat-value" data-count="<%= stats.teacher.testAverage != null ? stats.teacher.testAverage : 0 %>"><%= stats.teacher.testAverage != null ? stats.teacher.testAverage + '%' : '—' %></div>
-        <div class="stat-label">Test average</div>
-      </div>
-      <% /* Attendance rate: (present + late) / marked over the teacher's classes,
-             last 30 days — the same convention as the trend line and mix donut. */ %>
-      <div class="stat-card accent-gold">
-        <div class="stat-icon">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-        </div>
-        <div class="stat-value" data-count="<%= stats.teacher.attendanceRate != null ? stats.teacher.attendanceRate : 0 %>"><%= stats.teacher.attendanceRate != null ? stats.teacher.attendanceRate + '%' : '—' %></div>
-        <div class="stat-label">Attendance rate</div>
-      </div>
-    </div>
+    <!-- The four KPI figures that used to sit in this stat-card row now live in
+         the welcome banner at the top of the page, so the row is removed. -->
 
     <!-- My Classes moved to its own page (/teacher/my-classes) linked from the sidebar. -->
 
-    <!-- Attendance trend + mix (both scoped to the teacher's own classes) —
-         reuses the manager's att-dash-grid two-up layout from the admin redesign.
-         The mix donut is drawn from the SAME 30-day aggregation as the trend. -->
+    <% /* Attendance trend + per-class test averages are drawn with ApexCharts
+           (public/js/teacher-dashboard-charts.js) into <div> containers; the
+           attendance-mix donut below is a Chart.js <canvas> restyled to the
+           reference look. All are rendered from one JSON island. The shared
+           dashboard-charts.js is ID-scoped, so it leaves these alone; the weekly
+           marked/unmarked chart further down stays on Chart.js. */ %>
     <div class="att-dash-grid">
       <div class="panel chart-panel">
         <div class="panel-head"><h2>Attendance trend <span class="chart-subtitle">My classes · Last 30 days</span></h2></div>
         <div class="panel-body chart-body">
-          <canvas id="attendanceChart"></canvas>
-          <div class="chart-empty" id="attendanceEmpty" style="display:none;">No attendance data yet</div>
+          <div id="tdAttTrend"></div>
+          <div class="chart-empty" id="tdAttTrendEmpty" style="display:none;">No attendance data yet</div>
         </div>
       </div>
       <div class="panel chart-panel">
         <div class="panel-head"><h2>Attendance mix <span class="chart-subtitle">Present · Absent · Late</span></h2></div>
         <div class="panel-body chart-body">
-          <canvas id="attendanceBreakdownChart"></canvas>
-          <div class="chart-empty" id="attendanceBreakdownEmpty" style="display:none;">No data yet</div>
+          <% /* Chart.js doughnut (reference "Students" styling): thick ring, gradient
+             stroke, rounded segment caps, soft drop-shadow, centre %. Drawn by
+             teacher-dashboard-charts.js. Canvas, not the ApexCharts div pair. */ %>
+          <canvas id="tdAttMix"></canvas>
+          <div class="chart-empty" id="tdAttMixEmpty" style="display:none;">No data yet</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="panel chart-panel chart-panel--wide">
+        <div class="panel-head"><h2>Test averages by class <span class="chart-subtitle">My classes</span></h2></div>
+        <div class="panel-body chart-body">
+          <div id="tdClassAvg"></div>
+          <div class="chart-empty" id="tdClassAvgEmpty" style="display:none;">No marked tests yet</div>
         </div>
       </div>
     </div>
@@ -935,5 +947,19 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <script type="application/json" id="dashboard-data"><%- safeJson({ charts: charts, role: user.role }) %></script>
 <script src="/js/dashboard-charts.js"></script>
+<% if (user.role === 'teacher' && !user.isManager) { %>
+  <% /* Teacher attendance + class-average charts moved to ApexCharts. The library
+         loads from jsdelivr (CSP scriptSrc already allows it; styleSrc permits the
+         inline styles ApexCharts injects). The dedicated external renderer reads
+         its own JSON island so nothing else on the page is affected. */ %>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.45.2"></script>
+  <script type="application/json" id="teacher-charts-data"><%- safeJson({
+    attendanceTrend: charts.attendanceTrend || [],
+    attendanceBreakdown: charts.attendanceBreakdown || { present: 0, absent: 0, late: 0 },
+    attendanceRate: (stats.teacher && stats.teacher.attendanceRate != null) ? stats.teacher.attendanceRate : null,
+    classAverages: (stats.teacher && stats.teacher.classAverages) || []
+  }) %></script>
+  <script src="/js/teacher-dashboard-charts.js"></script>
+<% } %>
 
 <%- include('partials/foot') %>

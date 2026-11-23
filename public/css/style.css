@@ -439,6 +439,77 @@ img, video { height: auto; }
   .ql-tile { flex: 1 1 100%; }
 }
 
+/* ── Teacher welcome banner ─────────────── */
+/* Dark hero that replaces the old stat-card row: greeting + six key figures.
+   Uses the ink/paper tokens so it reads as part of the existing system. */
+.welcome-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 22px 30px;
+  margin-bottom: 24px;
+  padding: 26px 30px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--ink) 0%, #24345a 100%);
+  color: #fff;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  overflow: hidden;
+}
+.welcome-banner::after {
+  content: '';
+  position: absolute;
+  top: -60px; right: -40px;
+  width: 220px; height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200,168,75,0.22), transparent 70%);
+  pointer-events: none;
+}
+.wb-greeting { position: relative; z-index: 1; }
+.wb-eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.wb-greeting h1 { margin: 0; font-size: 27px; color: #fff; letter-spacing: -0.01em; }
+.wb-figures {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px 26px;
+}
+.wb-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.wb-figure-value {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  color: #fff;
+}
+.wb-figure-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.66);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 1024px) {
+  .wb-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 22px; }
+}
+@media (max-width: 560px) {
+  .welcome-banner { padding: 22px; }
+  .wb-greeting h1 { font-size: 23px; }
+  .wb-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* ── Top Performers grade tabs ───────────── */
 .tp-tabs {
   display: flex;
