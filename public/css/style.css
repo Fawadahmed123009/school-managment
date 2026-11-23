@@ -659,6 +659,30 @@ table.ledger { width: 100%; border-collapse: collapse; }
 .ledger tr:hover td { background: rgba(244,246,251,0.5); }
 .ledger td.num, .ledger th.num { text-align: right; }
 
+/* ── Inline row editing (income + expense history) ────────────────────────
+   "Edit" is a native <details> disclosure so the expanded form stays inside its
+   own ledger cell — no dialog, no JS, and nothing inline that CSP would block.
+   The marker triangle is dropped because the summary is styled as a button. */
+.row-actions { white-space: nowrap; }
+.edit-details { display: inline-block; }
+.edit-details > summary { list-style: none; cursor: pointer; }
+.edit-details > summary::-webkit-details-marker { display: none; }
+.edit-details .edit-form {
+  display: block;
+  width: 440px;
+  max-width: 70vw;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 6px 18px rgba(20, 30, 55, 0.08);
+}
+.edit-details .edit-form .field { margin-bottom: 10px; }
+.edit-details .edit-form .field-row { margin-bottom: 0; }
+
 /* ── Pills ───────────────────────────────── */
 .pill {
   display: inline-flex;

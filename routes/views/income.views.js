@@ -11,6 +11,8 @@ const {
 const {
   createIncomeEntryService,
   getIncomeEntriesService,
+  updateIncomeEntryService,
+  deleteIncomeEntryService,
 } = require("../../services/income/incomeEntry.service");
 const {
   normalizeExportFormat,
@@ -149,6 +151,31 @@ router.post("/income/create", requireRole("admin"), async (req, res) => {
   }
   if (result.ok) return res.redirect("/income?ok=1");
   return res.redirect(`/income?error=${encodeURIComponent(result.message || "Failed to record income")}`);
+});
+
+// Edit an income entry — the service derives the amount mode from the submitted
+// fields and validates/recomputes totalAmount server-side. ADMIN ONLY.
+router.post("/income/:id/update", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await updateIncomeEntryService(req.params.id, req.body, req.user._id, cap);
+  } catch (err) {
+    return res.redirect(`/income?error=${encodeURIComponent(err.message || "Failed to update income entry")}`);
+  }
+  if (result.ok) return res.redirect("/income?ok=1");
+  return res.redirect(`/income?error=${encodeURIComponent(result.message || "Failed to update income entry")}`);
+});
+
+// Soft-delete an income entry — flagged + audited, never a hard removal. ADMIN ONLY.
+router.post("/income/:id/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await deleteIncomeEntryService(req.params.id, req.user._id, cap);
+  } catch (err) {
+    return res.redirect(`/income?error=${encodeURIComponent(err.message || "Failed to delete income entry")}`);
+  }
+  if (result.ok) return res.redirect("/income?ok=1");
+  return res.redirect(`/income?error=${encodeURIComponent(result.message || "Failed to delete income entry")}`);
 });
 
 // ── Income head management ──────────────────────────────────────────────────

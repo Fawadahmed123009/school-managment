@@ -61,6 +61,9 @@ describe("API router wiring — every expense route is ADMIN ONLY", () => {
     ["/expense-heads/:id/toggle", "put"],
     ["/expense-entries", "get"],
     ["/expense-entries", "post"],
+    // Edit + soft delete are NEW actions on the same ADMIN ONLY gate.
+    ["/expense-entries/:id", "put"],
+    ["/expense-entries/:id", "delete"],
   ])("%s %s is gated by isLoggedIn + isAdmin (never isAdminOrManager)", (path, method) => {
     const handlers = apiRoute(path, method);
     expect(handlers).not.toBeNull();
@@ -76,6 +79,8 @@ describe("view guards — every expense page/action is ADMIN ONLY", () => {
   const guards = [
     ["GET expenses page", viewGuard("/expenses", "get")],
     ["POST create entry", viewGuard("/expenses/create", "post")],
+    ["POST update entry", viewGuard("/expenses/:id/update", "post")],
+    ["POST soft-delete entry", viewGuard("/expenses/:id/delete", "post")],
     ["GET expense heads", viewGuard("/expense-heads", "get")],
     ["POST create head", viewGuard("/expense-heads/create", "post")],
     ["POST toggle head", viewGuard("/expense-heads/:id/toggle", "post")],

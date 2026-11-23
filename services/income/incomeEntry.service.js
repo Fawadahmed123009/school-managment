@@ -6,7 +6,7 @@ const { paginate } = require("../../utils/paginate");
 const { round2, parseDayStart } = require("../../utils/teacherSalaryCalc");
 const { dayRangeFilter } = require("../../utils/dateRange");
 const { localDateKey } = require("../../utils/localDateKey");
-const { recordAudit, formatDay, formatMoney } = require("../audit/auditLog.service");
+const { recordAudit, formatDay, formatMoney, changedFields } = require("../audit/auditLog.service");
 
 // Inclusive range upper bound comes from the shared local-day helper
 // (utils/dateRange): [from midnight, to midnight + 1 day) — same
@@ -106,6 +106,173 @@ exports.createIncomeEntryService = async (data, adminId, res) => {
     afterSnapshot,
   });
   return responseStatus(res, 201, "success", entry);
+};
+
+// ---- Edit an income entry (admin only) ----
+// Mirrors create exactly: the mode is derived from WHICH fields are present
+// (never a client flag), totalAmount is recomputed in quantity mode and
+// validated/normalised in direct mode, the head must exist AND be active. ALL
+// fields are editable: incomeHead, date, description, quantity, unitRate,
+// totalAmount (and notes). Fail-closed — nothing is written until every field
+// validates. A soft-deleted row is invisible to findById, so a stale id 404s
+// rather than silently editing/reviving it.
+exports.updateIncomeEntryService = async (entryId, data, adminId, res) => {
+  const payload = data || {};
+
+  if (!mongoose.Types.ObjectId.isValid(String(entryId))) {
+    return responseStatus(res, 400, "failed", "Invalid income entry id");
+  }
+  const before = await IncomeEntry.findById(entryId).populate("incomeHead", "name").lean();
+  if (!before) return responseStatus(res, 404, "failed", "Income entry not found");
+
+  if (!mongoose.Types.ObjectId.isValid(String(payload.incomeHead))) {
+    return responseStatus(res, 400, "failed", "Invalid income head");
+  }
+  const head = await IncomeHead.findById(payload.incomeHead).select("name isActive").lean();
+  if (!head) return responseStatus(res, 400, "failed", "Income head not found");
+  if (!head.isActive) {
+    return responseStatus(res, 400, "failed", "Income head is inactive — reactivate it or pick another head");
+  }
+
+  const date = parseDayStart(payload.date);
+  if (!date) return responseStatus(res, 400, "failed", "Invalid date — expected YYYY-MM-DD");
+
+  const description = (payload.description ? String(payload.description) : "").trim();
+  if (!description) return responseStatus(res, 400, "failed", "Description is required");
+
+  const hasQty = isPresent(payload.quantity);
+  const hasRate = isPresent(payload.unitRate);
+  if (hasQty !== hasRate) {
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      "Provide both quantity and unit rate, or enter a total amount directly"
+    );
+  }
+
+  const notes = payload.notes ? String(payload.notes) : "";
+  const update = { $set: { incomeHead: head._id, date, description, notes } };
+  let quantity, unitRate, totalAmount;
+
+  if (hasQty && hasRate) {
+    // Quantity mode — total recomputed; switching to it clears any prior direct total.
+    quantity = Number(payload.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return responseStatus(res, 400, "failed", "Quantity must be a number greater than 0");
+    }
+    unitRate = Number(payload.unitRate);
+    if (!Number.isFinite(unitRate) || unitRate < 0) {
+      return responseStatus(res, 400, "failed", "Unit rate must be 0 or more");
+    }
+    totalAmount = round2(quantity * unitRate);
+    update.$set.quantity = quantity;
+    update.$set.unitRate = unitRate;
+    update.$set.totalAmount = totalAmount;
+  } else {
+    // Direct mode — the admin-entered total is the source; quantity/unitRate unset.
+    totalAmount = Number(payload.totalAmount);
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+      return responseStatus(res, 400, "failed", "Total amount must be a number greater than 0");
+    }
+    totalAmount = round2(totalAmount);
+    update.$set.totalAmount = totalAmount;
+    update.$unset = { quantity: "", unitRate: "" };
+  }
+
+  const entry = await IncomeEntry.findByIdAndUpdate(entryId, update, { new: true });
+  if (!entry) return responseStatus(res, 404, "failed", "Income entry not found");
+
+  // Audit trail (fail-open). Only the changed fields are recorded so the
+  // viewer shows a clean before/after.
+  const snap = (o) => ({
+    incomeHead: o.incomeHead,
+    date: o.date,
+    description: o.description,
+    quantity: o.quantity,
+    unitRate: o.unitRate,
+    totalAmount: o.totalAmount,
+    notes: o.notes,
+  });
+  const beforeSnap = snap({
+    incomeHead: before.incomeHead ? before.incomeHead.name : "—",
+    date: before.date,
+    description: before.description,
+    quantity: before.quantity,
+    unitRate: before.unitRate,
+    totalAmount: before.totalAmount,
+    notes: before.notes,
+  });
+  const afterSnap = snap({
+    incomeHead: head.name,
+    date,
+    description,
+    quantity: hasQty ? quantity : undefined,
+    unitRate: hasRate ? unitRate : undefined,
+    totalAmount,
+    notes,
+  });
+  const diff = changedFields(beforeSnap, afterSnap, [
+    "incomeHead",
+    "date",
+    "description",
+    "quantity",
+    "unitRate",
+    "totalAmount",
+    "notes",
+  ]);
+  if (diff) {
+    recordAudit({
+      userId: adminId,
+      actionType: "update",
+      entityType: "income_entry",
+      entityId: entry._id,
+      summary: `Edited income "${description}" under ${head.name} — ${formatMoney(totalAmount)} on ${formatDay(date)}`,
+      beforeSnapshot: diff.before,
+      afterSnapshot: diff.after,
+    });
+  }
+  return responseStatus(res, 200, "success", entry);
+};
+
+// ---- Soft-delete an income entry (admin only) ----
+// The row is flagged isDeleted and hidden from every normal read by the schema
+// scoping in models/Income/incomeEntry.model.js; nothing is ever hard-removed.
+// The action + a snapshot of what was removed go to the general audit trail.
+exports.deleteIncomeEntryService = async (entryId, adminId, res) => {
+  if (!mongoose.Types.ObjectId.isValid(String(entryId))) {
+    return responseStatus(res, 400, "failed", "Invalid income entry id");
+  }
+  const before = await IncomeEntry.findById(entryId).populate("incomeHead", "name").lean();
+  if (!before) return responseStatus(res, 404, "failed", "Income entry not found");
+
+  const deletedAt = new Date();
+  const entry = await IncomeEntry.findOneAndUpdate(
+    { _id: entryId },
+    { isDeleted: true, deletedAt, deletedBy: adminId },
+    { new: true }
+  );
+  if (!entry) return responseStatus(res, 404, "failed", "Income entry not found");
+
+  recordAudit({
+    userId: adminId,
+    actionType: "delete",
+    entityType: "income_entry",
+    entityId: entry._id,
+    summary: `Deleted income "${before.description}" under ${
+      before.incomeHead ? before.incomeHead.name : "—"
+    } — ${formatMoney(before.totalAmount)} on ${formatDay(before.date)}`,
+    beforeSnapshot: {
+      incomeHead: before.incomeHead ? before.incomeHead.name : "—",
+      date: before.date,
+      description: before.description,
+      quantity: before.quantity,
+      unitRate: before.unitRate,
+      totalAmount: before.totalAmount,
+      notes: before.notes,
+    },
+  });
+  return responseStatus(res, 200, "success", "Income entry deleted");
 };
 
 // ---- Income history (admin only) ----

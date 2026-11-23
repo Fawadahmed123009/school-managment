@@ -63,6 +63,9 @@ describe("API router wiring — every income route is ADMIN ONLY", () => {
     ["/income-heads/:id/toggle", "put"],
     ["/income-entries", "get"],
     ["/income-entries", "post"],
+    // Edit + soft delete are NEW actions on the same ADMIN ONLY gate.
+    ["/income-entries/:id", "put"],
+    ["/income-entries/:id", "delete"],
   ])("%s %s is gated by isLoggedIn + isAdmin (never isAdminOrManager)", (path, method) => {
     const handlers = routeHandlers(apiRouter, path, method);
     expect(handlers).not.toBeNull();
@@ -88,6 +91,8 @@ describe("view guards — every income page/action is ADMIN ONLY", () => {
   const guards = [
     ["GET income page", viewGuard("/income", "get")],
     ["POST create entry", viewGuard("/income/create", "post")],
+    ["POST update entry", viewGuard("/income/:id/update", "post")],
+    ["POST soft-delete entry", viewGuard("/income/:id/delete", "post")],
     ["GET income heads", viewGuard("/income-heads", "get")],
     ["POST create head", viewGuard("/income-heads/create", "post")],
     ["POST toggle head", viewGuard("/income-heads/:id/toggle", "post")],

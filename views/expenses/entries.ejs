@@ -131,7 +131,7 @@
     <div class="table-wrap">
       <table class="ledger">
         <thead>
-          <tr><th>Date</th><th>Head</th><th>Item</th><th class="num">Qty</th><th class="num">Unit rate</th><th class="num">Total</th><th>Notes</th><th>By</th></tr>
+          <tr><th>Date</th><th>Head</th><th>Item</th><th class="num">Qty</th><th class="num">Unit rate</th><th class="num">Total</th><th>Notes</th><th>By</th><th>Actions</th></tr>
         </thead>
         <tbody>
           <% entries.forEach(function(e) { %>
@@ -144,6 +144,55 @@
               <td class="num mono"><strong><%= e.totalFmt %></strong></td>
               <td><%= e.notes || '—' %></td>
               <td><%= e.createdByName %></td>
+              <td class="row-actions">
+                <details class="edit-details">
+                  <summary class="btn btn-ghost" style="padding:6px 10px;">Edit</summary>
+                  <form method="POST" action="/expenses/<%= e._id %>/update" class="edit-form expense-edit-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                    <div class="field" style="margin-top:8px;">
+                      <label>Expense head</label>
+                      <select name="expenseHead" required>
+                        <option value="">Select a head…</option>
+                        <% allHeads.forEach(function(h) { %>
+                          <option value="<%= h._id %>" <%= String(h._id) === String((e.expenseHead && e.expenseHead._id) || e.expenseHead) ? 'selected' : '' %>><%= h.name %><%= h.isActive ? '' : ' (inactive)' %></option>
+                        <% }); %>
+                      </select>
+                    </div>
+                    <div class="field" style="margin-top:8px;">
+                      <label>Date</label>
+                      <input type="date" name="date" value="<%= e.dateKey %>" required />
+                    </div>
+                    <div class="field" style="margin-top:8px;">
+                      <label>Item name</label>
+                      <input type="text" name="itemName" value="<%= e.itemName %>" required />
+                    </div>
+                    <div class="field-row" style="align-items:flex-end; flex-wrap:wrap; gap:12px; margin-top:8px;">
+                      <div class="field" style="max-width:140px;">
+                        <label>Quantity</label>
+                        <input type="number" class="edit-qty" name="quantity" step="any" min="0" value="<%= e.quantity %>" required />
+                      </div>
+                      <div class="field" style="max-width:140px;">
+                        <label>Unit rate (Rs)</label>
+                        <input type="number" class="edit-rate" name="unitRate" step="0.01" min="0" value="<%= e.unitRate %>" required />
+                      </div>
+                      <div class="field" style="max-width:160px;">
+                        <label>Total (Rs)</label>
+                        <input type="text" class="edit-total-display" value="<%= e.totalAmount %>" readonly tabindex="-1" />
+                      </div>
+                    </div>
+                    <div class="field" style="margin-top:8px;">
+                      <label>Notes</label>
+                      <input type="text" name="notes" value="<%= e.notes || '' %>" />
+                    </div>
+                    <p style="font-size:12px; color:var(--ink-soft); margin:6px 0 8px;">Total = quantity × unit rate (recomputed on save, exactly as when recorded).</p>
+                    <button type="submit" class="btn btn-primary">Save changes</button>
+                  </form>
+                </details>
+                <form method="POST" action="/expenses/<%= e._id %>/delete" style="display:inline; margin-left:6px;" data-confirm="Delete this expense entry? It is hidden from all reports (soft delete — the record is never removed) and the deletion is recorded in the audit log against your name. Continue?">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button type="submit" class="btn btn-ghost" style="padding:6px 10px; color:var(--review);">Delete</button>
+                </form>
+              </td>
             </tr>
           <% }); %>
         </tbody>

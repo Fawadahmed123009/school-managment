@@ -30,6 +30,7 @@ const ENTITY_LABELS = {
 const ACTION_LABELS = {
   create: "Create",
   update: "Update",
+  delete: "Delete",
   deactivate: "Deactivate",
   activate: "Activate",
   generate: "Generate",
@@ -40,6 +41,7 @@ const ACTION_LABELS = {
 const ACTION_PILL = {
   create: "paid",
   update: "pending",
+  delete: "error",
   deactivate: "error",
   activate: "paid",
   generate: "partial",

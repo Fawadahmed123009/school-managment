@@ -9,15 +9,14 @@
 // inline scripts (same convention as expense-entry.js).
 (function () {
   var form = document.getElementById('incomeEntryForm');
-  if (!form) return; // not the income entry page
 
   var modeInput = document.getElementById('entryMode');
   var qty = document.getElementById('quantity');
   var rate = document.getElementById('unitRate');
   var totalDisplay = document.getElementById('totalDisplay');
   var totalAmount = document.getElementById('totalAmount');
-  var buttons = form.querySelectorAll('[data-mode]');
-  var panels = form.querySelectorAll('[data-for]');
+  var buttons = form ? form.querySelectorAll('[data-mode]') : [];
+  var panels = form ? form.querySelectorAll('[data-for]') : [];
 
   function round2(n) {
     return Math.round((Number(n) || 0) * 100) / 100;
@@ -65,4 +64,32 @@
 
   // Initialise from the hidden field (defaults to quantity mode on a fresh load).
   apply(modeInput && modeInput.value === 'direct' ? 'direct' : 'quantity');
+
+  // ── Per-row EDIT forms in the history table ───────────────────────────────
+  // Same server rule as create, applied per row: quantity + unit rate both
+  // present → the total is DERIVED (locked box, live preview, the server
+  // recomputes it anyway); clear both → the total box becomes editable for a
+  // direct amount. Only one of the two is ambiguous and the service 400s, so no
+  // special client handling is needed.
+  document.querySelectorAll('form.income-edit-form').forEach(function (ef) {
+    var eQty = ef.querySelector('.edit-qty');
+    var eRate = ef.querySelector('.edit-rate');
+    var eTotal = ef.querySelector('.edit-total');
+    if (!eQty || !eRate || !eTotal) return;
+
+    function sync() {
+      var q = parseFloat(eQty.value);
+      var r = parseFloat(eRate.value);
+      if (isFinite(q) && isFinite(r) && q > 0 && r >= 0) {
+        eTotal.readOnly = true;
+        eTotal.value = String(round2(q * r));
+      } else {
+        eTotal.readOnly = false;
+      }
+    }
+
+    eQty.addEventListener('input', sync);
+    eRate.addEventListener('input', sync);
+    sync();
+  });
 })();

@@ -11,6 +11,8 @@ const {
 const {
   createExpenseEntryService,
   getExpenseEntriesService,
+  updateExpenseEntryService,
+  deleteExpenseEntryService,
 } = require("../../services/expenses/expenseEntry.service");
 const {
   normalizeExportFormat,
@@ -142,6 +144,31 @@ router.post("/expenses/create", requireRole("admin"), async (req, res) => {
   }
   if (result.ok) return res.redirect("/expenses?ok=1");
   return res.redirect(`/expenses?error=${encodeURIComponent(result.message || "Failed to record expense")}`);
+});
+
+// Edit an expense entry — the service recomputes totalAmount server-side.
+// ADMIN ONLY.
+router.post("/expenses/:id/update", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await updateExpenseEntryService(req.params.id, req.body, req.user._id, cap);
+  } catch (err) {
+    return res.redirect(`/expenses?error=${encodeURIComponent(err.message || "Failed to update expense entry")}`);
+  }
+  if (result.ok) return res.redirect("/expenses?ok=1");
+  return res.redirect(`/expenses?error=${encodeURIComponent(result.message || "Failed to update expense entry")}`);
+});
+
+// Soft-delete an expense entry — flagged + audited, never a hard removal. ADMIN ONLY.
+router.post("/expenses/:id/delete", requireRole("admin"), async (req, res) => {
+  const { res: cap, result } = captureServiceResponse();
+  try {
+    await deleteExpenseEntryService(req.params.id, req.user._id, cap);
+  } catch (err) {
+    return res.redirect(`/expenses?error=${encodeURIComponent(err.message || "Failed to delete expense entry")}`);
+  }
+  if (result.ok) return res.redirect("/expenses?ok=1");
+  return res.redirect(`/expenses?error=${encodeURIComponent(result.message || "Failed to delete expense entry")}`);
 });
 
 // ── Expense head management ─────────────────────────────────────────────────

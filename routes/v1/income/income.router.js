@@ -13,6 +13,8 @@ const {
 const {
   createIncomeEntryController,
   getIncomeEntriesController,
+  updateIncomeEntryController,
+  deleteIncomeEntryController,
 } = require("../../../controllers/income/incomeEntry.controller");
 
 // Income — flexible ad-hoc income (parallel to Phase 3 Expenses). ADMIN ONLY on
@@ -27,5 +29,10 @@ incomeRouter.route("/income-heads/:id/toggle")
 incomeRouter.route("/income-entries")
   .get(isLoggedIn, isAdmin, getIncomeEntriesController)
   .post(isLoggedIn, isAdmin, createIncomeEntryController);
+// Edit + soft delete (flagged + audited, never a hard removal) — ADMIN ONLY,
+// same gate as every other income route.
+incomeRouter.route("/income-entries/:id")
+  .put(isLoggedIn, isAdmin, updateIncomeEntryController)
+  .delete(isLoggedIn, isAdmin, deleteIncomeEntryController);
 
 module.exports = incomeRouter;

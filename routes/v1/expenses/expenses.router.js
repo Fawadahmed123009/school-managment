@@ -13,6 +13,8 @@ const {
 const {
   createExpenseEntryController,
   getExpenseEntriesController,
+  updateExpenseEntryController,
+  deleteExpenseEntryController,
 } = require("../../../controllers/expenses/expenseEntry.controller");
 
 // Expenses — Phase 3. ADMIN ONLY on every route (isAdmin resolves the role from
@@ -26,5 +28,10 @@ expensesRouter.route("/expense-heads/:id/toggle")
 expensesRouter.route("/expense-entries")
   .get(isLoggedIn, isAdmin, getExpenseEntriesController)
   .post(isLoggedIn, isAdmin, createExpenseEntryController);
+// Edit + soft delete (flagged + audited, never a hard removal) — ADMIN ONLY,
+// same gate as every other expense route.
+expensesRouter.route("/expense-entries/:id")
+  .put(isLoggedIn, isAdmin, updateExpenseEntryController)
+  .delete(isLoggedIn, isAdmin, deleteExpenseEntryController);
 
 module.exports = expensesRouter;

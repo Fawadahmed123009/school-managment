@@ -13,7 +13,7 @@ const { dayRangeFilter, parseDayStart } = require("../../utils/dateRange");
 // reported to the server error log and swallowed. The main action's response
 // is already on its way and is never touched.
 
-const ACTION_TYPES = ["create", "update", "deactivate", "activate", "generate", "finalize"];
+const ACTION_TYPES = ["create", "update", "delete", "deactivate", "activate", "generate", "finalize"];
 const ENTITY_TYPES = [
   "expense_head",
   "expense_entry",
